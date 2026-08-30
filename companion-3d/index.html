@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D 陪聊角色 Demo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #141420; }
+    #app { position: fixed; inset: 0; }
+    #app canvas { display: block; }
+
+    #loading {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: #141420; color: #aab; font: 16px/1.6 system-ui, "Microsoft YaHei", sans-serif;
+      z-index: 20; transition: opacity 0.4s;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+
+    #hint {
+      position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+      color: rgba(255,255,255,0.45); font: 13px system-ui, "Microsoft YaHei", sans-serif;
+      z-index: 10; pointer-events: none;
+    }
+
+    #panel {
+      position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+      display: flex; gap: 18px; flex-wrap: wrap; justify-content: center;
+      background: rgba(22, 22, 38, 0.82); backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;
+      padding: 12px 18px; z-index: 10;
+      font-family: system-ui, "Microsoft YaHei", sans-serif;
+    }
+    .group { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+    .group-title { color: rgba(255,255,255,0.4); font-size: 11px; letter-spacing: 2px; }
+    .group-buttons { display: flex; gap: 6px; }
+    .group button {
+      background: rgba(255,255,255,0.08); color: #dde; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px; padding: 7px 14px; font-size: 13px; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .group button:hover { background: rgba(255,255,255,0.16); }
+    .group button.active { background: #5865f2; border-color: #5865f2; color: #fff; }
+
+    #lib-toggle {
+      position: fixed; top: 14px; right: 16px; z-index: 12;
+      background: rgba(22,22,38,0.85); color: #dde;
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
+      padding: 9px 16px; font: 13px system-ui, "Microsoft YaHei", sans-serif;
+      cursor: pointer; backdrop-filter: blur(10px);
+    }
+    #lib-toggle:hover { background: rgba(255,255,255,0.16); }
+    #lib-toggle.active { background: #5865f2; border-color: #5865f2; color: #fff; }
+    #lib-toggle.hidden { display: none; }
+
+    #drawer {
+      position: fixed; top: 58px; right: 16px; bottom: 110px; width: 320px;
+      display: flex; flex-direction: column; gap: 14px; overflow-y: auto;
+      background: rgba(22,22,38,0.88); backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 14px;
+      padding: 14px; z-index: 11;
+      font-family: system-ui, "Microsoft YaHei", sans-serif;
+    }
+    #drawer.hidden { display: none; }
+    #drawer::-webkit-scrollbar { width: 6px; }
+    #drawer::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+    .drawer-title {
+      color: rgba(255,255,255,0.55); font-size: 12px; letter-spacing: 2px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .drawer-title .count { letter-spacing: 0; color: rgba(255,255,255,0.3); }
+    .drawer-title button {
+      background: rgba(255,255,255,0.08); color: #dde; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer;
+    }
+    .drawer-title button:hover { background: rgba(255,255,255,0.16); }
+    #morph-search {
+      width: 100%; background: rgba(255,255,255,0.06); color: #dde;
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+      padding: 8px 12px; font-size: 13px; outline: none;
+    }
+    #morph-search::placeholder { color: rgba(255,255,255,0.3); }
+    .drawer-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+    .drawer-grid button {
+      background: rgba(255,255,255,0.07); color: #ccd; border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 7px; padding: 5px 10px; font-size: 12px; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .drawer-grid button:hover { background: rgba(255,255,255,0.16); }
+    .drawer-grid button.active { background: #5865f2; border-color: #5865f2; color: #fff; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="loading">角色模型加载中，请稍候…</div>
+  <div id="hint">鼠标拖动旋转视角 · 滚轮缩放</div>
+
+  <div id="panel">
+    <div class="group">
+      <div class="group-title">镜头</div>
+      <div class="group-buttons">
+        <button data-cam="close">近景</button>
+        <button data-cam="half">半身</button>
+        <button data-cam="full" class="active">全身</button>
+      </div>
+    </div>
+    <div class="group">
+      <div class="group-title">表情</div>
+      <div class="group-buttons">
+        <button data-emo="neutral" class="active">自然</button>
+        <button data-emo="happy">开心</button>
+        <button data-emo="angry">生气</button>
+        <button data-emo="sad">伤心</button>
+        <button data-emo="relaxed">放松</button>
+      </div>
+    </div>
+    <div class="group">
+      <div class="group-title">动作</div>
+      <div class="group-buttons">
+        <button id="btn-talk">开始说话</button>
+        <button data-act="wave">挥手</button>
+        <button data-act="nod">点头</button>
+        <button data-act="shake">摇头</button>
+      </div>
+    </div>
+  </div>
+
+  <button id="lib-toggle" class="hidden">表情 / 动作库</button>
+  <div id="drawer" class="hidden">
+    <div class="drawer-sec" id="sec-motion">
+      <div class="drawer-title"><span>动作库（VMD）</span></div>
+      <div id="motion-list" class="drawer-grid" style="margin-top:8px"></div>
+    </div>
+    <div class="drawer-sec">
+      <div class="drawer-title">
+        <span>表情库 <span class="count" id="morph-count"></span></span>
+        <button id="morph-reset">全部重置</button>
+      </div>
+      <input id="morph-search" placeholder="搜索表情…" style="margin-top:8px" />
+      <div id="morph-list" class="drawer-grid" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- ammo.js 物理引擎（MMD 模型头发/飘带物理需要） -->
+  <script src="/libs/ammo.wasm.js"></script>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "name": "companion-studio",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ennuicastr/webrtcaec3.js": "^0.3.0",
+    "@mediapipe/tasks-vision": "^0.10.32",
+    "@pixiv/three-vrm": "^3.5.5",
+    "@ricky0123/vad-web": "^0.0.30",
+    "mediabunny": "^1.55.4",
+    "naive-ui": "^2.38.2",
+    "pinia": "^2.1.7",
+    "three": "^0.185.1",
+    "three-stdlib": "^2.36.1",
+    "vue": "^3.4.21"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.4",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "typescript": "^5.4.3",
+    "vite": "^5.2.6"
+  }
+}

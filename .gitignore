@@ -11,11 +11,10 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -27,8 +26,6 @@ share/python-wheels/
 MANIFEST
 
 # PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
 
@@ -55,54 +52,26 @@ cover/
 *.mo
 *.pot
 
-# Django stuff:
+# Django / Flask
 *.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
-
-# Flask stuff:
 instance/
 .webassets-cache
 
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
+# Sphinx / Jupyter / IPython
 docs/_build/
-
-# PyBuilder
-.pybuilder/
-target/
-
-# Jupyter Notebook
 .ipynb_checkpoints
-
-# IPython
 profile_default/
 ipython_config.py
 
-# pyenv
-#   For a library or package, you might want to ignore these files since the code is
-#   intended to run in multiple environments; otherwise, check them in:
-# .python-version
-
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-#Pipfile.lock
-
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow
+# PEP 582
 __pypackages__/
 
-# Celery stuff
+# Celery
 celerybeat-schedule
 celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
 
 # Environments
 .env
@@ -113,26 +82,77 @@ ENV/
 env.bak/
 venv.bak/
 
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
+# Type checkers
 .mypy_cache/
 .dmypy.json
 dmypy.json
-
-# Pyre type checker
 .pyre/
-
-# pytype static type analyzer
 .pytype/
-
-# Cython debug symbols
 cython_debug/
+
+# Node
+node_modules/
+npm-debug.log*
+.npm
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# 第三方参考仓库、本地下载的压缩包（不随 demo 分发）
+_dl/
+
+# 运行时数据：SQLite、设置里的 API Key / 模之屋 token、
+# 记忆向量库、证物、临时文件、SenseVoice / Qwen3-TTS 权重（数 GB）
+companion/backend/data/
+
+# 构建时从 node_modules 拷贝的 Silero VAD / ONNX Runtime 资源
+companion/frontend/public/vad/
+
+# 用户导入的 3D / 动作 / 音频 / 镜头（第三方版权，体积大，请本地导入）
+companion/assets/models/*
+!companion/assets/models/.gitkeep
+companion/assets/motions/*
+!companion/assets/motions/.gitkeep
+companion/assets/audio/*
+!companion/assets/audio/.gitkeep
+companion/assets/cameras/*
+!companion/assets/cameras/.gitkeep
+
+companion-3d/public/models/*
+!companion-3d/public/models/.gitkeep
+companion-3d/public/motions/*
+!companion-3d/public/motions/.gitkeep
+!companion-3d/public/motions/motions.json
+
+music-api/downloads/*
+!music-api/downloads/.gitkeep
+
+# 版权资产与语音/视频权重（兜底，避免误 add）
+*.pmx
+*.pmd
+*.vmd
+*.vpd
+*.vrm
+*.glb
+*.gltf
+*.onnx
+*.safetensors
+*.pt
+*.pth
+*.mp3
+*.wav
+*.m4a
+*.ogg
+*.flac
+*.MP3
+*.WAV
+*.mp4
+*.webm
+*.rar
+*.zip
+*.7z

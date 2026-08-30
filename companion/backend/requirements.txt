@@ -1,0 +1,15 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.27
+sqlmodel>=0.0.16
+edge-tts>=6.1
+python-multipart>=0.0.9
+numpy>=1.24
+sherpa-onnx>=1.10.0
+dashscope>=1.20.0
+mem0ai>=1.0.0
+qwen-tts==0.1.1
+qwen3-tts-streaming>=0.1.2
+transformers==4.57.3
+accelerate==1.12.0
+# 离线 TTS 权重约 2.4GB，模型目录：data/speech/qwen3-tts-0.6b-customvoice

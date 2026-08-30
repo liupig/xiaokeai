@@ -1,0 +1,13 @@
+{
+  "name": "music-api-2t58",
+  "version": "1.0.0",
+  "description": "基于爱听音乐网 (2t58.com) 的音乐搜索/播放/歌词 API 服务",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.14"
+  },
+  "license": "MIT"
+}
