@@ -7,6 +7,8 @@ import traceback
 
 def main(in_q, out_q) -> None:
     os.environ["COMPANION_ASR_WORKER"] = "1"
+    from app.infer_runtime import prepare_worker
+    prepare_worker("asr")
     try:
         from app.services.asr import _get_recognizer, _transcribe_local
         _get_recognizer()

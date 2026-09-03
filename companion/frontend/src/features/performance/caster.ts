@@ -96,8 +96,11 @@ export class PerformanceCaster {
     this.sidecarKind = 'qa';
     this.sidecarGesture = false;
     shots.setIdleMode('chat');
-    shots.endDance();
-    if (wasDance) stage.stopMotion();
+    const wantDance = /跳.{0,6}舞|来一段|来一支|再跳|换一支|跳一个|dance/i.test(userText);
+    if (!wantDance) {
+      shots.endDance();
+      if (wasDance) stage.stopMotion();
+    }
     shots.cover({
       beat: 'open',
       phase: 'qa',
@@ -106,7 +109,7 @@ export class PerformanceCaster {
       intensity: stage.director.moodIntensity,
       llmShot: stage.director.sceneCam ?? undefined,
       intents: stage.director.sceneIntent ? [stage.director.sceneIntent] : undefined,
-      dancing: /跳.*舞|来一段|来一支|dance/i.test(userText),
+      dancing: wantDance,
     });
     this.reactToUser(userText);
   }
@@ -340,7 +343,7 @@ export class PerformanceCaster {
 
   private reactToUser(user: string) {
     if (!user.trim()) return;
-    if (/跳.*舞|来一段|来一支|dance/i.test(user)) return; // 跳舞留给 [dance:]
+    if (/跳.{0,6}舞|来一段|来一支|再跳|换一支|跳一个|dance/i.test(user)) return;
     const intents = inferIntents(user, '');
     const guessed = inferEmotion(user, '');
     if (guessed) this.setEmotion(guessed.key, Math.min(guessed.intensity, 0.65));

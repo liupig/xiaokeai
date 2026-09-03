@@ -1,6 +1,6 @@
 /** 动作类别：下载页 / 动作库 / 角色卡共用 */
 
-import { api, type AssetItem } from '../../api/client';
+import { api, encodeAssetPath, type AssetItem } from '../../api/client';
 import { stage } from '../../engine/stage';
 
 export type MotionCat = 'idle' | 'greet' | 'interact' | 'dance';
@@ -51,26 +51,63 @@ export function motionBgmUrl(asset: { label?: string; name?: string; meta?: stri
   try {
     const bgm = JSON.parse(asset.meta || '{}').bgm;
     if (typeof bgm === 'string' && bgm.trim()) {
-      return '/assets/' + bgm.replace(/^[/\\]+/, '').split(/[/\\]/).map(encodeURIComponent).join('/');
+      return '/assets/' + encodeAssetPath(bgm);
     }
   } catch { /* 旧数据 */ }
   return undefined;
 }
 
-/** 播 VMD，若资产绑了 BGM / 镜头则同步开停。舞蹈有歌就跟歌停，没歌只播一轮。 */
+let danceLib: string[] = [];
+let danceLibReady: Promise<void> | null = null;
+let lastLibBgm = '';
+
+export function setDanceMusicLibrary(urls: string[]) {
+  danceLib = urls.filter(Boolean);
+}
+
+/** 拉一次 assets/music 曲库；之后复用。 */
+export function ensureDanceMusicLibrary() {
+  if (!danceLibReady) {
+    danceLibReady = api.listMusic()
+      .then((tracks) => {
+        setDanceMusicLibrary(tracks.map((t) => `/assets/${encodeAssetPath(t.path)}`));
+      })
+      .catch(() => {
+        danceLibReady = null;
+      });
+  }
+  return danceLibReady;
+}
+
+function pickDanceLibraryBgm(): string | undefined {
+  if (!danceLib.length) return undefined;
+  const pool = danceLib.length < 2 ? danceLib : danceLib.filter((u) => u !== lastLibBgm);
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  if (!pick) return undefined;
+  lastLibBgm = pick;
+  return pick;
+}
+
+/** 播 VMD，若资产绑了 BGM / 镜头则同步开停。舞蹈有专属歌用专属；没有就从曲库随机抽，跟歌停。 */
 export function playAssetMotion(
   asset: AssetItem,
   opts?: { once?: boolean; holdLast?: boolean; skipCamera?: boolean; onEnded?: () => void },
 ) {
   const dance = parseMotionCat(asset) === 'dance';
-  return stage.playMotion(api.assetUrl(asset), {
+  if (dance) stage.holdDance();
+  const bound = dance ? motionBgmUrl(asset) : undefined;
+  const play = (bgm?: string) => stage.playMotion(api.assetUrl(asset), {
     once: opts?.once ?? (dance ? true : undefined),
     holdLast: opts?.holdLast,
     dance,
-    bgm: dance ? motionBgmUrl(asset) : undefined,
+    bgm,
     camera: opts?.skipCamera ? undefined : motionCameraUrl(asset),
     onEnded: opts?.onEnded,
   });
+  if (dance && !bound) {
+    return ensureDanceMusicLibrary().then(() => play(pickDanceLibraryBgm()));
+  }
+  return play(bound);
 }
 
 /** 从资产 meta.camera 拼出镜头 VMD 地址 */
@@ -78,7 +115,7 @@ export function motionCameraUrl(asset: { meta?: string }): string | undefined {
   try {
     const cam = JSON.parse(asset.meta || '{}').camera;
     if (typeof cam === 'string' && cam.trim()) {
-      return '/assets/' + cam.replace(/^[/\\]+/, '').split(/[/\\]/).map(encodeURIComponent).join('/');
+      return '/assets/' + encodeAssetPath(cam);
     }
   } catch { /* 旧数据 */ }
   return undefined;

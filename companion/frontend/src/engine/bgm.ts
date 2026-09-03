@@ -1,16 +1,32 @@
-/** 舞蹈配套 BGM：跟舞蹈 VMD 同开同停。说话时按 Continuous 淡出，说完淡入续播。非舞蹈动作不播。 */
+/** 舞蹈配套 BGM：跟舞蹈 VMD 同开同停。说话时压低续播，说完还原。非舞蹈动作不播。 */
 export class BgmPlayer {
   private el: HTMLAudioElement | null = null;
   private url = '';
   private vol = 0.5;
+  /** 1 = 用户音量；说话时 < 1，歌还在，只是让路给 TTS。 */
+  private duck = 1;
+
+  get ducked() {
+    return this.duck < 0.99;
+  }
+
+  private mixedVol() {
+    return Math.max(0, Math.min(1, this.vol * this.duck));
+  }
 
   setVolume(v: number) {
     this.vol = Math.max(0, Math.min(1, v));
-    if (this.el) this.el.volume = this.vol;
+    if (this.el) this.el.volume = this.mixedVol();
   }
 
   getVolume() {
     return this.vol;
+  }
+
+  /** 说话压低 / 说完还原。没有元素时也记住，下一首开播就带上。 */
+  setDuck(factor: number, ms = 300) {
+    this.duck = Math.max(0.12, Math.min(1, factor));
+    this.fadeTo(this.mixedVol(), ms);
   }
 
   fadeTo(target: number, ms = 300) {
@@ -40,14 +56,14 @@ export class BgmPlayer {
     }
     if (this.el && this.url === next && !this.el.paused) {
       this.el.loop = opts?.loop === true;
-      this.el.volume = this.vol;
+      this.el.volume = this.mixedVol();
       return;
     }
     this.stop();
     this.url = next;
     const el = new Audio(next);
     el.loop = opts?.loop === true;
-    el.volume = this.vol;
+    el.volume = this.mixedVol();
     el.preload = 'auto';
     el.onended = () => {
       if (this.el !== el) return;

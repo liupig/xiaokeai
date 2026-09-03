@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
-import { NButton, NInput, NInputNumber, NPopconfirm, NPopover, useMessage } from 'naive-ui';
+import { defineAsyncComponent, computed, nextTick, ref, watch } from 'vue';
+import { NButton, NInput, NInputNumber, NPopover, useMessage } from 'naive-ui';
 import { micAvailable, speechInput } from '../voice/stt';
 import { stage } from '../../engine/stage';
 import { useChatStore } from '../../stores/chat';
@@ -12,6 +12,10 @@ import ScenePicker from '../scenes/ScenePicker.vue';
 import { captureClip, captureStill } from '../keepsake/capture';
 import { keepsakeSession, refreshKeepsakes, setClipSec } from '../keepsake/session';
 import { api } from '../../api/client';
+import { friendlyWhen } from './when';
+import { tarotGameLock, tarotUi } from '../tarot/session';
+
+const TarotDock = defineAsyncComponent(() => import('../tarot/Dock.vue'));
 
 const chat = useChatStore();
 const characters = useCharacterStore();
@@ -55,17 +59,114 @@ function finishLive(status: VoiceStatus) {
   liveMark = -1;
 }
 const messagesEl = ref<HTMLDivElement | null>(null);
+const messagesTail = ref<HTMLDivElement | null>(null);
 const recastOpen = ref(false);
+const PAGE = 16;
+const shownCount = ref(PAGE);
+const pinnedToLatest = ref(true);
+const rewindId = ref<number | null>(null);
+let loadingOlder = false;
+
+function scrollToLatest() {
+  const el = messagesEl.value;
+  const tail = messagesTail.value;
+  if (!el) return;
+  const go = () => {
+    if (tail) tail.scrollIntoView({ block: 'end', behavior: 'auto' });
+    el.scrollTop = el.scrollHeight;
+  };
+  go();
+  requestAnimationFrame(() => {
+    go();
+    requestAnimationFrame(go);
+  });
+}
 
 const partnerName = computed(() => characters.current?.name ?? '她');
 const mods = computed(() => settings.modules);
 const canRewrite = computed(() =>
   mods.value.rewrite && !!chat.lastQaAssistant()?.content && !chat.sending);
 
-async function send(raw?: string) {
-  const text = (raw ?? input.value);
+const visible = computed(() => {
+  const all = chat.messages;
+  return all.slice(Math.max(0, all.length - shownCount.value));
+});
+const hasOlder = computed(() => shownCount.value < chat.messages.length);
+
+function loadOlder(jumpTop = false) {
+  if (loadingOlder || !hasOlder.value) return;
+  const el = messagesEl.value;
+  const keep = el ? el.scrollHeight - el.scrollTop : 0;
+  loadingOlder = true;
+  pinnedToLatest.value = false;
+  shownCount.value = Math.min(chat.messages.length, shownCount.value + PAGE);
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      if (el) el.scrollTop = jumpTop ? 0 : Math.max(0, el.scrollHeight - keep);
+      loadingOlder = false;
+    });
+  });
+}
+
+function onMsgScroll() {
+  const el = messagesEl.value;
+  if (!el) return;
+  pinnedToLatest.value = el.scrollHeight - el.scrollTop - el.clientHeight < 28;
+}
+
+function onMsgWheel(e: WheelEvent) {
+  if (e.deltaY >= 0) return;
+  const el = messagesEl.value;
+  if (el && el.scrollTop <= 12) loadOlder();
+}
+
+watch(
+  () => characters.currentId,
+  () => {
+    shownCount.value = PAGE;
+    pinnedToLatest.value = true;
+    rewindId.value = null;
+  },
+);
+
+watch(
+  () => {
+    const m = chat.messages;
+    const last = m[m.length - 1];
+    return [m.length, last?.id, last?.content, chat.sending] as const;
+  },
+  async () => {
+    if (loadingOlder) return;
+    if (!pinnedToLatest.value && !chat.sending) return;
+    pinnedToLatest.value = true;
+    shownCount.value = Math.max(PAGE, shownCount.value);
+    await nextTick();
+    scrollToLatest();
+  },
+  { flush: 'post' },
+);
+
+watch(
+  () => [characters.currentId, mods.value.memory] as const,
+  ([id, on]) => {
+    if (on && id) void refreshMemory(id);
+    else if (!on) memorySession.facts = [];
+  },
+  { immediate: true },
+);
+
+async function send(raw?: string, opts?: { fromVoice?: boolean }) {
+  pinnedToLatest.value = true;
+  shownCount.value = PAGE;
+  const text = typeof raw === 'string' ? raw : input.value;
   input.value = '';
-  return chat.send(text);
+  return chat.send(text, opts);
+}
+
+function onChatEnter(e: KeyboardEvent) {
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  void send();
 }
 
 function toggleMic() {
@@ -76,6 +177,7 @@ function toggleMic() {
       : '当前浏览器不支持在线语音识别，请改用 Chrome/Edge，或在设置里切到离线 ASR');
     return;
   }
+  if (speechInput.opening) return;
   if (listening.value) {
     if (engine === 'sensevoice') void speechInput.stopAndRecognize();
     else speechInput.stop();
@@ -108,7 +210,7 @@ function toggleMic() {
       input.value = '';
       void (async () => {
         try {
-          const act = await send(line);
+          const act = await send(line, { fromVoice: true });
           finishLive(!act || act === 'empty' ? 'fail' : act);
         } catch {
           finishLive('fail');
@@ -123,49 +225,34 @@ function toggleMic() {
       upsertLive('…', 'hearing');
       chat.onMicStart();
     },
+    (err) => {
+      listening.value = false;
+      message.error(`麦克风没打开：${err instanceof Error ? err.message : String(err)}`);
+    },
   );
   listening.value = ok;
-  if (ok) upsertLive('…', 'hearing');
+  if (ok) upsertLive('正在开麦…', 'hearing');
+}
+
+function warmupMic() {
+  if (settings.stt.engine !== 'sensevoice') return;
+  void speechInput.warmupVad().catch(() => {});
 }
 
 watch(listening, (on) => stage.director.setListening(on));
-
-watch(
-  () => [characters.currentId, mods.value.memory] as const,
-  ([id, on]) => {
-    if (on && id) void refreshMemory(id);
-    else if (!on) memorySession.facts = [];
-  },
-  { immediate: true },
-);
-
-watch(
-  () => chat.messages.map((m) => m.content).join(''),
-  async () => {
-    await nextTick();
-    messagesEl.value?.scrollTo({ top: messagesEl.value.scrollHeight });
-  }
-);
 
 function isQaAssistant(m: { role: string; kind?: string }) {
   return m.role === 'assistant' && (!m.kind || m.kind === 'qa');
 }
 
-function bubbleSpans(m: { role: string; content: string; spokenLen?: number; speakingFrom?: number; speakingTo?: number }) {
-  if (m.role !== 'assistant' || !m.content) return null;
-  const spoken = m.spokenLen ?? m.content.length;
-  const a = Math.max(0, Math.min(m.content.length, m.speakingFrom ?? spoken));
-  const b = Math.max(a, Math.min(m.content.length, m.speakingTo ?? a));
-  return {
-    read: m.content.slice(0, a),
-    reading: m.content.slice(a, b),
-    queued: m.content.slice(b),
-  };
+async function confirmRewind(id: number) {
+  rewindId.value = null;
+  recastOpen.value = false;
+  await chat.rewindTo(id);
 }
 
 const lastQuote = computed(() => chat.lastQaAssistant()?.content?.slice(0, 40) || '');
 const memCount = computed(() => memorySession.facts.length);
-const thread = computed(() => chat.messages.map((m) => ({ m, spans: bubbleSpans(m) })));
 
 async function afterKeepsake() {
   if (!characters.currentId) return;
@@ -228,32 +315,32 @@ const recLeft = computed(() =>
               @click="memorySession.open = !memorySession.open">记忆{{ memCount ? ` ${memCount}` : '' }}</button>
     </div>
     <ScenePicker v-if="mods.scenes" class="scene-slot" />
-    <div ref="messagesEl" class="messages">
+    <div ref="messagesEl" class="messages" @scroll="onMsgScroll" @wheel="onMsgWheel">
+      <button v-if="hasOlder" type="button" class="older" @click="loadOlder(true)">更早的对话</button>
       <div v-if="!chat.messages.length" class="empty">
         {{ mods.scenes ? '选一场今晚的戏，或直接开口。' : '开始聊天吧，她在等你开口～' }}
       </div>
-      <div v-for="(row, i) in thread" :key="row.m.id ?? i"
-           class="bubble" :class="[row.m.role, row.m.kind && row.m.kind !== 'qa' ? row.m.kind : '']">
-        <p v-if="row.spans" class="bubble-text"><span class="read">{{ row.spans.read }}</span><span
-            v-if="row.spans.reading" class="reading">{{ row.spans.reading }}</span><span
-            v-if="row.spans.queued" class="queued">{{ row.spans.queued }}</span></p>
-        <p v-else>{{ row.m.content || '…' }}</p>
-        <div v-if="mods.rewrite && !chat.sending && (row.m.id || (isQaAssistant(row.m) && row.m === chat.lastQaAssistant() && row.m.content))" class="rw">
-          <button v-if="isQaAssistant(row.m) && row.m === chat.lastQaAssistant() && row.m.content"
+      <div v-for="(m, i) in visible" :key="m.id ?? i"
+           class="bubble" :class="[m.role, m.kind && m.kind !== 'qa' ? m.kind : '']">
+        <span v-if="friendlyWhen(m.when, m.created_at)" class="when">{{ friendlyWhen(m.when, m.created_at) }}</span>
+        <p>{{ m.content || '…' }}</p>
+        <div v-if="mods.rewrite && !chat.sending && (m.id || (isQaAssistant(m) && m === chat.lastQaAssistant() && m.content))" class="rw">
+          <button v-if="isQaAssistant(m) && m === chat.lastQaAssistant() && m.content"
                   @click="chat.rerollLast()">重说</button>
-          <n-popconfirm v-if="row.m.id" positive-text="删掉之后的"
-                        negative-text="取消"
-                        @positive-click="() => { recastOpen = false; return chat.rewindTo(row.m.id!); }">
-            <template #trigger>
-              <button>回溯</button>
-            </template>
-            这句之后的对话会从记录里删掉，确定回到这里？
-          </n-popconfirm>
-          <button v-if="isQaAssistant(row.m) && row.m === chat.lastQaAssistant() && row.m.content"
+          <template v-if="m.id">
+            <span v-if="rewindId === m.id" class="rw-ask">
+              回到这句？
+              <button @click="confirmRewind(m.id!)">确定</button>
+              <button @click="rewindId = null">取消</button>
+            </span>
+            <button v-else @click="rewindId = m.id!">回溯</button>
+          </template>
+          <button v-if="isQaAssistant(m) && m === chat.lastQaAssistant() && m.content"
                   @click="recastOpen = !recastOpen">再演</button>
-          <button v-if="row.m.alts?.length" @click="chat.showAlt(row.m, -1)">上一版</button>
+          <button v-if="m.alts?.length" @click="chat.showAlt(m, -1)">上一版</button>
         </div>
       </div>
+      <div ref="messagesTail" class="msg-tail" />
     </div>
     <div v-if="mods.rewrite && recastOpen && canRewrite" class="recast">
       <span>再演一遍</span>
@@ -272,9 +359,10 @@ const recLeft = computed(() =>
       <n-button v-if="micAvailable(settings.stt.engine === 'sensevoice' ? 'sensevoice' : 'browser')"
                 quaternary circle size="small"
                 :type="listening ? 'error' : 'default'"
-                class="mic" @click="toggleMic">
+                class="mic" @click="toggleMic" @pointerenter="warmupMic">
         {{ listening ? '🔴' : '🎤' }}
       </n-button>
+      <TarotDock v-if="mods.tarot" />
       <n-button v-if="mods.keepsake" quaternary circle size="small"
                 :disabled="keepsakeSession.saving || keepsakeSession.recording"
                 title="拍一张剧照" @click="snap">📷</n-button>
@@ -313,14 +401,26 @@ const recLeft = computed(() =>
       </span>
       <n-input
         v-model:value="input" size="small" round
-        :placeholder="listening
+        :placeholder="tarotUi.phase !== 'off' && tarotUi.phase !== 'leaving'
+          ? (tarotGameLock()
+            ? (tarotUi.phase === 'intent'
+              ? '可以说「第三个」「时间线」，或点编号'
+              : tarotUi.phase === 'shuffle' || tarotUi.phase === 'cut'
+              ? '可以说「好了」「切了」停下洗牌'
+              : tarotUi.phase === 'pick'
+                ? '可以说「你来抽」「选牌」，或点牌背'
+                : '可以说「翻转」，或等 10 秒自动翻')
+            : (tarotUi.voicePlay
+              ? '可以说「翻转」「收起来」，或等自动翻'
+              : '牌还摊着 · 可以说「这张什么意思」「收起来」'))
+          : listening
           ? '持续在听，说完一句就发出；再点红点收麦'
           : '说点什么…（回车发送，点麦克风可持续对话）'"
-        @keydown.enter.prevent="send"
+        @keydown.enter="onChatEnter"
       />
       <n-button type="primary" size="small" round
                 :loading="chat.sending" :disabled="!input.trim()"
-                @click="send">发送</n-button>
+                @click="() => send()">发送</n-button>
     </div>
   </div>
 </template>
@@ -399,15 +499,12 @@ const recLeft = computed(() =>
 }
 
 .bubble p { margin: 0; }
-
-.bubble.assistant .reading {
-  color: #ede9fe;
-  background: rgba(167, 139, 250, 0.32);
-  border-radius: 3px;
-  box-decoration-break: clone;
-}
-.bubble.assistant .queued {
+.bubble .when {
+  display: block;
+  font-size: 11px;
   opacity: 0.4;
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 .rw {
@@ -416,7 +513,6 @@ const recLeft = computed(() =>
   margin-top: 6px;
   align-items: center;
 }
-.rw :deep(.n-popconfirm) { display: inline-flex; }
 .rw button, .recast button {
   border: none;
   background: transparent;
@@ -426,6 +522,32 @@ const recLeft = computed(() =>
   padding: 0;
 }
 .rw button:hover, .recast button:hover { color: #fff; }
+
+.rw-ask {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #fde68a;
+  font-size: 11px;
+}
+.rw-ask button { color: #fde68a; }
+.rw-ask button:hover { color: #fff; }
+
+.older {
+  align-self: center;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 8px;
+}
+.older:hover { color: #fff; }
+
+.msg-tail {
+  height: 1px;
+  flex: 0 0 auto;
+}
 
 .recast {
   display: flex;

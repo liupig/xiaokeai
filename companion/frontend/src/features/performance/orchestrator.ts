@@ -2,16 +2,17 @@
  * 表演编排器：消费对话事件流，驱动表情/动作/舞蹈/语音。
  * 文本增量按句切分送入 TTS 队列，标签事件映射到引擎控制。
  */
-import type { ChatEvent } from '../../api/client';
+import type { AssetItem, ChatEvent } from '../../api/client';
 import { isCamShot } from '../../engine/camera';
 import { stage, type StandSlot } from '../../engine/stage';
 import type { ActionKey, CamShotId, EmotionKey } from '../../engine/types';
 import { useAssetsStore } from '../../stores/assets';
 import { useCharacterStore } from '../../stores/character';
 import { speechPlayer } from '../voice/tts';
+import { SpeechSplitter } from '../voice/speechSplit';
 import { normalizeDuplexCmd, normalizeSentenceType } from '../voice/duplex';
 import { caster } from './caster';
-import { parseMotionCat, stripCatPrefix } from '../assets/motionMeta';
+import { parseMotionCat, playAssetMotion, stripCatPrefix } from '../assets/motionMeta';
 import { applyEmotion, parseEmotionMap } from './emotionMap';
 import { shots } from './shotConductor';
 import { repertoire, type ApprovedBeat } from './repertoire';
@@ -32,19 +33,17 @@ const CAM_ALIASES: Record<string, CamShotId> = {
   threeq: 'threeQ', '3/4': 'threeQ', '¾': 'threeQ',
   full: 'full', 全身: 'full',
   long: 'long', 远景: 'long',
-  仰拍: 'low45', 俯拍: 'high45',
+  俯拍: 'high45',
   左侧: 'yawL45', 右侧: 'yawR45',
   左转: 'yawL90', 右转: 'yawR90',
   wave: 'half',
 };
-const HARD_END = /[。！？!?；;\n]/;
-const SOFT_END = /[，、～~]/;
-/** 首句不必等句号：攒够这些字就先送去合成，后面的仍按句切。 */
-const FIRST_FLUSH_CHARS = 10;
-const MAX_UNIT_CHARS = 15;
+export function userAskedDance(text: string) {
+  return /跳.{0,6}舞|来一段|来一支|再跳|换一支|跳一个|dance/i.test(text);
+}
 
 export class Orchestrator {
-  private sentenceBuf = '';
+  private splitter = new SpeechSplitter();
   private turnText = '';
   private ttsStarted = false;
   private useBackendSpeech = false;
@@ -71,7 +70,7 @@ export class Orchestrator {
 
   /** 每轮对话开始前调用：停语音，进入思考，并立刻按用户话选角 */
   beginTurn(userText = '') {
-    this.sentenceBuf = '';
+    this.splitter.reset();
     this.turnText = '';
     this.ttsStarted = false;
     this.useBackendSpeech = true;
@@ -84,11 +83,14 @@ export class Orchestrator {
     speechPlayer.streamOpen = true;
     stage.director.notifyThinking();
     caster.beginTurn(userText);
+    if (userAskedDance(userText)) {
+      if (this.playDance('')) caster.markDance();
+    }
   }
 
   /** 超时续聊 / 欢迎 / 告别：不开新一轮选角，正在跳的舞也不要被思考/句拍动作掐掉 */
   beginContinue(kind: Exclude<SidecarKind, 'qa'> = 'delayed') {
-    this.sentenceBuf = '';
+    this.splitter.reset();
     this.turnText = '';
     this.ttsStarted = false;
     this.useBackendSpeech = true;
@@ -210,10 +212,14 @@ export class Orchestrator {
       }
       case 'done':
         if (!this.useBackendSpeech) this.flushText();
-        else this.sentenceBuf = '';
+        else this.splitter.reset();
         speechPlayer.streamOpen = false;
         stage.director.notifyTurnDone();
         caster.finalize(ev.full_text || '');
+        break;
+      case 'tarot':
+      case 'meta':
+      case 'error':
         break;
       default:
         break;
@@ -222,70 +228,38 @@ export class Orchestrator {
 
   private feedText(delta: string) {
     if (this.useBackendSpeech) return;
-    this.sentenceBuf += delta;
-    this.drainBy(HARD_END);
-    if (!this.ttsStarted && this.sentenceBuf.trim()) {
-      const soft = this.sentenceBuf.search(SOFT_END);
-      if (soft >= 3) {
-        this.emitSentence(this.sentenceBuf.slice(0, soft + 1));
-        this.sentenceBuf = this.sentenceBuf.slice(soft + 1);
-      } else if (Array.from(this.sentenceBuf).length >= FIRST_FLUSH_CHARS) {
-        const chars = Array.from(this.sentenceBuf);
-        this.emitSentence(chars.slice(0, FIRST_FLUSH_CHARS).join(''));
-        this.sentenceBuf = chars.slice(FIRST_FLUSH_CHARS).join('');
-      }
-    }
-    this.drainBy(HARD_END);
-    this.drainLong();
-  }
-
-  private drainLong() {
-    const chars = Array.from(this.sentenceBuf);
-    while (this.ttsStarted && chars.length >= MAX_UNIT_CHARS) {
-      this.emitSentence(chars.splice(0, MAX_UNIT_CHARS).join(''));
-    }
-    this.sentenceBuf = chars.join('');
-  }
-
-  private drainBy(re: RegExp) {
-    let idx: number;
-    while ((idx = this.sentenceBuf.search(re)) !== -1) {
-      this.emitSentence(this.sentenceBuf.slice(0, idx + 1));
-      this.sentenceBuf = this.sentenceBuf.slice(idx + 1);
-    }
+    for (const sent of this.splitter.feed(delta)) this.emitSentence(sent);
   }
 
   private emitSentence(sentence: string) {
     const text = sentence.trim();
     if (!text) return;
     this.ttsStarted = true;
-    const chars = Array.from(text);
-    for (let i = 0; i < chars.length; i += MAX_UNIT_CHARS) {
-      const piece = chars.slice(i, i + MAX_UNIT_CHARS).join('');
-      this.turnText += piece;
-      caster.preview(this.turnText);
-      speechPlayer.enqueue(piece);
-    }
+    this.turnText += text;
+    caster.preview(this.turnText);
+    speechPlayer.enqueue(text);
   }
 
   private flushText() {
-    if (this.sentenceBuf.trim()) this.emitSentence(this.sentenceBuf);
-    this.sentenceBuf = '';
+    for (const sent of this.splitter.flush()) this.emitSentence(sent);
   }
 
   private playDance(nameOrLabel: string): boolean {
     const assets = useAssetsStore();
-    const dances = assets.motions.filter((m) =>
-      parseMotionCat(m) === 'dance' && repertoire.allowsAsset(m.name));
-    if (!dances.length) return false;
+    const all = assets.motions.filter((m) => parseMotionCat(m) === 'dance');
+    if (!all.length) return false;
+    const approved = all.filter((m) => repertoire.allowsAsset(m.name));
+    const dances = approved.length ? approved : all;
     const norm = (s: string) => s.replace(/\.vmd$/i, '').trim().toLowerCase();
     const bare = (m: { label: string; name: string }) => stripCatPrefix(m.label).trim() || m.name;
     const t = norm(nameOrLabel);
     let motion =
-      dances.find((m) => norm(m.name) === t) ??
-      dances.find((m) => norm(bare(m)) === t) ??
-      (t.length >= 4
-        ? dances.find((m) => norm(m.name).includes(t) || norm(bare(m)).includes(t))
+      (t
+        ? dances.find((m) => norm(m.name) === t) ??
+          dances.find((m) => norm(bare(m)) === t) ??
+          (t.length >= 2
+            ? dances.find((m) => norm(m.name).includes(t) || norm(bare(m)).includes(t))
+            : undefined)
         : undefined);
 
     const ask = this.lastUserAsk;
@@ -300,20 +274,21 @@ export class Orchestrator {
     }
     if (!motion) {
       const beat = repertoire.pick({ dancing: true, allowWalk: true, preferStand: stage.standSlot, varyCam: true });
-      return this.launchDance(beat);
+      if (this.launchDance(beat)) return true;
+      const pick = dances[Math.floor(Math.random() * dances.length)];
+      return this.launchDanceAsset(pick);
     }
-    if (!repertoire.allowsAsset(motion.name)) {
-      const beat = repertoire.pick({ dancing: true, allowWalk: true, preferStand: stage.standSlot, varyCam: true });
-      return this.launchDance(beat);
-    }
-    const beat = repertoire.pick({
-      dancing: true,
-      assetName: motion.name,
-      allowWalk: true,
-      preferStand: stage.standSlot,
-      varyCam: true,
-    }) ?? repertoire.pick({ assetName: motion.name, allowWalk: true, varyCam: true });
-    return this.launchDance(beat);
+    const beat = repertoire.allowsAsset(motion.name)
+      ? repertoire.pick({
+          dancing: true,
+          assetName: motion.name,
+          allowWalk: true,
+          preferStand: stage.standSlot,
+          varyCam: true,
+        }) ?? repertoire.pick({ assetName: motion.name, allowWalk: true, varyCam: true })
+      : null;
+    if (this.launchDance(beat)) return true;
+    return this.launchDanceAsset(motion);
   }
 
   /** 对话开的舞：有配乐跟歌唱完，没配乐只跳一轮，然后停。 */
@@ -325,6 +300,17 @@ export class Orchestrator {
     void repertoire.perform(beat, {
       once: true,
       onMotionEnded: () => shots.endDance(),
+    });
+    return true;
+  }
+
+  private launchDanceAsset(motion: AssetItem): boolean {
+    if (!motion?.name) return false;
+    this.lastDanceName = motion.name;
+    shots.beginDance(motion.name);
+    void playAssetMotion(motion, {
+      once: true,
+      onEnded: () => shots.endDance(),
     });
     return true;
   }

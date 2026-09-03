@@ -117,6 +117,8 @@ export interface PickNeed {
   preferStand?: StandSlot;
   /** 跳舞换镜：在同一支舞的过审景别里尽量换一条 */
   varyCam?: boolean;
+  /** 只从这些景别里抽（塔罗锁 3/4 + 全身） */
+  sizes?: CamShotId[];
 }
 
 function decodePart(raw: string) {
@@ -235,6 +237,7 @@ export class Repertoire {
     let pool = this.beats.slice();
 
     if (need.assetName) pool = pool.filter((b) => b.assetName === need.assetName);
+    if (need.sizes?.length) pool = pool.filter((b) => need.sizes!.includes(b.size));
     if (need.size) pool = pool.filter((b) => b.size === need.size);
     if (need.stand) pool = pool.filter((b) => b.stand === need.stand);
     if (need.camKey) {
@@ -278,7 +281,8 @@ export class Repertoire {
       if (need.phrase && (b.camKind === 'move' || b.camKind === 'vmd')) s += 10;
       if (need.idle || need.idleKind) {
         const kind = need.idleKind ?? 'chat';
-        s += idleSizeScore(b.size, kind);
+        if (need.sizes?.length) s += need.sizes.includes(b.size) ? 20 : 0;
+        else s += idleSizeScore(b.size, kind);
         if (b.actionKind === 'asset') s += 16;
         if (b.actionKind === 'builtin') s += 6;
         if (b.actionKind === 'none') s -= 14;
@@ -328,9 +332,9 @@ export class Repertoire {
     liveNow.value = { beat: shown, cam, motion, at: Date.now() };
     const rest = liveRecent.value.filter((b) => b.id !== shown.id);
     liveRecent.value = [shown, ...rest].slice(0, 6);
-    if (!beat.dance) stage.silenceBgm();
+    if (!beat.dance && !stage.danceLive) stage.silenceBgm();
 
-    if (doStand && stage.standSlot !== beat.stand) {
+    if (doStand && !stage.danceLive && stage.standSlot !== beat.stand) {
       stage.goToStand(beat.stand);
       await this.wait(1100, seq);
       if (seq !== this.playSeq) return;
@@ -408,9 +412,13 @@ export class Repertoire {
       stage.playIdleCut(beat.size, idleMove, 2.15 + Math.random() * 0.7);
       return;
     }
-    if (beat.camKind === 'vmd' && beat.vmdName) {
+    if (beat.camKind === 'vmd' && beat.vmdName && !stage.camSizeLock?.length) {
       const raw = useAssetsStore().cameras.find((c) => c.name === beat.vmdName);
       if (raw) void stage.playCameraVmd(api.assetUrl(raw), { once: true });
+      return;
+    }
+    if (beat.camKind === 'vmd' && stage.camSizeLock?.length) {
+      stage.playShot(beat.size, false);
       return;
     }
     stage.playShot(beat.size, false);
@@ -433,7 +441,7 @@ export class Repertoire {
 
   private playMotion(beat: ApprovedBeat, once?: boolean, onEnded?: () => void, holdLast?: boolean) {
     if (beat.actionKind === 'builtin' && beat.builtin) {
-      if (!beat.dance) stage.silenceBgm();
+      if (!beat.dance && !stage.danceLive) stage.silenceBgm();
       stage.triggerAction(beat.builtin);
       onEnded?.();
       return;

@@ -9,6 +9,8 @@ from threading import Thread
 
 def main(in_q, out_q, cancel_ev) -> None:
     os.environ["COMPANION_TTS_WORKER"] = "1"
+    from app.infer_runtime import prepare_worker
+    prepare_worker("tts")
     from app.services.tts_qwen import (
         _warmup_inproc,
         _status_inproc,
@@ -58,7 +60,17 @@ def main(in_q, out_q, cancel_ev) -> None:
                         out_q.put(("pcm", job, pcm))
                     out_q.put(("done", job, b""))
                 except Exception as exc:
-                    out_q.put(("err", job, str(exc)))
+                    extra = str(exc)
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            free, total = torch.cuda.mem_get_info()
+                            extra += (
+                                f" (cuda free={free / 1024 ** 2:.0f}MiB / {total / 1024 ** 2:.0f}MiB)"
+                            )
+                    except Exception:
+                        pass
+                    out_q.put(("err", job, extra))
                 finally:
                     current["job"] = ""
             else:

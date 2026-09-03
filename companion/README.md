@@ -26,31 +26,55 @@ companion/
 │   ├── app/
 │   ├── data/          # SQLite / 记忆 / 语音权重（自动创建，已 gitignore）
 │   └── requirements.txt
-├── assets/            # 资产仓库（models / motions / audio / cameras），仓库里只有空目录
+├── assets/            # 资产仓库：models / motions / audio / cameras / music（舞蹈兜底曲库）
 └── start.bat
 ```
 
 ## 快速开始（Windows）
 
-前置：Node.js 18+、Python 3.11+。
+前置：Node.js 18+、Python 3.11+。自己开两个终端启动；改完 Python 后要重启后端。
+
+### 启动
+
+**终端 1 · 后端** http://127.0.0.1:8600
 
 ```bat
-:: 一键启动前后端（首次会自动装依赖）
-start.bat
+cd backend
+set NO_PROXY=*
+set PYTHONUNBUFFERED=1
+.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8600
 ```
 
-或手动：
+PowerShell：`$env:NO_PROXY='*'; $env:PYTHONUNBUFFERED='1'` 再跑 uvicorn。
+
+**终端 2 · 前端** http://localhost:5175
 
 ```bat
-:: 后端（端口 8600）
-cd backend
-python -m venv .venv && .venv\Scripts\pip install -r requirements.txt
-.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8600 --reload
-
-:: 前端（端口 5175，另开一个终端）
 cd frontend
-npm install --legacy-peer-deps
 npm run dev
+```
+
+不要加 `--reload` / `--workers`，否则会复制 ASR、TTS、记忆子进程，抢 SQLite 和显卡。改完后端代码：终端 1 Ctrl+C，再重新启动 uvicorn。
+
+首次没有 `.venv` / `node_modules` 时：
+
+```bat
+python -m venv backend\.venv
+backend\.venv\Scripts\pip install -r backend\requirements.txt
+cd frontend && npm install --legacy-peer-deps
+```
+
+也可以直接跑 `start.bat`（会装依赖并弹出两个窗口）。
+
+### 停止
+
+两个窗口各 Ctrl+C。端口仍被占时：
+
+```powershell
+foreach ($port in 8600, 5175) {
+  Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+    ForEach-Object { taskkill /PID $_.OwningProcess /T /F }
+}
 ```
 
 打开 http://localhost:5175 即可使用。仓库不含 3D 模型和动作文件：用资产中心本地导入，或配置模之屋 token 后在线下载。

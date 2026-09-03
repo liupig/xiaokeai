@@ -44,6 +44,7 @@ async function tonight() {
       <n-button size="tiny" quaternary :loading="sceneSession.generating" @click="tonight">现编</n-button>
     </div>
     <p v-if="sceneSession.current" class="desc">{{ sceneSession.current.setting }}</p>
+    <p v-if="sceneSession.current?.conflict" class="conflict">心里那点事还在 · {{ sceneSession.current.conflict }}</p>
     <div class="chips">
       <button v-for="c in (sceneSession.cards.length ? sceneSession.cards : LOCAL_SCENES)"
               :key="c.id"
@@ -58,7 +59,8 @@ async function tonight() {
 .row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .label { opacity: 0.45; }
 .grow { flex: 1; }
-.desc { margin: 6px 0 8px; font-size: 11px; opacity: 0.55; line-height: 1.5; }
+.desc { margin: 6px 0 4px; font-size: 11px; opacity: 0.55; line-height: 1.5; }
+.conflict { margin: 0 0 8px; font-size: 11px; opacity: 0.72; line-height: 1.45; color: #e8c9a8; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 88px; overflow-y: auto; }
 .chip {
   border: 1px solid rgba(255,255,255,0.12);

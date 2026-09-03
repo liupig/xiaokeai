@@ -28,6 +28,19 @@ export const MOVES: { id: CamShotId; label: string }[] = CAM_SHOTS
   .filter((s) => !SIZE_IDS.has(s.id))
   .map((s) => ({ id: s.id, label: s.label }));
 
+const KNOWN_MOVE_CAMS = new Set(['hold', ...MOVES.map((m) => `move:${m.id}`)]);
+
+/** 已下架的程序化运镜（如仰拍45度）不再进审查表 / 剧目。 */
+export function dropRetiredCams(map: Record<string, Verdict>): Record<string, Verdict> {
+  const out: Record<string, Verdict> = {};
+  for (const [id, v] of Object.entries(map)) {
+    let cam = '';
+    try { cam = decodeURIComponent(id.split('|')[1] || ''); } catch { cam = id.split('|')[1] || ''; }
+    if (cam.startsWith('vmd:') || KNOWN_MOVE_CAMS.has(cam)) out[id] = v;
+  }
+  return out;
+}
+
 export const STANDS: { id: StandSlot; label: string }[] = [
   { id: 'left', label: '左 ¼' },
   { id: 'center', label: '中 ½' },
@@ -339,7 +352,7 @@ function readLocal(key: string): Record<string, Verdict> {
 export function loadLocalVerdicts(): Record<string, Verdict> {
   const merged: Record<string, Verdict> = {};
   for (const key of [...LEGACY_KEYS, STORE_KEY]) Object.assign(merged, readLocal(key));
-  return merged;
+  return dropRetiredCams(merged);
 }
 
 export function saveLocalVerdicts(map: Record<string, Verdict>) {
@@ -355,12 +368,14 @@ export async function hydrateVerdicts(): Promise<{
 }> {
   const local = loadLocalVerdicts();
   const remote = await api.getCamReview();
-  const server = (remote.verdicts || {}) as Record<string, Verdict>;
-  const merged = expandCompatOk({ ...local, ...server });
+  const rawServer = (remote.verdicts || {}) as Record<string, Verdict>;
+  const server = dropRetiredCams(rawServer);
+  const dropped = Object.keys(rawServer).length !== Object.keys(server).length;
+  const merged = expandCompatOk(dropRetiredCams({ ...local, ...server }));
   const inherited = Object.keys(merged).filter((k) => server[k] !== merged[k]).length;
   const migrated = Object.keys(server).length === 0 && Object.keys(local).length > 0;
   const extra = Object.keys(local).some((k) => server[k] !== local[k] && !server[k]);
-  if (migrated || extra || inherited) {
+  if (migrated || extra || inherited || dropped) {
     await api.putCamReview(merged);
     saveLocalVerdicts(merged);
   } else {
@@ -377,7 +392,7 @@ export async function hydrateVerdicts(): Promise<{
 }
 
 export async function persistVerdicts(map: Record<string, Verdict>) {
-  const expanded = expandCompatOk(map);
+  const expanded = expandCompatOk(dropRetiredCams(map));
   saveLocalVerdicts(expanded);
   await api.putCamReview(expanded);
   const { repertoire } = await import('../performance/repertoire');
@@ -388,7 +403,7 @@ export async function persistVerdicts(map: Record<string, Verdict>) {
 export async function banApprovedCombo(id: string) {
   const remote = await api.getCamReview();
   const map: Record<string, Verdict> = {};
-  for (const [k, v] of Object.entries(remote.verdicts || {})) {
+  for (const [k, v] of Object.entries(dropRetiredCams((remote.verdicts || {}) as Record<string, Verdict>))) {
     if (v === 'ok' || v === 'bad') map[k] = v as Verdict;
   }
   map[id] = 'bad';

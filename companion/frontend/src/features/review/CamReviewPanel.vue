@@ -334,7 +334,7 @@ function resetVerdicts() {
 <style scoped>
 .panel {
   position: absolute;
-  top: 70px;
+  top: calc(70px + var(--desk-chrome, 0px));
   right: 16px;
   bottom: 20px;
   width: 460px;

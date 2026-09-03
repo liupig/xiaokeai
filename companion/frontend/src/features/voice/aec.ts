@@ -76,11 +76,10 @@ export async function getMicStream(opts: {
   ctx: AudioContext | null;
   tap: AudioNode | null;
 }): Promise<MediaStream> {
-  const next = await resolveAecMode();
-  if (next === 'browser') {
-    return navigator.mediaDevices.getUserMedia({ audio: browserMicConstraints() });
-  }
-  return ensureWasmStream(opts);
+  // 开麦不能等环回探测：第一次点麦克风会被卡 2.5s，再点一次又把麦掐掉。
+  void resolveAecMode();
+  if (mode === 'wasm') return ensureWasmStream(opts);
+  return navigator.mediaDevices.getUserMedia({ audio: browserMicConstraints() });
 }
 
 async function ensureWasmStream(opts: {
@@ -92,7 +91,12 @@ async function ensureWasmStream(opts: {
     return navigator.mediaDevices.getUserMedia({ audio: wasmMicConstraints() });
   }
   if (!wasmOpening) {
-    wasmOpening = openWasmAec(opts.ctx, opts.tap).then((h) => {
+    wasmOpening = Promise.race([
+      openWasmAec(opts.ctx, opts.tap),
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => reject(new Error('AEC3 超时')), 4000);
+      }),
+    ]).then((h) => {
       wasm = h;
       return h.stream;
     }).catch((e) => {

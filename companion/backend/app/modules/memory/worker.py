@@ -5,6 +5,7 @@ import atexit
 import multiprocessing as mp
 import os
 import threading
+import time
 import uuid
 from typing import Any, Dict, List
 
@@ -14,6 +15,8 @@ _rpc_lock = threading.Lock()
 _in_q = None
 _out_q = None
 _proc = None
+_boot_failed = False
+_boot_error = ""
 
 
 def _in_worker() -> bool:
@@ -40,23 +43,50 @@ def _stop() -> None:
     _out_q = None
 
 
+def release() -> None:
+    """关掉记忆模块时卸掉向量库进程，避免低配机空占内存。"""
+    global _boot_failed, _boot_error
+    _stop()
+    _boot_failed = True
+    _boot_error = "memory module off"
+    print("[memory] released worker")
+
+
+def clear_boot_failed() -> None:
+    global _boot_failed, _boot_error
+    _boot_failed = False
+    _boot_error = ""
+
+
 def ensure() -> None:
     """拉起记忆进程并等 Mem0 ready。FastAPI 启动线程里调。"""
-    global _proc, _in_q, _out_q
+    global _proc, _in_q, _out_q, _boot_failed, _boot_error
     if _in_worker() or _alive():
         return
+    if _boot_failed:
+        raise RuntimeError(_boot_error or "记忆进程上次启动失败")
     with _lock:
         if _alive():
             return
+        if _boot_failed:
+            raise RuntimeError(_boot_error or "记忆进程上次启动失败")
         from .proc import main as mem_main
         _in_q = _ctx.Queue()
         _out_q = _ctx.Queue()
         _proc = _ctx.Process(target=mem_main, args=(_in_q, _out_q), daemon=True, name="companion-memory")
         _proc.start()
-        kind, _, payload = _out_q.get(timeout=180)
+        try:
+            kind, _, payload = _out_q.get(timeout=180)
+        except Exception as exc:
+            _stop()
+            _boot_failed = True
+            _boot_error = f"记忆进程启动超时：{exc}"
+            raise RuntimeError(_boot_error) from exc
         if kind != "ready":
             _stop()
-            raise RuntimeError(f"记忆进程启动失败：{payload}")
+            _boot_failed = True
+            _boot_error = f"记忆进程启动失败：{payload}"
+            raise RuntimeError(_boot_error)
         print(f"[memory] worker pid={_proc.pid}")
         atexit.register(_stop)
 
@@ -71,14 +101,21 @@ def _rpc(kind: str, payload: Any, timeout: float = 30) -> Any:
         print(f"[memory] worker unavailable: {exc}")
         return None
     job = uuid.uuid4().hex
+    deadline = time.time() + timeout
     with _rpc_lock:
         _in_q.put((kind, job, payload))
-        status, jid, body = _out_q.get(timeout=timeout)
-    if status == "ok" and jid == job:
-        return body
-    if status == "err":
-        raise RuntimeError(body)
-    raise RuntimeError("记忆进程返回异常")
+        while True:
+            remain = deadline - time.time()
+            if remain <= 0:
+                raise TimeoutError("记忆进程超时")
+            status, jid, body = _out_q.get(timeout=remain)
+            if str(jid) != str(job):
+                continue
+            if status == "ok":
+                return body
+            if status == "err":
+                raise RuntimeError(body)
+            raise RuntimeError(f"记忆进程返回异常：{status}")
 
 
 def tick(character_id: int) -> None:
@@ -100,7 +137,11 @@ def inject_memory(character_id: int, messages: List[Dict[str, str]]) -> List[Dic
 
 
 def list_facts(character_id: int) -> List[Dict[str, Any]]:
-    out = _rpc("list", int(character_id))
+    try:
+        out = _rpc("list", int(character_id))
+    except Exception as exc:
+        print(f"[memory] list_facts failed: {exc}")
+        return []
     return out if isinstance(out, list) else []
 
 

@@ -6,8 +6,9 @@ from typing import List, Optional
 
 from sqlmodel import Session, select
 
-from ..models import Asset
-from ..paths import ASSETS_DIR, AUDIO_DIR, CAMERAS_DIR, MODELS_DIR, MOTIONS_DIR
+from ..models import Asset, Character
+from ..paths import ASSETS_DIR, AUDIO_DIR, CAMERAS_DIR, MODELS_DIR, MOTIONS_DIR, MUSIC_DIR
+from ..personas import GENERIC_PERSONA, QINGXIAO_GREETING, QINGXIAO_PERSONA
 
 # 动作类别：用于面板分组和 LLM 选动作
 CATEGORY_LABELS = {
@@ -125,9 +126,30 @@ def _dance_bgm_names(session: Session) -> set:
     return used
 
 
+MUSIC_EXTS = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".opus", ".mp4", ".webm"}
+
+
+def list_music_library() -> List[dict]:
+    """舞蹈兜底曲库：assets/music/ 里的音频（及带音轨的短视频）。"""
+    if not MUSIC_DIR.exists():
+        return []
+    items: List[dict] = []
+    for f in sorted(MUSIC_DIR.iterdir(), key=lambda p: p.name.lower()):
+        if not f.is_file() or f.name.startswith("."):
+            continue
+        if f.suffix.lower() not in MUSIC_EXTS:
+            continue
+        rel = f.relative_to(ASSETS_DIR).as_posix()
+        items.append({"name": f.stem, "path": rel})
+    return items
+
+
 def purge_unreferenced_audio(session: Session) -> int:
     """删除没有舞蹈动作引用的音频文件（非舞蹈动作包留下的配乐）。"""
     used = _dance_bgm_names(session)
+    if not used:
+        # 空库 / 打包漏了绑定：不要把配乐目录清掉
+        return 0
     if not AUDIO_DIR.exists():
         return 0
     n = 0
@@ -214,6 +236,44 @@ MODEL_EXTS = {".pmx", ".vrm", ".glb"}
 
 def _rel(p: Path) -> str:
     return p.relative_to(ASSETS_DIR).as_posix()
+
+
+def repair_missing_paths(session: Session) -> int:
+    """纠正库里对不上磁盘的相对路径（motion/ vs motions/、反斜杠等）。"""
+    n = 0
+    for asset in session.exec(select(Asset)).all():
+        raw = (asset.path or "").replace("\\", "/")
+        if not raw:
+            continue
+        target = ASSETS_DIR / raw
+        if target.is_file():
+            if asset.path != raw:
+                asset.path = raw
+                session.add(asset)
+                n += 1
+            continue
+        name = Path(raw).name
+        cand: Optional[Path] = None
+        if asset.kind == "motion":
+            hit = MOTIONS_DIR / name
+            cand = hit if hit.is_file() else None
+        elif asset.kind == "camera":
+            hit = CAMERAS_DIR / name
+            cand = hit if hit.is_file() else None
+        elif asset.kind == "model":
+            for p in MODELS_DIR.rglob(name):
+                if p.is_file():
+                    cand = p
+                    break
+        if cand is None:
+            print(f"[catalog] missing file id={asset.id} {asset.kind} {raw}")
+            continue
+        asset.path = _rel(cand)
+        session.add(asset)
+        n += 1
+    if n:
+        session.commit()
+    return n
 
 
 def _get_by_name(session: Session, kind: str, name: str) -> Optional[Asset]:
@@ -364,4 +424,53 @@ def scan_all(session: Session) -> List[Asset]:
             created.append(a)
     session.commit()
     recategorize_all(session)
+    fixed = repair_missing_paths(session)
+    if fixed:
+        print(f"[catalog] repaired {fixed} asset paths")
     return created
+
+
+def character_name_for_model(asset: Asset) -> str:
+    if (asset.name or "") == "qingxiao":
+        return "清宵"
+    label = (asset.label or asset.name or "").strip()
+    if "_by_" in label:
+        label = label.split("_by_")[0]
+    return label.strip(" _") or (asset.name or "角色")
+
+
+def _model_file_ok(asset: Asset) -> bool:
+    raw = (asset.path or "").replace("\\", "/")
+    return bool(raw) and (ASSETS_DIR / raw).is_file()
+
+
+def is_default_character_model(asset: Asset) -> bool:
+    """可默认建卡的模型：本地 PMX（导入的角色），不含根目录试玩用 VRM/GLB。"""
+    if (asset.kind or "") != "model":
+        return False
+    if (asset.fmt or "").lower() != "pmx":
+        return False
+    return _model_file_ok(asset)
+
+
+def ensure_default_characters(session: Session) -> int:
+    """角色表为空时，给每个可默认添加的 PMX 建一张卡。已有角色不补、不覆盖。"""
+    if session.exec(select(Character)).first():
+        return 0
+    n = 0
+    for model in session.exec(select(Asset).where(Asset.kind == "model")).all():
+        if not is_default_character_model(model):
+            continue
+        qx = (model.name or "") == "qingxiao"
+        name = character_name_for_model(model)
+        session.add(Character(
+            name=name,
+            model_asset_id=model.id or 0,
+            persona=QINGXIAO_PERSONA if qx else GENERIC_PERSONA.format(name=name),
+            greeting=QINGXIAO_GREETING if qx else "",
+            voice="",
+        ))
+        n += 1
+    if n:
+        session.commit()
+    return n

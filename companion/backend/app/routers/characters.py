@@ -30,7 +30,7 @@ def update_character(char_id: int, patch: Character,
     char = session.get(Character, char_id)
     if not char:
         raise HTTPException(404, "角色不存在")
-    for field in ("name", "model_asset_id", "persona", "greeting",
+    for field in ("name", "model_asset_id", "persona", "boundary", "greeting",
                   "voice", "emotion_map", "idle_motion"):
         setattr(char, field, getattr(patch, field))
     session.add(char)

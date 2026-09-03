@@ -110,8 +110,9 @@ _dl/
 # 记忆向量库、证物、临时文件、SenseVoice / Qwen3-TTS 权重（数 GB）
 companion/backend/data/
 
-# 构建时从 node_modules 拷贝的 Silero VAD / ONNX Runtime 资源
+# 构建时从 node_modules 拷贝的 Silero VAD / ONNX Runtime / AEC3 资源
 companion/frontend/public/vad/
+companion/frontend/public/aec3/
 
 # 用户导入的 3D / 动作 / 音频 / 镜头（第三方版权，体积大，请本地导入）
 companion/assets/models/*
@@ -131,6 +132,15 @@ companion-3d/public/motions/*
 
 music-api/downloads/*
 !music-api/downloads/.gitkeep
+
+# 桌面打包产物已改到 games 同级的 xiaoke_ai_*，这里只挡仓库内旧路径
+companion/CompanionStudio-*/
+companion/xiaoke_ai_*/
+companion/build/
+companion/dist/
+
+# 塔罗出图运行日志（可能带请求痕迹，不入库）
+companion/assets/tarot/_logs/
 
 # 版权资产与语音/视频权重（兜底，避免误 add）
 *.pmx

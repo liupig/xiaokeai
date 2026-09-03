@@ -17,6 +17,8 @@ import {
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
     loaded: false,
+    llm_env: false,
+    llm_local: false,
     llm: {
       base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', api_key: '',
       model: 'qwen-plus', temperature: 0.85, top_p: 1.0,
@@ -40,15 +42,28 @@ export const useSettingsStore = defineStore('settings', {
       stage_show: true, stage_color: '#232342', stage_glow: '#5b5bd6', stage_style: 'classic',
       stage_texture: '', stage_opacity: 1,
     },
-    modules: { memory: true, scenes: true, rewrite: true, keepsake: true },
+    modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true },
+    hardware: {
+      auto: false, tier: '', ram_gb: 0, vram_gb: 0, cores: 0,
+      reason: '', fingerprint: '',
+      failed: { stt: '', tts: '', memory: '' },
+    },
     voices: [] as { id: string; label: string; engine?: string }[],
   }),
+  getters: {
+    hasLlm(): boolean {
+      return !!(this.llm.api_key || '').trim() || this.llm_env || this.llm_local;
+    },
+  },
   actions: {
     async load() {
       const data = await api.getSettings();
       Object.assign(this.$state, data);
+      const flags = data as { llm_env?: boolean; llm_local?: boolean };
+      this.llm_env = !!(flags.llm_env || flags.llm_local);
+      this.llm_local = this.llm_env;
       // 旧数据可能缺 engine 字段
-      if (!this.tts.engine) this.tts.engine = 'qwen';
+      if (!this.tts.engine) this.tts.engine = 'edge';
       if (!this.tts.qwen_size) this.tts.qwen_size = '0.6b';
       if (!this.tts.qwen_style) this.tts.qwen_style = 'yujie';
       if (this.tts.qwen_instruct == null) this.tts.qwen_instruct = '';
@@ -76,15 +91,37 @@ export const useSettingsStore = defineStore('settings', {
         ? sessionMax : DEFAULT_DUPLEX_SESSION_MAX_MIN;
       if (this.tts.duplex_filler == null) this.tts.duplex_filler = false;
       if (this.tts.duplex_ingress == null) this.tts.duplex_ingress = true;
-      if (!this.stt.engine) this.stt.engine = 'sensevoice';
+      if (!this.stt.engine) this.stt.engine = 'browser';
+      const hw = (data as { hardware?: Record<string, unknown> }).hardware;
+      if (hw && typeof hw === 'object') {
+        const failed = (hw.failed || {}) as Record<string, string>;
+        this.hardware = {
+          auto: !!hw.auto,
+          tier: String(hw.tier || ''),
+          ram_gb: Number(hw.ram_gb || 0),
+          vram_gb: Number(hw.vram_gb || 0),
+          cores: Number(hw.cores || 0),
+          reason: String(hw.reason || ''),
+          fingerprint: String(hw.fingerprint || ''),
+          failed: {
+            stt: String(failed.stt || ''),
+            tts: String(failed.tts || ''),
+            memory: String(failed.memory || ''),
+          },
+        };
+      }
       const mods = (data as { modules?: Record<string, boolean> }).modules;
       this.modules = {
         memory: mods?.memory !== false,
         scenes: mods?.scenes !== false,
         rewrite: mods?.rewrite !== false,
         keepsake: mods?.keepsake !== false,
+        tarot: mods?.tarot !== false,
       };
       this.loaded = true;
+      if (typeof this.quality.physics !== 'boolean') {
+        this.quality.physics = this.quality.physics !== false && this.quality.physics !== 0;
+      }
       this.applyQuality();
       this.applyTts();
       api.getVoices().then((v) => {
@@ -95,25 +132,30 @@ export const useSettingsStore = defineStore('settings', {
           this.tts.voice = '';
         }
       }).catch(() => {});
-      if (this.stt.engine === 'sensevoice' || this.tts.engine === 'qwen') {
-        api.warmupSpeech(
-          this.tts.engine === 'qwen' ? 'all' : 'asr',
-          this.tts.qwen_size,
-        ).catch(() => {});
-      }
-      if (this.stt.engine === 'sensevoice') {
-        void import('../features/voice/stt').then((m) => m.speechInput.warmupVad().catch(() => {}));
-      }
+      this.maybeWarmupSpeech();
     },
     async save() {
-      await api.updateSettings({
+      const data = await api.updateSettings({
         llm: this.llm, tts: this.tts, stt: this.stt,
         download: this.download, quality: this.quality, modules: this.modules,
       });
+      const flags = data as { llm_env?: boolean; llm_local?: boolean };
+      this.llm_env = !!(flags.llm_env || flags.llm_local);
+      this.llm_local = this.llm_env;
       this.applyQuality();
       this.applyTts();
-      if (this.stt.engine === 'sensevoice') {
-        void import('../features/voice/stt').then((m) => m.speechInput.warmupVad().catch(() => {}));
+      this.maybeWarmupSpeech();
+    },
+    maybeWarmupSpeech() {
+      // 只预热后端 ASR/TTS。前端 Silero VAD / ONNX 很占内存，等用户碰麦克风再加载
+      const wantAsr = this.stt.engine === 'sensevoice';
+      const wantTts = this.tts.engine === 'qwen';
+      if (wantAsr && wantTts) {
+        api.warmupSpeech('all', this.tts.qwen_size).catch(() => {});
+      } else if (wantTts) {
+        api.warmupSpeech('tts', this.tts.qwen_size).catch(() => {});
+      } else if (wantAsr) {
+        api.warmupSpeech('asr').catch(() => {});
       }
     },
     applyTts() {

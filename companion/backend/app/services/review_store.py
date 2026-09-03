@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict
+from urllib.parse import unquote
 
 from sqlmodel import Session, select
 
@@ -14,6 +15,21 @@ from ..paths import DATA_DIR
 KEY = "cam_review"
 FILE_PATH: Path = DATA_DIR / "cam_review.json"
 TZ_CN = timezone(timedelta(hours=8))
+RETIRED_CAM_KEYS = frozenset({"move:low45"})
+
+
+def _cam_key(combo_id: str) -> str:
+    parts = combo_id.split("|")
+    if len(parts) < 2:
+        return ""
+    try:
+        return unquote(parts[1])
+    except Exception:
+        return parts[1]
+
+
+def _drop_retired(verdicts: Dict[str, str]) -> Dict[str, str]:
+    return {k: v for k, v in verdicts.items() if _cam_key(k) not in RETIRED_CAM_KEYS}
 
 
 def _empty() -> Dict[str, Any]:
@@ -51,16 +67,18 @@ def _normalize(raw: Dict[str, Any] | None) -> Dict[str, Any]:
         return data
     verdicts = raw.get("verdicts")
     if isinstance(verdicts, dict):
-        data["verdicts"] = {
+        data["verdicts"] = _drop_retired({
             str(k): v for k, v in verdicts.items() if v in ("ok", "bad")
-        }
+        })
     data["version"] = int(raw.get("version") or 3)
     data["updated_at"] = str(raw.get("updated_at") or "")
     return data
 
 
 def _rows_to_payload(rows: list[CamReview]) -> Dict[str, Any]:
-    verdicts = {r.combo_id: r.verdict for r in rows if r.verdict in ("ok", "bad")}
+    verdicts = _drop_retired(
+        {r.combo_id: r.verdict for r in rows if r.verdict in ("ok", "bad")}
+    )
     latest = max((r.updated_at for r in rows), default=None)
     updated = ""
     if latest:
@@ -80,6 +98,19 @@ def _write_json(payload: Dict[str, Any]) -> None:
 def load(session: Session) -> Dict[str, Any]:
     migrate_if_needed(session)
     rows = list(session.exec(select(CamReview)).all())
+    retired = [r for r in rows if _cam_key(r.combo_id) in RETIRED_CAM_KEYS]
+    if retired:
+        for r in retired:
+            session.delete(r)
+        session.commit()
+        rows = [r for r in rows if r not in retired]
+        payload = _rows_to_payload(rows)
+        payload["updated_at"] = datetime.now(TZ_CN).isoformat(timespec="seconds")
+        _write_json({
+            "version": 3,
+            "updated_at": payload["updated_at"],
+            "verdicts": payload["verdicts"],
+        })
     data = _rows_to_payload(rows) if rows else _empty()
     data["path"] = str(FILE_PATH)
     data["table"] = "cam_review"
@@ -87,7 +118,7 @@ def load(session: Session) -> Dict[str, Any]:
 
 
 def save(session: Session, verdicts: Dict[str, str]) -> Dict[str, Any]:
-    clean = {str(k): v for k, v in verdicts.items() if v in ("ok", "bad")}
+    clean = _drop_retired({str(k): v for k, v in verdicts.items() if v in ("ok", "bad")})
     now = _now()
     existing = {r.combo_id: r for r in session.exec(select(CamReview)).all()}
     keep = set(clean)

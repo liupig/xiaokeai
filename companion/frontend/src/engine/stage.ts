@@ -1,11 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MMDLoader, MMDPhysics } from 'three-stdlib';
-import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import type { VRM } from '@pixiv/three-vrm';
 
 import { makeMeshAvatar } from './avatar/mesh';
-import { makeVRMAvatar } from './avatar/vrm';
 import { BgmPlayer } from './bgm';
 import { CameraRig, type IdleMoveKind } from './camera';
 import { PerformanceDirector } from './director';
@@ -20,6 +18,35 @@ import type { ActionKey, Avatar, CamPreset, CamShotId, EmotionKey, QualityOption
 export type { StandSlot };
 
 const PHY_STEP = 1 / 65; // MMDPhysics 内部最小步长
+/** 1080p @ 2x；更高分辨率不再叠 DPR，避免 4K 开 2x 吃掉上百 MB 显存 */
+const PIXEL_BUDGET = 1920 * 1080 * 4;
+
+function fitPixelRatio(cap: number, w: number, h: number) {
+  const want = Math.min(window.devicePixelRatio || 1, Math.max(1, cap || 1));
+  const area = Math.max(1, w * h);
+  return Math.max(1, Math.min(want, Math.sqrt(PIXEL_BUDGET / area)));
+}
+
+function disposeGpu(root: THREE.Object3D) {
+  const seen = new Set<THREE.Texture>();
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry?.dispose();
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const mat of mats) {
+      if (!mat) continue;
+      for (const v of Object.values(mat)) {
+        const tex = v as THREE.Texture | undefined;
+        if (tex && tex.isTexture && !seen.has(tex)) {
+          seen.add(tex);
+          tex.dispose();
+        }
+      }
+      mat.dispose();
+    }
+  });
+}
 
 export interface ModelInfo {
   url: string;
@@ -28,7 +55,7 @@ export interface ModelInfo {
   supportsVmd: boolean;
 }
 
-/** 舞台插件：动捕等功能通过 use() 接入，舞台本身不依赖具体实现。 */
+/** 舞台插件：动捕 / 塔罗等通过 use() 接入，舞台本身不依赖具体实现。 */
 export interface StagePlugin {
   id?: string;
   /** PMX：摆臂 / 物理之前的 T-pose。 */
@@ -36,6 +63,8 @@ export interface StagePlugin {
   onAvatarReady?(root: THREE.Object3D, avatar: Avatar, vrm: VRM | null): void;
   onAvatarUnload?(): void;
   onMotionWillPlay?(): void;
+  /** 每帧：只动插件自己的物体，不要驱动骨骼。 */
+  onFrame?(dt: number): void;
   /** 返回 true 表示本帧骨骼已由插件驱动，跳过闲置 / VMD。 */
   applyPose?(): boolean;
 }
@@ -52,6 +81,12 @@ export class Stage {
   readonly bgm = new BgmPlayer();
   readonly stand = new StandController();
   private bgmGen = 0;
+  /** 舞+歌正在播：说话 / 走路 / 闲时动作不许把歌掐掉 */
+  private _danceLive = false;
+
+  get danceLive() {
+    return this._danceLive;
+  }
   /** 当前站位走动是否由本层发起的走路 VMD（到位后只停这一条） */
   private walkLocUrl = '';
   private walkLocActive = false;
@@ -61,7 +96,10 @@ export class Stage {
   });
 
   constructor() {
-    this.director.playIdleMotion = (url) => { void this.playMotion(url, { once: true }); };
+    this.director.playIdleMotion = (url) => {
+      if (this._danceLive) return;
+      void this.playMotion(url, { once: true });
+    };
   }
 
   onModelReady: ((info: ModelInfo) => void) | null = null;
@@ -89,20 +127,37 @@ export class Stage {
   private modelRoot: THREE.Object3D | null = null;
   private vrm: VRM | null = null;
   private physics: MMDPhysics | null = null;
+  private physicsHeld: MMDPhysics | null = null;
+  private physicsGen = 0;
+  private modelKind = '';
   private phyAcc = 0;
   private disposed = false;
   private loadSeq = 0;
   private bgSeq = 0;
   private bgUrl = '';
+  private bgTex: THREE.Texture | null = null;
   private plugins: StagePlugin[] = [];
+  private ammoReady: Promise<unknown> | null = null;
+  private pageVisible = true;
+  private host: HTMLElement | null = null;
+  private onResize: (() => void) | null = null;
+  private onVis: (() => void) | null = null;
 
   private quality: QualityOptions = { physics: true, pixelRatioCap: 2, lightLevel: 1 };
   // 当前模型类型的灯光基准值，乘以 lightLevel 得到实际强度
   private lightBase = { key: 1.8, rim: 1.0, amb: 0.9 };
+  /** 景别白名单：塔罗等玩法期间只许这些身位，空则不限制 */
+  camSizeLock: CamShotId[] | null = null;
 
   use(plugin: StagePlugin) {
     if (plugin.id) this.plugins = this.plugins.filter((p) => p.id !== plugin.id);
     this.plugins.push(plugin);
+  }
+
+  unuse(id: string) {
+    const gone = this.plugins.filter((p) => p.id === id);
+    this.plugins = this.plugins.filter((p) => p.id !== id);
+    for (const p of gone) p.onAvatarUnload?.();
   }
 
   private emit<K extends Exclude<keyof StagePlugin, 'id'>>(
@@ -123,8 +178,13 @@ export class Stage {
   }
 
   init(container: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.pixelRatioCap));
+    this.host = container;
+    const dpr = fitPixelRatio(
+      this.quality.pixelRatioCap, container.clientWidth, container.clientHeight);
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true, preserveDrawingBuffer: false, stencil: false,
+    });
+    this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(this.renderer.domElement);
@@ -167,25 +227,47 @@ export class Stage {
 
     this.buildPlatform();
 
-    const onResize = () => {
+    this.onResize = () => {
       const w = container.clientWidth || window.innerWidth;
       const h = container.clientHeight || window.innerHeight;
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
+      this.applyPixelRatio();
       this.renderer.setSize(w, h);
     };
-    window.addEventListener('resize', onResize);
+    window.addEventListener('resize', this.onResize);
+    this.onVis = () => {
+      const vis = document.visibilityState !== 'hidden';
+      if (vis && !this.pageVisible) {
+        this.pageVisible = true;
+        this.clock.getDelta();
+        this.animate();
+      } else {
+        this.pageVisible = vis;
+      }
+    };
+    document.addEventListener('visibilitychange', this.onVis);
 
     this.animate();
   }
 
   setQuality(opts: Partial<QualityOptions>) {
+    const wantPhysics = opts.physics;
     Object.assign(this.quality, opts);
-    if (this.renderer) {
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.pixelRatioCap));
-    }
-    if (!this.quality.physics) this.physics = null;
+    this.applyPixelRatio();
     this.applyLights();
+    if (wantPhysics === false) {
+      this.detachPhysics();
+    } else if (wantPhysics === true) {
+      void this.attachPhysics();
+    }
+  }
+
+  private applyPixelRatio() {
+    if (!this.renderer || !this.host) return;
+    const w = this.host.clientWidth || window.innerWidth;
+    const h = this.host.clientHeight || window.innerHeight;
+    this.renderer.setPixelRatio(fitPixelRatio(this.quality.pixelRatioCap, w, h));
   }
 
   private applyLights() {
@@ -487,8 +569,13 @@ export class Stage {
       this.bgUrl = url;
       const seq = ++this.bgSeq;
       new THREE.TextureLoader().load(url, (tex) => {
-        if (seq !== this.bgSeq) return;
+        if (seq !== this.bgSeq) {
+          tex.dispose();
+          return;
+        }
         tex.colorSpace = THREE.SRGBColorSpace;
+        this.dropBackgroundTex();
+        this.bgTex = tex;
         this.scene.background = tex;
         this.scene.fog = null;
         this.ground.visible = false;
@@ -496,13 +583,21 @@ export class Stage {
       return;
     }
     this.bgUrl = '';
-    const seq = ++this.bgSeq;
+    ++this.bgSeq;
+    this.dropBackgroundTex();
     const c = new THREE.Color(color || '#141420');
     this.scene.background = c;
     this.scene.fog = new THREE.Fog(c, 6, 14);
     // 地面颜色跟随背景：稍微提亮一点做出台面层次
     this.ground.visible = true;
     this.ground.material.color.copy(c).lerp(new THREE.Color(0xffffff), 0.08);
+  }
+
+  private dropBackgroundTex() {
+    if (!this.bgTex) return;
+    if (this.scene?.background === this.bgTex) this.scene.background = null;
+    this.bgTex.dispose();
+    this.bgTex = null;
   }
 
   /** 加载模型（.pmx / .vrm / .glb），自动卸载旧模型 */
@@ -512,20 +607,67 @@ export class Stage {
     this.unloadModel();
 
     if (ext === 'pmx') {
-      const mmd = await new Promise<THREE.SkinnedMesh>((resolve, reject) => {
-        new MMDLoader().load(url, (m) => resolve(m as THREE.SkinnedMesh), undefined, reject);
+      const manager = new THREE.LoadingManager();
+      manager.setURLModifier((u) => {
+        if (!u || u.startsWith('data:')) return u;
+        const hash = u.indexOf('#');
+        const query = u.indexOf('?');
+        let cut = u.length;
+        if (hash >= 0) cut = Math.min(cut, hash);
+        if (query >= 0) cut = Math.min(cut, query);
+        const path = u.slice(0, cut).replace(/\\/g, '/');
+        const tail = u.slice(cut);
+        const encoded = path.split('/').map((seg) => {
+          if (!seg) return seg;
+          try {
+            return encodeURIComponent(decodeURIComponent(seg));
+          } catch {
+            return encodeURIComponent(seg);
+          }
+        }).join('/');
+        return encoded + tail;
       });
-      if (seq !== this.loadSeq) return Promise.reject(new Error('已被更新的加载取代'));
+      manager.onError = (u) => {
+        console.warn('MMD 贴图/附件加载失败，继续显示模型：', u);
+      };
+      const mmd = await new Promise<THREE.SkinnedMesh>((resolve, reject) => {
+        let settled = false;
+        const loader = new MMDLoader(manager);
+        loader.setResourcePath(url.slice(0, url.lastIndexOf('/') + 1));
+        loader.load(
+          url,
+          (m) => {
+            settled = true;
+            resolve(m as THREE.SkinnedMesh);
+          },
+          undefined,
+          (err) => {
+            if (settled) return;
+            reject(err);
+          },
+        );
+      });
+      if (seq !== this.loadSeq) {
+        disposeGpu(mmd);
+        return Promise.reject(new Error('已被更新的加载取代'));
+      }
       return this.setupMMD(mmd, url);
     }
 
-    const loader = new GLTFLoader();
-    loader.register((parser) => new VRMLoaderPlugin(parser));
-    const gltf = await loader.loadAsync(url);
-    if (seq !== this.loadSeq) return Promise.reject(new Error('已被更新的加载取代'));
-
+    const loaderMod = await import('three/examples/jsm/loaders/GLTFLoader.js');
+    const loader = new loaderMod.GLTFLoader();
     let root: THREE.Object3D;
     if (ext === 'vrm') {
+      const [{ VRMLoaderPlugin, VRMUtils }, { makeVRMAvatar }] = await Promise.all([
+        import('@pixiv/three-vrm'),
+        import('./avatar/vrm'),
+      ]);
+      loader.register((parser) => new VRMLoaderPlugin(parser));
+      const gltf = await loader.loadAsync(url);
+      if (seq !== this.loadSeq) {
+        disposeGpu(gltf.scene);
+        return Promise.reject(new Error('已被更新的加载取代'));
+      }
       const vrm = gltf.userData.vrm as VRM;
       VRMUtils.removeUnnecessaryVertices(gltf.scene);
       if (typeof (VRMUtils as any).combineSkeletons === 'function') {
@@ -537,6 +679,11 @@ export class Stage {
       root = vrm.scene;
       if (vrm.lookAt) vrm.lookAt.target = this.camera;
     } else {
+      const gltf = await loader.loadAsync(url);
+      if (seq !== this.loadSeq) {
+        disposeGpu(gltf.scene);
+        return Promise.reject(new Error('已被更新的加载取代'));
+      }
       this.avatar = makeMeshAvatar(gltf.scene, GLB_BONES, GLB_MORPHS);
       root = gltf.scene;
     }
@@ -580,30 +727,76 @@ export class Stage {
     // 若记录的是 T-pose，恢复后闲置动画会瞬间拉回自然位、把挂饰链抽飞
     this.motion.attach(mmd);
     this.motion.onPhysicsReset = () => this.physics?.reset();
+    const info = this.finishSetup(mmd, url, 'pmx', true);
+    await this.attachPhysics();
+    return info;
+  }
 
-    // ammo.js 物理：头发、飘带、裙摆
-    if (this.quality.physics) {
-      try {
-        const AmmoInit = (window as any).Ammo;
-        if (typeof AmmoInit === 'function') {
-          (window as any).Ammo = await AmmoInit();
-        }
-        const ud = (mmd.geometry as THREE.BufferGeometry).userData.MMD;
-        this.physics = new MMDPhysics(mmd, ud.rigidBodies, ud.constraints);
-        this.physics.warmup(60); // 预跑让布料在起始姿势下稳定
-      } catch (e) {
-        console.warn('MMD 物理初始化失败，继续以无物理模式运行：', e);
-        this.physics = null;
-      }
+  private detachPhysics() {
+    this.physicsGen += 1;
+    try { this.physics?.reset(); } catch { /* */ }
+    this.physics = null;
+    this.phyAcc = 0;
+  }
+
+  private async attachPhysics() {
+    const gen = ++this.physicsGen;
+    if (!this.quality.physics || this.physics) return;
+    if (this.physicsHeld) {
+      if (gen !== this.physicsGen || !this.quality.physics) return;
+      this.physics = this.physicsHeld;
+      try { this.physics.reset(); } catch { /* */ }
+      return;
     }
+    const mmd = this.modelRoot as THREE.SkinnedMesh | null;
+    if (this.modelKind !== 'pmx' || !mmd?.isSkinnedMesh) return;
+    try {
+      await this.ensureAmmo();
+      if (gen !== this.physicsGen || !this.quality.physics) return;
+      const ud = (mmd.geometry as THREE.BufferGeometry).userData.MMD;
+      if (!ud?.rigidBodies?.length) return;
+      this.physics = new MMDPhysics(mmd, ud.rigidBodies, ud.constraints);
+      this.physics.warmup(60);
+      this.physicsHeld = this.physics;
+    } catch (e) {
+      console.warn('MMD 物理初始化失败，继续以无物理模式运行：', e);
+      if (gen === this.physicsGen) this.physics = null;
+    }
+  }
 
-    return this.finishSetup(mmd, url, 'pmx', true);
+  private ensureAmmo(): Promise<unknown> {
+    if (this.ammoReady) return this.ammoReady;
+    this.ammoReady = (async () => {
+      const w = window as any;
+      if (typeof w.Ammo !== 'function' && typeof w.Ammo !== 'object') {
+        await new Promise<void>((resolve, reject) => {
+          const s = document.createElement('script');
+          const base = import.meta.env.BASE_URL.endsWith('/')
+            ? import.meta.env.BASE_URL
+            : `${import.meta.env.BASE_URL}/`;
+          s.src = `${base}libs/ammo.wasm.js`;
+          s.async = true;
+          s.onload = () => resolve();
+          s.onerror = () => reject(new Error('ammo.wasm.js 加载失败'));
+          document.head.appendChild(s);
+        });
+      }
+      if (typeof w.Ammo === 'function') {
+        w.Ammo = await w.Ammo();
+      }
+      return w.Ammo;
+    })().catch((e) => {
+      this.ammoReady = null;
+      throw e;
+    });
+    return this.ammoReady;
   }
 
   private finishSetup(root: THREE.Object3D, url: string, format: string,
                       supportsVmd: boolean): ModelInfo {
     this.scene.add(root);
     this.modelRoot = root;
+    this.modelKind = format;
     // 保持当前站位（换模型不强制回中心）
     root.position.x = this.stand.x;
     this.camRig.focusX = this.stand.x;
@@ -627,6 +820,7 @@ export class Stage {
 
   private unloadModel() {
     this.bgmGen += 1;
+    this._danceLive = false;
     this.bgm.stop();
     this.emit('onAvatarUnload');
     this.motion.detach();
@@ -635,21 +829,17 @@ export class Stage {
     this.camRig.resetFocus();
     this.walkLocActive = false;
     this.walkLocUrl = '';
+    this.physicsGen += 1;
     this.physics = null;
+    this.physicsHeld = null;
+    this.modelKind = '';
     this.phyAcc = 0;
     this.expr.reset();
     this.director.reset();
     this.lipsync.setTalking(false);
     if (this.modelRoot) {
       this.scene.remove(this.modelRoot);
-      this.modelRoot.traverse((obj) => {
-        const mesh = obj as THREE.Mesh;
-        if (mesh.isMesh) {
-          mesh.geometry?.dispose();
-          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          mats.forEach((m) => m?.dispose());
-        }
-      });
+      disposeGpu(this.modelRoot);
       this.modelRoot = null;
     }
     this.vrm = null;
@@ -669,20 +859,26 @@ export class Stage {
     // 用户主动播别的动作时，取消「到位停走路」的所有权
     if (url !== this.walkLocUrl) this.walkLocActive = false;
     this.emit('onMotionWillPlay');
+    const isDance = !!opts?.dance;
+    if (!isDance && this._danceLive) {
+      return Promise.resolve(false);
+    }
     const gen = ++this.bgmGen;
     this.bgm.onEnded = null;
     const finish = () => {
       if (gen !== this.bgmGen) return;
       this.bgm.onEnded = null;
       this.bgm.stop();
+      this._danceLive = false;
       if (opts?.camera) this.camRig.stopVmd();
       opts?.onEnded?.();
     };
     this.motion.onStopped = finish;
     if (opts?.camera) void this.camRig.playVmd(opts.camera);
-    if (opts?.dance && opts.bgm) {
-      // 配乐只播一遍：VMD 跟着转，歌停人停，不再无限循环
+    if (isDance && opts.bgm) {
+      this._danceLive = true;
       this.bgm.play(opts.bgm, { loop: false });
+      if (this.bgm.ducked) this.bgm.setDuck(0.55, 180);
       this.bgm.onEnded = () => {
         if (gen === this.bgmGen) this.motion.stop();
       };
@@ -691,6 +887,7 @@ export class Stage {
         return ok;
       });
     }
+    this._danceLive = isDance;
     this.bgm.stop();
     return this.motion.play(url, { once: opts?.once, holdLast: opts?.holdLast }).then((ok) => {
       if (!ok) finish();
@@ -700,6 +897,7 @@ export class Stage {
 
   stopMotion() {
     this.bgmGen += 1;
+    this._danceLive = false;
     this.walkLocActive = false;
     this.bgm.stop();
     this.motion.stop();
@@ -708,6 +906,7 @@ export class Stage {
 
   /** 非舞蹈拍一上场就停歌，不要等动作真正开播（中间可能空 1 秒多）。 */
   silenceBgm() {
+    if (this._danceLive) return;
     this.bgmGen += 1;
     this.bgm.onEnded = null;
     this.bgm.stop();
@@ -715,6 +914,11 @@ export class Stage {
 
   setBgmVolume(v: number) {
     this.bgm.setVolume(v);
+  }
+
+  /** 舞已经定了、歌可能还在加载：先占住，别让走路/说话动作把即将开的歌掐掉。 */
+  holdDance() {
+    this._danceLive = true;
   }
 
   setEmotion(e: EmotionKey, intensity = 0.85) {
@@ -755,6 +959,7 @@ export class Stage {
 
   /** 从动作库挑走路循环，到位后停掉 */
   private async startWalkLocomotion() {
+    if (this._danceLive) return;
     this.stand.onArrive = () => this.finishWalkLocomotion();
     try {
       const { useAssetsStore } = await import('../stores/assets');
@@ -786,7 +991,7 @@ export class Stage {
   private finishWalkLocomotion() {
     if (!this.walkLocActive) return;
     this.walkLocActive = false;
-    if (this.motion.currentUrl === this.walkLocUrl) {
+    if (this.motion.currentUrl === this.walkLocUrl && !this._danceLive) {
       this.bgmGen += 1;
       this.bgm.stop();
       this.motion.stop();
@@ -795,15 +1000,27 @@ export class Stage {
   }
 
   playShot(id: CamShotId, instant = false, duration?: number) {
-    this.camRig.playShot(id, instant, duration);
+    this.camRig.playShot(this.clampCamSize(id), instant, duration);
   }
 
   playIdleCut(size: CamShotId, move: IdleMoveKind, duration?: number) {
-    this.camRig.playIdleCut(size, move, duration);
+    this.camRig.playIdleCut(this.clampCamSize(size), move, duration);
   }
 
   playCameraVmd(url: string, opts?: { once?: boolean }) {
+    if (this.camSizeLock?.length) return Promise.resolve();
     return this.camRig.playVmd(url, opts);
+  }
+
+  /** 景别锁：特写/半身近的落到 3/4，远景落到全身；运镜（偏转/俯仰）原样放行 */
+  clampCamSize(id: CamShotId): CamShotId {
+    const lock = this.camSizeLock;
+    if (!lock?.length) return id;
+    if (lock.includes(id)) return id;
+    const sizes: CamShotId[] = ['close', 'bust', 'half', 'threeQ', 'full', 'long'];
+    if (!sizes.includes(id)) return id;
+    if (id === 'long') return lock.includes('full') ? 'full' : lock[lock.length - 1];
+    return lock.includes('threeQ') ? 'threeQ' : lock[0];
   }
 
   stopCamera() {
@@ -813,6 +1030,26 @@ export class Stage {
 
   get cameraDriving() {
     return this.camRig.driving;
+  }
+
+  get threeCamera() {
+    return this.camera;
+  }
+
+  get threeScene() {
+    return this.scene;
+  }
+
+  get canvas() {
+    return this.renderer?.domElement ?? null;
+  }
+
+  get avatarRoot() {
+    return this.modelRoot;
+  }
+
+  get currentAvatar() {
+    return this.avatar;
   }
 
   get motionActive() {
@@ -825,14 +1062,20 @@ export class Stage {
 
   dispose() {
     this.disposed = true;
+    if (this.onResize) window.removeEventListener('resize', this.onResize);
+    if (this.onVis) document.removeEventListener('visibilitychange', this.onVis);
     this.unloadModel();
+    this.dropBackgroundTex();
+    this.disposePlatform();
+    for (const tex of this.platformTexCache.values()) tex.dispose();
+    this.platformTexCache.clear();
     this.renderer?.dispose();
     this.renderer?.domElement.remove();
   }
 
   // ---------- 主循环 ----------
   private animate = () => {
-    if (this.disposed) return;
+    if (this.disposed || !this.pageVisible) return;
     requestAnimationFrame(this.animate);
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const t = this.clock.elapsedTime;
@@ -876,6 +1119,8 @@ export class Stage {
       av.update(dt); // VRM 内部更新（表情/弹簧骨），MMD 为空操作
       this.motion.pinHold();
     }
+
+    this.emit('onFrame', dt);
 
     this.renderer.render(this.scene, this.camera);
   };

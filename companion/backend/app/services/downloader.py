@@ -205,6 +205,8 @@ async def run_download_task(task_id: str, url: str, token: str, on_complete) -> 
         task.update(status="importing", message="解压导入中…")
         created = await asyncio.to_thread(
             on_complete, dest, info, work_name)
+        if not created:
+            raise RuntimeError("下载成功，但压缩包里没有可导入的模型或动作")
         task.update(status="done", message=f"导入完成：{work_name}",
                     assets=[{"id": a.id, "kind": a.kind, "label": a.label}
                             for a in created])

@@ -5,7 +5,7 @@ import { MocapToolbar } from '../mocap';
 import { useCharacterStore } from '../../stores/character';
 import { useSettingsStore } from '../../stores/settings';
 
-type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake';
+type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake' | 'log';
 
 defineProps<{ active: PanelKey | null }>();
 const emit = defineEmits<{ (e: 'toggle', p: PanelKey): void }>();
@@ -18,6 +18,7 @@ const tools = computed(() => {
   const list: { key: PanelKey; label: string }[] = [
     { key: 'quick', label: '表情 / 动作 / 运镜' },
     { key: 'review', label: '镜头审查' },
+    { key: 'log', label: '会话记录' },
     { key: 'assets', label: '资产中心' },
     { key: 'settings', label: '设置' },
   ];
@@ -59,6 +60,13 @@ const tools = computed(() => {
               <circle cx="8.5" cy="14" r="1.2" fill="currentColor" stroke="none" />
               <circle cx="15.5" cy="14" r="1.2" fill="currentColor" stroke="none" />
             </svg>
+            <svg v-else-if="t.key === 'log'" viewBox="0 0 24 24" width="19" height="19" fill="none"
+                 stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 6h13M8 12h13M8 18h13" />
+              <circle cx="4" cy="6" r="1.1" fill="currentColor" stroke="none" />
+              <circle cx="4" cy="12" r="1.1" fill="currentColor" stroke="none" />
+              <circle cx="4" cy="18" r="1.1" fill="currentColor" stroke="none" />
+            </svg>
             <svg v-else-if="t.key === 'assets'" viewBox="0 0 24 24" width="19" height="19" fill="none"
                  stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 8l-9-5-9 5v8l9 5 9-5V8z" />
@@ -87,9 +95,10 @@ const tools = computed(() => {
 <style scoped>
 .topbar {
   position: absolute;
-  top: 16px;
+  top: calc(16px + var(--desk-chrome, 0px));
   left: 16px;
   right: 16px;
+  -webkit-app-region: no-drag;
   display: flex;
   justify-content: space-between;
   align-items: center;

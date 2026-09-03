@@ -36,6 +36,22 @@ function estimateSpeechSec(text: string): number {
   return Math.max(0.6, n * 0.22);
 }
 
+const PERF_TAG = /\[(emo|act|dance|cam|expr|intent|stand):[^\[\]]{1,80}\]/g;
+
+function stripCaption(text: string) {
+  return (text || '')
+    .replace(PERF_TAG, '')
+    .replace(/[（(【][^）)】]{1,48}[）)】]/g, '')
+    .replace(/[（(【][^）)】]{0,48}$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function speakForEngine(text: string) {
+  const plain = stripCaption(text);
+  return plain.replace(/[，、：:～~]+$/u, '。');
+}
+
 function normSpoken(text: string) {
   return (text || '').replace(/[\s，。！？、,.!?;；：:～~…"'“”]+/g, '');
 }
@@ -63,6 +79,8 @@ export class SpeechPlayer {
   duplexRemainSec = DEFAULT_DUPLEX_REMAIN_SEC;
   inputGen = 0;
   streamOpen = false;
+  /** 看牌读牌：跨轮也排队，不丢掉上一张还没念完的句子。 */
+  tarotHold = false;
   /** 每一句开播时回调（给选角器做句拍表演） */
   onSentence: ((text: string) => void) | null = null;
   onAllEnded: (() => void) | null = null;
@@ -72,10 +90,16 @@ export class SpeechPlayer {
     return this.playing || this.pending.length > 0 || this.currentClip != null || this.waitQueue.length > 0;
   }
 
-  /** 最近刚开口的正文，用来丢掉扬声器回声被 ASR 听成的字。 */
+  /** 刚说完一小段：扬声器尾音还可能被 ASR 收进去。 */
+  spokeRecently(ms = 900) {
+    if (this.isSpeaking()) return true;
+    return this.lastVoiceAt > 0 && Date.now() - this.lastVoiceAt < ms;
+  }
+
+  /** 整句落在她刚说的正文里，才当回声；三个字的日常话不要误杀。 */
   matchesSpoken(text: string): boolean {
     const a = normSpoken(text);
-    if (a.length < 2) return true;
+    if (a.length < 3) return false;
     const hay = normSpoken(this.spokenRecent + (this.currentClip?.text || ''));
     if (!hay) return false;
     if (hay.includes(a)) return true;
@@ -104,6 +128,7 @@ export class SpeechPlayer {
   /** 已分好句、还没发 TTS 请求。避免长故事一次性打满 GPU 锁。 */
   private waitQueue: PlayableUnit[] = [];
   private spokenRecent = '';
+  private lastVoiceAt = 0;
   private playing = false;
   private currentSource: AudioBufferSourceNode | null = null;
   private pcmSources: AudioBufferSourceNode[] = [];
@@ -120,6 +145,8 @@ export class SpeechPlayer {
   /** 已排进声卡的最后一块何时结束；下一段接在这条时间轴上，避免句间空白 */
   private tailEnded: Promise<void> = Promise.resolve();
   private lastCutCheck = 0;
+  /** 已排进声卡的句子时间轴：字幕跟正在出声的那一段，不跟正在拉流的下一句。 */
+  private captionTimeline: { text: string; start: number; end: number }[] = [];
 
   remainingSec(): number {
     this.ensureCtx();
@@ -144,6 +171,53 @@ export class SpeechPlayer {
     return Math.max(audioLeft, textLeft);
   }
 
+  private noteCaption(text: string, start: number, end: number) {
+    const plain = stripCaption(text);
+    if (!plain || end <= start) return;
+    const last = this.captionTimeline[this.captionTimeline.length - 1];
+    if (last && last.text === plain && start <= last.end + 0.08) {
+      last.end = Math.max(last.end, end);
+      return;
+    }
+    this.captionTimeline.push({ text: plain, start, end });
+  }
+
+  private pruneCaption(now: number) {
+    while (this.captionTimeline.length > 1 && this.captionTimeline[0].end <= now) {
+      this.captionTimeline.shift();
+    }
+    if (this.captionTimeline.length === 1 && this.captionTimeline[0].end < now - 0.25) {
+      this.captionTimeline.shift();
+    }
+  }
+
+  /**
+   * 字幕跟声卡时间轴上正在响的那一句，不是正在请求 TTS 的下一句。
+   */
+  liveCaption(): { text: string; progress: number } | null {
+    const audio = this.currentAudio;
+    if (audio && !audio.paused && Number.isFinite(audio.duration) && audio.duration > 0) {
+      const text = stripCaption(this.currentClip?.text || '');
+      if (text) {
+        return { text, progress: Math.max(0, Math.min(1, audio.currentTime / audio.duration)) };
+      }
+    }
+    this.ensureCtx();
+    const now = this.ctx!.currentTime;
+    this.pruneCaption(now);
+    const hit = this.captionTimeline.find((c) => now >= c.start && now < c.end)
+      ?? this.captionTimeline.find((c) => now >= c.start - 0.04 && now < c.end + 0.06);
+    if (hit) {
+      const dur = Math.max(0.08, hit.end - hit.start);
+      return { text: hit.text, progress: Math.max(0, Math.min(1, (now - hit.start) / dur)) };
+    }
+    if (this.currentClip && this.clipStartTime <= 0) {
+      const text = stripCaption(this.currentClip.text);
+      if (text) return { text, progress: 0 };
+    }
+    return null;
+  }
+
   private audible(): boolean {
     return this.clipStartTime > 0 || this.pcmHorizon > 0;
   }
@@ -166,7 +240,7 @@ export class SpeechPlayer {
       return 'interrupt';
     }
     return resolveDuplex({
-      cmd: sameTurn ? 'queue' : this.duplexCmd,
+      cmd: sameTurn || this.tarotHold ? 'queue' : this.duplexCmd,
       remaining: this.remainingSec(),
       threshold: this.duplexRemainSec,
       currentAudible: this.playing && this.audible(),
@@ -228,9 +302,12 @@ export class SpeechPlayer {
   }
 
   private fadeBgmForSpeech(on: boolean) {
-    const base = stage.bgm.getVolume();
-    if (on) stage.bgm.fadeTo(Math.max(0.04, base * 0.18), 280);
-    else stage.bgm.fadeTo(base, 500);
+    if (!on) {
+      stage.bgm.setDuck(1, 500);
+      return;
+    }
+    // 跳舞时歌是主声，只略压；平时压低以免盖过台词。
+    stage.bgm.setDuck(stage.danceLive ? 0.55 : 0.22, 280);
   }
 
   /** 当前句已经开口后，按队首的 DuplexCmd 再判一次。 */
@@ -265,6 +342,7 @@ export class SpeechPlayer {
     this.clipStartTime = 0;
     this.clipReceiving = false;
     this.currentClip = null;
+    this.captionTimeline = [];
     this.tailEnded = Promise.resolve();
     if (this.currentAudio) {
       this.currentAudio.pause();
@@ -273,7 +351,7 @@ export class SpeechPlayer {
   }
 
   private makeClip(text: string, unit: PlayableUnit): PendingClip | null {
-    const cleaned = text.trim();
+    const cleaned = stripCaption(text.trim());
     if (!cleaned || this.engine === 'off') return null;
     if (VOICE_ENGINES.has(this.engine) && !this.voice) return null;
     const gen = this.generation;
@@ -284,7 +362,7 @@ export class SpeechPlayer {
       job = Promise.resolve(null);
     } else if (STREAM_ENGINES.has(this.engine)) {
       job = api.ttsResponse(
-        cleaned, this.voice, this.engine, ac.signal,
+        speakForEngine(cleaned), this.voice, this.engine, ac.signal,
         this.qwenSize, this.qwenStyle, this.qwenInstruct,
       );
     } else {
@@ -311,7 +389,7 @@ export class SpeechPlayer {
       inputGen: turn,
     };
     const firstOfNewQa = !this.isSameQa(turn);
-    if (firstOfNewQa) this.dropOtherTurns(turn);
+    if (firstOfNewQa && !this.tarotHold) this.dropOtherTurns(turn);
     if (tagged.kind !== 'filler') this.dropFiller(turn);
     const action = this.resolveFor(tagged);
     if (action === 'skip') return;
@@ -344,7 +422,7 @@ export class SpeechPlayer {
     this.inputGen++;
     this.streamOpen = true;
     this.spokenRecent = '';
-    this.dropOtherTurns(this.inputGen);
+    if (!this.tarotHold) this.dropOtherTurns(this.inputGen);
     // SkipOnNew（超时续聊）正在播：用户开口就立刻停，不等 3 秒
     if (isSidecarClip(this.currentClip)) {
       this.cutCurrent();
@@ -375,6 +453,7 @@ export class SpeechPlayer {
     this.pcmHorizon = 0;
     this.clipStartTime = 0;
     this.clipReceiving = false;
+    this.captionTimeline = [];
     this.tailEnded = Promise.resolve();
     if (this.currentAudio) {
       this.currentAudio.pause();
@@ -385,6 +464,7 @@ export class SpeechPlayer {
     stage.lipsync.detachAnalyser();
     stage.lipsync.setTalking(false);
     this.playing = false;
+    this.lastVoiceAt = Date.now();
     this.fadeBgmForSpeech(false);
   }
 
@@ -427,7 +507,7 @@ export class SpeechPlayer {
   }
 
   private async fetchBuffer(text: string, signal: AbortSignal, gen: number): Promise<AudioBuffer | null> {
-    const blob = await api.tts(text, this.voice, this.engine, signal);
+    const blob = await api.tts(speakForEngine(text), this.voice, this.engine, signal);
     if (gen !== this.generation) return null;
     this.ensureCtx();
     return this.ctx!.decodeAudioData(await blob.arrayBuffer());
@@ -443,6 +523,7 @@ export class SpeechPlayer {
 
   private rememberSpoken(text: string) {
     this.spokenRecent = (this.spokenRecent + (text || '')).slice(-120);
+    this.lastVoiceAt = Date.now();
   }
 
   private async pump() {
@@ -498,6 +579,7 @@ export class SpeechPlayer {
       this.onAllEnded?.();
     }
     this.playing = false;
+    this.lastVoiceAt = Date.now();
     if (gen === this.generation && (this.pending.length || this.waitQueue.length)) void this.pump();
   }
 
@@ -514,6 +596,7 @@ export class SpeechPlayer {
       this.clipStartTime = t;
       this.pcmHorizon = t + buf.duration;
       this.clipReceiving = false;
+      this.noteCaption(this.currentClip?.text || '', t, this.pcmHorizon);
       this.maybeCutForPending();
       if (gen !== this.generation || token !== this.playToken) {
         resolve();
@@ -538,9 +621,9 @@ export class SpeechPlayer {
     stage.lipsync.attachAnalyser(this.analyser!);
     const reader = resp.body.getReader();
     let leftover = new Uint8Array(0);
-    const LOOKAHEAD = 0.08;
-    const MIN_FIRST = Math.max(1, Math.floor(sr * 0.05));
-    const MIN_REST = Math.max(1, Math.floor(sr * 0.1));
+    const LOOKAHEAD = 0.05;
+    const MIN_FIRST = Math.max(1, Math.floor(sr * 0.18));
+    const MIN_REST = Math.max(1, Math.floor(sr * 0.12));
     const alive = () => gen === this.generation && token === this.playToken;
     let started = false;
     let nextTime = this.pcmHorizon > this.ctx!.currentTime ? this.pcmHorizon : 0;
@@ -556,13 +639,21 @@ export class SpeechPlayer {
       src.connect(this.analyser!);
       const now = this.ctx!.currentTime;
       let t = nextTime > 0 ? nextTime : now + LOOKAHEAD;
-      // 上一块晚到：不要在「现在」硬切，稍垫一点再接，比中间空一截好听
-      if (t < now + 0.008) t = now + LOOKAHEAD;
+      // 欠载时立刻接上，不要再垫 80ms，否则听起来像一个字一个字往外蹦
+      if (t < now + 0.004) t = now + 0.004;
       nextTime = t + buf.duration;
       this.pcmHorizon = nextTime;
       const firstAudible = this.clipStartTime <= 0;
       if (firstAudible) this.clipStartTime = t;
-      this.tailEnded = new Promise((resolve) => { src.onended = () => resolve(); });
+      this.noteCaption(this.currentClip?.text || '', t, nextTime);
+      this.tailEnded = new Promise((resolve) => {
+        src.onended = () => {
+          const i = this.pcmSources.indexOf(src);
+          if (i >= 0) this.pcmSources.splice(i, 1);
+          if (this.currentSource === src) this.currentSource = null;
+          resolve();
+        };
+      });
       this.pcmSources.push(src);
       this.currentSource = src;
       src.start(t);
@@ -764,6 +855,7 @@ export class SpeechPlayer {
         this.ensureCtx();
         this.clipStartTime = this.ctx!.currentTime;
         this.clipReceiving = false;
+        this.noteCaption(text, this.clipStartTime, this.clipStartTime + estimateSpeechSec(text));
         stage.lipsync.setTalking(true);
         this.maybeCutForPending();
       };

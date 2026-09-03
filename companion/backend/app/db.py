@@ -23,6 +23,17 @@ def _migrate_columns() -> None:
             with engine.begin() as conn:
                 conn.execute(text(
                     "ALTER TABLE chatmessage ADD COLUMN kind VARCHAR DEFAULT 'qa'"))
+        if "full_content" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE chatmessage ADD COLUMN full_content VARCHAR DEFAULT ''"))
+    if "character" in tables:
+        cols = {c["name"] for c in insp.get_columns("character")}
+        if "boundary" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    'ALTER TABLE "character" ADD COLUMN boundary VARCHAR '
+                    "DEFAULT 'strict'"))
 
 
 def get_session():

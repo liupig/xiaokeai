@@ -9,6 +9,8 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
 
+from .narration import STAGE_RE, map_stage_inner
+
 TAG_RE = re.compile(r"\[(emo|act|dance|cam|expr|intent|stand):([^\[\]]{1,80})\]")
 
 SYSTEM_PROTOCOL = """
@@ -35,20 +37,12 @@ SYSTEM_PROTOCOL = """
      聊天默认 half，亲密 close，跳舞 full。运镜交给导演，不要自己点 45 度 / 90 度。
      不要背口诀（不要固定半身、不要告别必须拉远）。
 3. 不要使用 markdown、emoji、颜文字，只输出对话正文和标记。
+   不要用括号写动作或内心 OS。错：「（歪头蹭了蹭）对呀」——括号会被念出来。
+   对：「[emo:happy][intent:cute]对呀，就是憨憨。」
 """
 
 
-def build_messages(persona: str, motion_groups: Dict[str, List[str]],
-                   history: List[Dict[str, str]],
-                   morphs: Optional[List[str]] = None) -> List[Dict[str, str]]:
-    # 手势/表情由前端选角器按意图匹配，不再把长文件名塞进 prompt。
-    # 舞蹈仍需文件名，因为用户点名某支舞时要精确选；列表带中文名便于对上号。
-    _ = morphs
-    names = (motion_groups.get("dance") or [])[:48]
-    extra = (f"\n可用舞蹈（格式：文件名（舞蹈名），跳舞时输出 [dance:文件名]）：\n"
-             f"{chr(10).join(names)}") if names else ""
-    system = (persona or "你是一个温柔开朗的虚拟陪玩女孩。") + "\n" + SYSTEM_PROTOCOL + extra
-    return [{"role": "system", "content": system}] + history
+# prompt 组装已移至 services/prompt_stack.py（固定层架，每轮重拼）。
 
 
 class TagStreamParser:
@@ -61,15 +55,34 @@ class TagStreamParser:
         self.buf += delta
         events: List[Dict[str, str]] = []
         while True:
-            m = TAG_RE.search(self.buf)
+            m_tag = TAG_RE.search(self.buf)
+            m_st = STAGE_RE.search(self.buf)
+            m = None
+            kind = ""
+            if m_tag and m_st:
+                if m_tag.start() <= m_st.start():
+                    m, kind = m_tag, "tag"
+                else:
+                    m, kind = m_st, "stage"
+            elif m_tag:
+                m, kind = m_tag, "tag"
+            elif m_st:
+                m, kind = m_st, "stage"
             if m:
                 if m.start() > 0:
                     events.append({"type": "text", "delta": self.buf[: m.start()]})
-                events.append({"type": m.group(1), "value": m.group(2).strip()})
+                if kind == "tag":
+                    events.append({"type": m.group(1), "value": m.group(2).strip()})
+                else:
+                    events.extend(map_stage_inner(m.group(1)))
                 self.buf = self.buf[m.end():]
                 continue
-            # 尾部可能是未完成的标记，留在缓冲区
-            last_open = self.buf.rfind("[")
+            last_open = max(
+                self.buf.rfind("["),
+                self.buf.rfind("（"),
+                self.buf.rfind("("),
+                self.buf.rfind("【"),
+            )
             if last_open == -1:
                 if self.buf:
                     events.append({"type": "text", "delta": self.buf})
@@ -79,7 +92,6 @@ class TagStreamParser:
                 if head:
                     events.append({"type": "text", "delta": head})
                 self.buf = self.buf[last_open:]
-                # 缓冲区超长说明不是标记，直接放行
                 if len(self.buf) > 100:
                     events.append({"type": "text", "delta": self.buf})
                     self.buf = ""
@@ -87,17 +99,27 @@ class TagStreamParser:
         return events
 
     def flush(self) -> List[Dict[str, str]]:
-        if self.buf:
-            out = [{"type": "text", "delta": self.buf}]
-            self.buf = ""
-            return out
-        return []
+        if not self.buf:
+            return []
+        s = self.buf
+        self.buf = ""
+        if s.startswith("["):
+            return [{"type": "text", "delta": s}]
+        if s[:1] in ("（", "(", "【"):
+            return map_stage_inner(s[1:].strip("）)】"))
+        return [{"type": "text", "delta": s}]
+
+
+def _conf(llm_conf: Dict[str, Any]) -> Dict[str, Any]:
+    from .settings_store import apply_llm_overlay
+    return apply_llm_overlay(llm_conf)
 
 
 def build_payload(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]) -> Dict[str, Any]:
     """按设置组装请求体：采样参数 + 各服务商的思考开关方言。"""
+    model = llm_conf.get("model") or "gpt-4o-mini"
     payload: Dict[str, Any] = {
-        "model": llm_conf.get("model") or "gpt-4o-mini",
+        "model": model,
         "messages": messages,
         "stream": True,
         "temperature": float(llm_conf.get("temperature", 0.85)),
@@ -108,8 +130,9 @@ def build_payload(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]) -> D
         payload["max_tokens"] = max_tokens
 
     # 思考开关：default 时什么都不传（跟随模型默认，兼容仅思考/不思考的模型）
+    # 豆包角色模型不支持思考方言，传了会 400
     thinking = llm_conf.get("thinking") or "default"
-    if thinking in ("on", "off"):
+    if thinking in ("on", "off") and "character" not in model.lower():
         enabled = thinking == "on"
         base_url = llm_conf.get("base_url") or ""
         if "dashscope.aliyuncs.com" in base_url:
@@ -126,6 +149,7 @@ def build_payload(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]) -> D
 async def test_connection(llm_conf: Dict[str, Any]) -> Dict[str, Any]:
     """用当前配置发一次最小对话，验证地址/Key/模型是否匹配。"""
     import time
+    llm_conf = _conf(llm_conf)
     base_url = (llm_conf.get("base_url") or "").rstrip("/")
     if not llm_conf.get("api_key"):
         return {"ok": False, "message": "未填写 API Key"}
@@ -160,6 +184,7 @@ async def test_connection(llm_conf: Dict[str, Any]) -> Dict[str, Any]:
 async def stream_chat(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]
                       ) -> AsyncGenerator[Dict[str, Any], None]:
     """向 OpenAI 兼容接口发起流式对话，产出结构化事件。"""
+    llm_conf = _conf(llm_conf)
     base_url = (llm_conf.get("base_url") or "").rstrip("/")
     api_key = llm_conf.get("api_key") or ""
     if not api_key:
@@ -212,6 +237,7 @@ async def stream_chat(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]
 async def complete_json(llm_conf: Dict[str, Any], messages: List[Dict[str, str]],
                         max_tokens: int = 800, timeout: float = 60) -> Optional[Any]:
     """非流式 JSON 补全。失败返回 None。"""
+    llm_conf = _conf(llm_conf)
     base_url = (llm_conf.get("base_url") or "").rstrip("/")
     api_key = llm_conf.get("api_key") or ""
     if not api_key or not base_url:
@@ -262,6 +288,7 @@ def _parse_json_blob(raw: str) -> Optional[Any]:
 
 async def embed_texts(llm_conf: Dict[str, Any], texts: List[str]) -> Optional[List[List[float]]]:
     """OpenAI 兼容 embeddings。按常见模型名依次尝试。"""
+    llm_conf = _conf(llm_conf)
     base_url = (llm_conf.get("base_url") or "").rstrip("/")
     api_key = llm_conf.get("api_key") or ""
     if not api_key or not base_url or not texts:

@@ -5,6 +5,26 @@ type PoseMap = Map<THREE.Bone, { pos: THREE.Vector3; quat: THREE.Quaternion }>;
 
 /** 姿势过渡时长（秒）：动作切换 / 停止时从当前姿势平滑混合到目标姿势 */
 const BLEND_DURATION = 0.35;
+/** 已解析 VMD 很占堆内存，只留最近几条；当前正在播的不踢 */
+const CLIP_CACHE_MAX = 6;
+
+function rememberClip(
+  map: Map<string, THREE.AnimationClip>,
+  key: string,
+  clip: THREE.AnimationClip,
+  keep?: string,
+) {
+  if (map.has(key)) map.delete(key);
+  map.set(key, clip);
+  while (map.size > CLIP_CACHE_MAX) {
+    let drop: string | undefined;
+    for (const k of map.keys()) {
+      if (k !== keep && k !== key) { drop = k; break; }
+    }
+    if (drop === undefined) break;
+    map.delete(drop);
+  }
+}
 
 /**
  * VMD 动作播放器：运行时加载 / 切换 / 停止。
@@ -77,7 +97,7 @@ export class MotionPlayer {
         url,
         this.mesh!,
         (c) => {
-          this.clipCache.set(url, c as THREE.AnimationClip);
+          rememberClip(this.clipCache, url, c as THREE.AnimationClip, this.currentUrl);
           resolve(c as THREE.AnimationClip);
         },
         undefined,

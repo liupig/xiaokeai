@@ -13,11 +13,18 @@ export interface AssetItem {
   meta: string;
 }
 
+export interface MusicTrack {
+  name: string;
+  path: string;
+}
+
 export interface CharacterItem {
   id: number;
   name: string;
   model_asset_id: number;
   persona: string;
+  /** 聊天尺度：strict=不接暧昧 | flirt=可撩擦边不露骨 */
+  boundary?: string;
   greeting: string;
   voice: string;
   emotion_map: string;
@@ -46,6 +53,11 @@ export interface OnlineWork {
   url: string;
 }
 
+export interface TarotWait {
+  next: 'cut' | 'her_draw' | 'reveal' | string;
+  sec: number;
+}
+
 export type ChatEvent =
   | { type: 'text'; delta: string }
   | { type: 'speech'; id: string; text: string; duplex_cmd: string; sentence_type: string; kind?: string }
@@ -59,14 +71,24 @@ export type ChatEvent =
   | { type: 'stand'; value: string }
   | { type: 'error'; code: string; message: string }
   | { type: 'done'; full_text: string }
-  | { type: 'meta'; user_id?: number | null; message_id?: number | null };
+  | { type: 'meta'; user_id?: number | null; message_id?: number | null }
+  | { type: 'tarot'; action: string; wait?: TarotWait | null; session: TarotSession };
 
 export interface ChatMessageRow {
   id?: number;
   role: string;
   content: string;
+  full_content?: string;
   kind?: string;
   created_at?: string;
+  when?: string;
+}
+
+export interface TalkLogLine {
+  t: string;
+  kind: string;
+  kind_cn?: string;
+  text: string;
 }
 
 export interface ChatExtra {
@@ -80,6 +102,7 @@ export interface ChatExtra {
   scene_background?: string;
   scene_avoid?: string;
   scene_salt?: string;
+  scene_resume?: string;
   variation?: string;
   reroll?: boolean;
 }
@@ -118,6 +141,84 @@ export interface KeepsakeItem {
   created_at: string;
 }
 
+export interface TarotCard {
+  id: string;
+  name: string;
+  file: string;
+  url: string;
+  has_art: boolean;
+  arcana: string;
+  suit: string;
+  reversed: boolean;
+  hint: string;
+  position: string;
+  index: number;
+  back_url: string;
+  back_ready: boolean;
+  fan_index?: number;
+  clarifier?: boolean;
+}
+
+export type TarotPhase =
+  | 'off'
+  | 'intent'
+  | 'shuffle'
+  | 'cut'
+  | 'pick'
+  | 'placed'
+  | 'open'
+  | 'synth'
+  | 'linger';
+
+export interface TarotPlay {
+  id: string;
+  group: string;
+  title: string;
+  n: number;
+  layout: 'row' | 'choice' | 'celtic' | string;
+  positions: string[];
+  index?: number;
+}
+
+export interface TarotSession {
+  active: boolean;
+  spread: string;
+  title?: string;
+  layout?: string;
+  question: string;
+  phase?: TarotPhase | string;
+  cards: TarotCard[];
+  fan?: TarotCard[];
+  picked?: number[];
+  revealed?: number[];
+  focus: number | null;
+  dealt_at: number;
+  last_text?: string;
+  disclaimer?: boolean;
+  exited?: boolean;
+  step?: number;
+  need?: number;
+  can_continue?: boolean;
+  can_cut?: boolean;
+  can_pick?: boolean;
+  can_her_draw?: boolean;
+  can_clarifier?: boolean;
+  hint?: string;
+  clarifier_used?: boolean;
+  done?: boolean;
+  want_synth?: boolean;
+  all_revealed?: boolean;
+  last_action?: string;
+  wait?: TarotWait | null;
+  can_pick_play?: boolean;
+  plays?: TarotPlay[];
+}
+
+export interface TarotIntentResult {
+  action: 'draw' | 'dismiss' | 'keep' | 'none' | 'cut' | 'place' | 'clarifier' | 'reveal' | 'pick' | 'offer';
+  session: TarotSession;
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(url, init);
   if (!resp.ok) {
@@ -131,9 +232,34 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
+/** TTS 不要走前端反代：Vite / 打包版 pack_web 都会把 PCM 攒包，播出来一字一顿。 */
+function speechTtsUrl(): string {
+  if (import.meta.env.DEV) return 'http://127.0.0.1:8600/api/speech/tts';
+  const { protocol, hostname, port } = window.location;
+  if (port === '9615') return `${protocol}//${hostname}:9610/api/speech/tts`;
+  return '/api/speech/tts';
+}
+
+/** 把 assets 相对路径编成浏览器能请求的 URL（中文、空格、反斜杠都能找到文件）。 */
+export function encodeAssetPath(rel: string): string {
+  return rel
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .split('/')
+    .filter(Boolean)
+    .map((seg) => {
+      try {
+        return encodeURIComponent(decodeURIComponent(seg));
+      } catch {
+        return encodeURIComponent(seg);
+      }
+    })
+    .join('/');
+}
+
 export const api = {
   assetUrl(asset: AssetItem): string {
-    return `/assets/${asset.path}`;
+    return `/assets/${encodeAssetPath(asset.path)}`;
   },
 
   listAssets(kind?: string) {
@@ -159,6 +285,9 @@ export const api = {
   },
   recategorizeMotions() {
     return request<{ updated: number }>('/api/assets/recategorize', { method: 'POST' });
+  },
+  listMusic() {
+    return request<MusicTrack[]>('/api/assets/music');
   },
 
   listCharacters() {
@@ -255,6 +384,9 @@ export const api = {
   getChatHistory(characterId: number) {
     return request<ChatMessageRow[]>(`/api/chat/history/${characterId}`);
   },
+  getTalkLog(limit = 400) {
+    return request<{ when: string; lines: TalkLogLine[] }>(`/api/chat/talk-log?limit=${limit}`);
+  },
   classifyIngress(body: {
     text: string; busy: 'dance' | 'speech' | 'generate';
     last_user?: string; last_assistant?: string;
@@ -267,6 +399,16 @@ export const api = {
   },
   clearChatHistory(characterId: number) {
     return request(`/api/chat/history/${characterId}`, { method: 'DELETE' });
+  },
+  patchChatMessage(messageId: number, content: string) {
+    return request<ChatMessageRow | { ok: boolean; deleted?: boolean }>(
+      `/api/chat/message/${messageId}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      },
+    );
   },
 
   listMemory(characterId: number) {
@@ -368,6 +510,119 @@ export const api = {
     return request(`/api/modules/keepsakes/${id}`, { method: 'DELETE' });
   },
 
+  tarotCatalog() {
+    return request<{
+      back_url: string;
+      cards: TarotCard[];
+      art_count: number;
+      total: number;
+    }>('/api/modules/tarot/catalog');
+  },
+  tarotIntent(characterId: number, text: string, question = '') {
+    return request<TarotIntentResult>('/api/modules/tarot/intent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, text, question }),
+    });
+  },
+  tarotBegin(characterId: number, spread: string, question = '') {
+    return request<TarotIntentResult>('/api/modules/tarot/begin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, spread, question, redeal: true }),
+    });
+  },
+  tarotDraw(characterId: number, spread: string, question = '') {
+    return request<TarotIntentResult>('/api/modules/tarot/draw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, spread, question, redeal: true }),
+    });
+  },
+  tarotReadyCut(characterId: number) {
+    return request<TarotSession>('/api/modules/tarot/ready-cut', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tarotCut(characterId: number, entropy = '') {
+    return request<TarotSession>('/api/modules/tarot/cut', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, entropy }),
+    });
+  },
+  tarotPick(characterId: number, fanIndex: number) {
+    return request<TarotSession>('/api/modules/tarot/pick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, fan_index: fanIndex }),
+    });
+  },
+  tarotHerDraw(characterId: number) {
+    return request<TarotSession>('/api/modules/tarot/her-draw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tarotReveal(characterId: number, index: number) {
+    return request<TarotSession>('/api/modules/tarot/reveal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, index }),
+    });
+  },
+  tarotClarifier(characterId: number, host: number | null = null) {
+    return request<TarotSession>('/api/modules/tarot/clarifier', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, host }),
+    });
+  },
+  tarotLinger(characterId: number) {
+    return request<TarotSession>('/api/modules/tarot/linger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tarotSynthDone(characterId: number) {
+    return request<TarotSession>('/api/modules/tarot/synth-done', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tarotSeal(characterId: number) {
+    return request<TarotSession>('/api/modules/tarot/seal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tarotPlays() {
+    return request<{ plays: TarotPlay[] }>('/api/modules/tarot/plays');
+  },
+  tarotFocus(characterId: number, index: number | null) {
+    return request<TarotSession>('/api/modules/tarot/focus', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, index }),
+    });
+  },
+  tarotDismiss(characterId: number) {
+    return request<TarotIntentResult>('/api/modules/tarot/dismiss', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tarotSession(characterId: number) {
+    return request<TarotSession>(`/api/modules/tarot/session/${characterId}`);
+  },
+
   /** 流式对话：SSE 事件逐个回调；morphs 为当前模型可用的表情形态键（供 LLM 使用） */
   async streamChat(characterId: number, text: string,
                    onEvent: (ev: ChatEvent) => void, signal?: AbortSignal,
@@ -386,6 +641,7 @@ export const api = {
       scene_background: extra.scene_background || '',
       scene_avoid: extra.scene_avoid || '',
       scene_salt: extra.scene_salt || '',
+      scene_resume: extra.scene_resume || '',
       variation: extra.variation || '',
       reroll: !!extra.reroll,
     };
@@ -416,12 +672,11 @@ export const api = {
     }
   },
 
-  /** TTS：开发时直连后端，避免 Vite 代理把 PCM 流攒满再给浏览器。 */
   async ttsResponse(
     text: string, voice?: string, engine?: string, signal?: AbortSignal,
     qwenSize?: string, qwenStyle?: string, instruct?: string,
   ): Promise<Response> {
-    const url = import.meta.env.DEV ? 'http://127.0.0.1:8600/api/speech/tts' : '/api/speech/tts';
+    const url = speechTtsUrl();
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

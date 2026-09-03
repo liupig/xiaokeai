@@ -8,16 +8,18 @@ import re
 import threading
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 import httpx
 from sqlmodel import Session, select
 
-from ...models import Character, MemoryFact
+from ...models import Character, MemoryFact, utc_now
 from ...paths import MEM0_DIR
 from ...services import settings_store
+from .embed_local import probe as probe_local_minilm
 from ...services.llm import _parse_json_blob
+
+os.environ["MEM0_TELEMETRY"] = "False"
 
 KIND_CN = {
     "preference": "偏好",
@@ -54,7 +56,6 @@ _PERF_TAG_RE = re.compile(r"\[(?:emo|act|dance|cam):[^\]]*\]")
 
 _lock = threading.RLock()
 _cache: Dict[str, Any] = {"key": None, "llm_key": None, "mem": None, "migrated": False, "embed_sig": ""}
-_minilm_probe: Dict[str, Any] = {"tried": False, "emb": None}
 _IDENTITY_RE = re.compile(r"(用户的名字是|她的名字是|对方的名字是)")
 _PROBE_MODELS = (
     "text-embedding-v3",
@@ -76,7 +77,7 @@ def _uid(character_id: int) -> str:
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return utc_now()
 
 
 def _results(raw: Any) -> List[Dict[str, Any]]:
@@ -216,117 +217,6 @@ class RemoteEmbedder:
         return self._post(blob) if blob else []
 
 
-_LOCAL_MINILM = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-_LOCAL_MINILM_DIMS = 384
-
-
-def _minilm_local_dir() -> Optional[str]:
-    """直接用 HF 缓存里的 snapshot 目录，避免 from_pretrained(repo_id) 去打 huggingface.co。"""
-    hub = Path.home() / ".cache" / "huggingface" / "hub" / (
-        "models--" + _LOCAL_MINILM.replace("/", "--")
-    )
-    candidates: List[Path] = []
-    ref = hub / "refs" / "main"
-    if ref.is_file():
-        rev = ref.read_text(encoding="utf-8").strip()
-        if rev:
-            candidates.append(hub / "snapshots" / rev)
-    snaps = hub / "snapshots"
-    if snaps.is_dir():
-        candidates.extend(sorted(snaps.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True))
-    seen: set[str] = set()
-    for snap in candidates:
-        key = str(snap)
-        if key in seen or not snap.is_dir():
-            continue
-        seen.add(key)
-        has_weight = (snap / "model.safetensors").is_file() or (snap / "pytorch_model.bin").is_file()
-        if has_weight and (snap / "config.json").is_file():
-            return key
-    return None
-
-
-class LocalMiniLMEmbedder:
-    """本机已缓存的 MiniLM。只用 transformers 4.57，不装 sentence-transformers，避免把 TTS 升坏。CPU 推理。"""
-
-    def __init__(self, model, tokenizer, torch_mod):
-        self.model = model
-        self.tok = tokenizer
-        self.torch = torch_mod
-        self.dims = _LOCAL_MINILM_DIMS
-        self.model_name = "minilm"
-        self.config = type("Cfg", (), {"embedding_dims": self.dims, "model": "minilm"})()
-        self._gate = threading.Lock()
-
-    @classmethod
-    def probe(cls) -> Optional["LocalMiniLMEmbedder"]:
-        if _minilm_probe["tried"]:
-            return _minilm_probe["emb"]
-        local = _minilm_local_dir()
-        if not local:
-            print("[memory] MiniLM weights missing in HF cache")
-            _minilm_probe["tried"] = True
-            return None
-        try:
-            import torch
-            from transformers import AutoModel, AutoTokenizer
-        except Exception as exc:
-            print(f"[memory] MiniLM import fail: {exc}")
-            _minilm_probe["tried"] = True
-            return None
-        prev = {k: os.environ.get(k) for k in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")}
-        os.environ["HF_HUB_OFFLINE"] = "1"
-        os.environ["TRANSFORMERS_OFFLINE"] = "1"
-        try:
-            tok = AutoTokenizer.from_pretrained(local, local_files_only=True)
-            # TTS 加载过 accelerate 后，默认 low_cpu_mem_usage 会把权重放到 meta，
-            # 再 .to("cpu") 就会炸。关这个开关，老老实实进 CPU。
-            model = AutoModel.from_pretrained(
-                local, local_files_only=True, low_cpu_mem_usage=False,
-            )
-            model.eval()
-            for p in model.parameters():
-                p.requires_grad_(False)
-            if next(model.parameters()).device.type != "cpu":
-                model.to("cpu")
-            dummy = tok("ping", return_tensors="pt")
-            with torch.no_grad():
-                hid = model(**dummy).last_hidden_state
-            if hid.shape[-1] != _LOCAL_MINILM_DIMS:
-                print(f"[memory] MiniLM unexpected dim={hid.shape[-1]}")
-            print("[memory] local MiniLM ready dim=384 (cpu)")
-            emb = cls(model, tok, torch)
-            _minilm_probe["emb"] = emb
-            _minilm_probe["tried"] = True
-            return emb
-        except Exception as exc:
-            print(f"[memory] MiniLM load fail: {exc}")
-            _minilm_probe["tried"] = True
-            return None
-        finally:
-            for k, v in prev.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-
-    def embed(self, text, memory_action=None):
-        return self.embed_batch([text or " "])[0]
-
-    def embed_batch(self, texts, memory_action="add"):
-        blob = [(t or "").strip() or " " for t in texts]
-        with self._gate:
-            enc = self.tok(
-                blob, padding=True, truncation=True, max_length=256, return_tensors="pt",
-            )
-            with self.torch.no_grad():
-                hidden = self.model(**enc).last_hidden_state
-                mask = enc["attention_mask"].unsqueeze(-1).expand(hidden.size()).float()
-                pooled = (hidden * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
-                pooled = self.torch.nn.functional.normalize(pooled, p=2, dim=1)
-            return pooled.cpu().tolist()
-
-
 class _HashingEmbedder:
     """只用来把旧的 hashing 库读出来，再迁到真向量。"""
 
@@ -399,6 +289,48 @@ def _close_mem(mem) -> None:
             client.close()
     except Exception:
         pass
+
+
+_mem0_optional_patched = False
+
+
+def _patch_mem0_optional() -> None:
+    """离线包不装 spaCy / 不下载 Qdrant BM25。语义向量照常，关键词混合搜索关掉。"""
+    global _mem0_optional_patched
+    os.environ["MEM0_TELEMETRY"] = "False"
+    if _mem0_optional_patched:
+        return
+    _mem0_optional_patched = True
+    try:
+        import mem0.utils.spacy_models as spacy_models
+        spacy_models._load_failed_full = True
+        spacy_models._load_failed_lemma = True
+    except Exception:
+        pass
+    try:
+        import mem0.utils.lemmatization as lemma
+        lemma.lemmatize_for_bm25 = lambda text: text or ""
+    except Exception:
+        pass
+
+
+def _disable_mem0_bm25(mem) -> None:
+    vs = getattr(mem, "vector_store", None)
+    if vs is None:
+        return
+    try:
+        vs._has_bm25_slot = False
+        vs._bm25_encoder = False
+    except Exception:
+        pass
+
+
+def _mem0_from_config(cfg: Dict[str, Any]):
+    _patch_mem0_optional()
+    from mem0 import Memory
+    mem = Memory.from_config(cfg)
+    _disable_mem0_bm25(mem)
+    return mem
 
 
 def _dump_collection(mem, character_ids: Sequence[int]) -> List[Dict[str, Any]]:
@@ -520,8 +452,7 @@ def _restore_dump(mem, rows: List[Dict[str, Any]]) -> None:
 def _dump_hashing_store(session: Session, llm_conf: Dict[str, Any]) -> List[Dict[str, Any]]:
     ids = [c.id for c in session.exec(select(Character)).all() if c.id]
     try:
-        from mem0 import Memory
-        legacy = Memory.from_config(_mem0_config(llm_conf, dims=384, collection="companion_384"))
+        legacy = _mem0_from_config(_mem0_config(llm_conf, dims=384, collection="companion_384"))
         legacy.embedding_model = _HashingEmbedder(384)
         dump = _dump_collection(legacy, ids)
         _close_mem(legacy)
@@ -559,7 +490,7 @@ def _client(session: Session):
             return _cache["mem"]
     embedder = RemoteEmbedder.probe(conf)
     if embedder is None:
-        embedder = LocalMiniLMEmbedder.probe()
+        embedder = probe_local_minilm()
     sig = f"{getattr(embedder, 'model_name', getattr(embedder, 'model', 'none'))}:{getattr(embedder, 'dims', 0)}"
     key = (api_key, conf.get("base_url") or "", conf.get("model") or "", sig)
     with _lock:
@@ -574,11 +505,10 @@ def _client(session: Session):
         _close_mem(_cache.get("mem"))
         _cache["mem"] = None
         try:
-            from mem0 import Memory
             if embedder is None:
                 print("[memory] no embedding API and no local MiniLM; facts still stored, recall uses LLM")
                 cfg = _mem0_config(conf, dims=384, collection="companion_384")
-                mem = Memory.from_config(cfg)
+                mem = _mem0_from_config(cfg)
                 mem.embedding_model = _HashingEmbedder(384)
                 ids = [c.id for c in session.exec(select(Character)).all() if c.id]
                 old = ""
@@ -605,7 +535,7 @@ def _client(session: Session):
                 if old != sig:
                     dump = _dump_hashing_store(session, conf)
                 cfg = _mem0_config(conf, dims=int(embedder.dims), collection=coll)
-                mem = Memory.from_config(cfg)
+                mem = _mem0_from_config(cfg)
                 mem.embedding_model = embedder
                 ids = [c.id for c in session.exec(select(Character)).all() if c.id]
                 if old != sig:

@@ -1,4 +1,6 @@
-/** 用户插话分流：正在跳/正在说时，新文本是附和、先记下，还是立刻开新一轮。 */
+import { isTarotVoiceCommand } from '../tarot/intent';
+import { deskActivity } from '../desk/activity';
+import { tarotUi } from '../tarot/session';
 
 export type IngressAct = 'drop' | 'hold' | 'cut';
 export type IngressBusy = 'dance' | 'speech' | 'generate';
@@ -18,6 +20,14 @@ function norm(text: string) {
 export function localIngress(text: string, busy: IngressBusy): IngressAct | null {
   const t = norm(text);
   if (!t) return 'drop';
+  const act = deskActivity();
+  if (act === 'tarot' && isTarotVoiceCommand(t, tarotUi.phase || '')) return 'cut';
+  if (act === 'dance') {
+    if (CUT_RE.test(t) || ASK_RE.test(t)) return 'cut';
+    if (BACKCHANNEL_RE.test(t) || DROP_RE.test(t)) return 'drop';
+    if (t.length <= 2) return 'drop';
+    return 'cut';
+  }
   if (t.length <= 16 && !/[\u4e00-\u9fff]/.test(t)) return 'drop';
   if (CUT_RE.test(t) || ASK_RE.test(t)) return 'cut';
   if (BACKCHANNEL_RE.test(t) || DROP_RE.test(t)) return 'drop';
@@ -31,6 +41,7 @@ export function localIngress(text: string, busy: IngressBusy): IngressAct | null
 export function peekIngressCut(text: string): boolean {
   const t = norm(text);
   if (t.length < 2) return false;
+  if (deskActivity() === 'tarot' && isTarotVoiceCommand(t, tarotUi.phase || '')) return true;
   return CUT_RE.test(t) || ASK_RE.test(t);
 }
 

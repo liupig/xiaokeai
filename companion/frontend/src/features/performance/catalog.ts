@@ -22,11 +22,12 @@ export function inferIntents(user: string, assistant: string): Intent[] {
   if (/谢谢|感谢|好棒|厉害|优秀/.test(t)) add('bow');
   if (/比心|爱你|喜欢你|心动/.test(t)) add('heart');
   if (/亲|飞吻|mua/i.test(t)) add('kiss');
-  if (/害羞|不好意思|脸红/.test(t)) add('shy');
-  if (/俏皮|坏笑|逗你|调皮/.test(t)) add('tease');
+  if (/害羞|不好意思|脸红|耳尖/.test(t)) add('shy');
+  if (/俏皮|坏笑|逗你|调皮|偷笑/.test(t)) add('tease');
   if (/难过|伤心|不开心|哭|委屈|安慰/.test(t)) add('comfort');
   if (/坐|坐下|休息一下/.test(t)) add('sit');
   if (/为什么|怎么|吗[？?]|呢[？?]|想一想|让我想/.test(t)) add('think');
+  if (/歪头|脑袋一歪|侧头|蹭了蹭|凑近|掌心|贴过来/.test(t)) add('cute');
   if (/点头|对的|嗯嗯|好的|可以/.test(assistant) && hit.length === 0) add('nod');
   if (/不是|不要|不行/.test(assistant)) add('shake');
   if (/卖萌|可爱吧|好看吗/.test(t)) add('cute');

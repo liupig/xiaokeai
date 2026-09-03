@@ -25,6 +25,7 @@ const message = useMessage();
 const LLM_PRESETS: Record<string, { base: string; model: string }> = {
   bailian: { base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
   volcano: { base: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-seed-1-6-250615' },
+  volcano_character: { base: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-seed-character-260628' },
   deepseek: { base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
   moonshot: { base: 'https://api.moonshot.cn/v1', model: 'kimi-k2-turbo-preview' },
   zhipu: { base: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4.5-flash' },
@@ -35,6 +36,7 @@ const LLM_PRESETS: Record<string, { base: string; model: string }> = {
 const llmPresetOptions = [
   { label: '阿里云百炼（通义千问 / Kimi）', value: 'bailian' },
   { label: '火山方舟（豆包）', value: 'volcano' },
+  { label: '火山方舟（豆包角色）', value: 'volcano_character' },
   { label: 'DeepSeek 官方', value: 'deepseek' },
   { label: 'Moonshot（Kimi 官方）', value: 'moonshot' },
   { label: '智谱 GLM', value: 'zhipu' },
@@ -42,10 +44,14 @@ const llmPresetOptions = [
   { label: 'Google Gemini（OpenAI 兼容）', value: 'gemini' },
   { label: 'OpenRouter（海外模型聚合）', value: 'openrouter' },
 ];
-// 根据当前 base_url 反推预设，方便 UI 高亮
+// 根据当前 base_url + 模型名反推预设（同地址的豆包通用/角色要分开高亮）
 const currentPreset = computed(() => {
-  const found = Object.entries(LLM_PRESETS)
-    .find(([, p]) => settings.llm.base_url.startsWith(p.base));
+  const url = settings.llm.base_url;
+  const model = settings.llm.model;
+  const entries = Object.entries(LLM_PRESETS);
+  const exact = entries.find(([, p]) => url.startsWith(p.base) && p.model === model);
+  if (exact) return exact[0];
+  const found = entries.find(([, p]) => url.startsWith(p.base));
   return found ? found[0] : null;
 });
 
@@ -289,6 +295,20 @@ const asrEngineOptions = [
   { label: '在线 · 浏览器 Web Speech（Chrome/Edge）', value: 'browser' },
   { label: '离线 · SenseVoice-Small（本地 CPU）', value: 'sensevoice' },
 ];
+const hwHint = computed(() => {
+  const h = settings.hardware as {
+    auto?: boolean; tier?: string; ram_gb?: number; vram_gb?: number; reason?: string;
+  };
+  if (!h?.tier && !h?.reason) return '';
+  const names: Record<string, string> = { low: '低配', mid: '中配', high: '高配' };
+  const tier = names[h.tier || ''] || h.tier || '未知';
+  const bits = [
+    h.ram_gb ? `${h.ram_gb}GB 内存` : '',
+    (h.vram_gb || 0) > 0 ? `${h.vram_gb}GB 显存` : '无独显',
+  ].filter(Boolean).join('，');
+  const mode = h.auto ? '已按配置自动选择引擎，保证能启动' : '已按你保存的设置（不再自动改）';
+  return `本机 ${tier}${bits ? `（${bits}）` : ''}。${mode}。${h.reason || ''}`;
+});
 const ttsNeedsVoice = computed(() =>
   settings.tts.engine === 'cosy' || settings.tts.engine === 'edge' || settings.tts.engine === 'qwen'
 );
@@ -362,11 +382,21 @@ async function save() {
   emit('update:show', false);
 }
 
-async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake', on: boolean) {
+function onPhysics(v: boolean) {
+  settings.quality.physics = !!v;
+  settings.applyQuality();
+  void settings.save().catch(() => {});
+}
+
+async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot', on: boolean) {
   const prev = settings.modules[key];
   settings.modules[key] = on;
   try {
     await settings.save();
+    if (key === 'tarot' && !on) {
+      const { onModuleOff } = await import('../tarot');
+      await onModuleOff();
+    }
     if (key !== 'scenes') return;
     if (on && characters.currentId) {
       await restoreOrRotateScene({
@@ -392,27 +422,33 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake', on: 
     <n-tabs type="line">
       <n-tab-pane name="modules" tab="体验模块">
         <div class="form">
-          <p class="hint">关掉等于没装：对话、舞台和界面都不再走这条能力。默认全开。</p>
-          <label class="switch-row">
-            记忆 · 她会记住你说过的事
+          <p class="hint">关掉等于没装：对话、舞台和界面都不再走这条能力。低配会自动关掉记忆，避免向量库把进程拖死。</p>
+          <p v-if="hwHint" class="hint">{{ hwHint }}</p>
+          <div class="switch-row">
+            <span>记忆 · 她会记住你说过的事</span>
             <n-switch :value="settings.modules.memory" @update:value="(v: boolean) => toggleMod('memory', v)" />
-          </label>
+          </div>
           <p class="hint">Mem0 抽取并按语义召回。无 API Key 时不写入，已有记忆仍可看。</p>
-          <label class="switch-row">
-            情境 · 今晚有一场戏
+          <div class="switch-row">
+            <span>情境 · 今晚有一场戏</span>
             <n-switch :value="settings.modules.scenes" @update:value="(v: boolean) => toggleMod('scenes', v)" />
-          </label>
+          </div>
           <p class="hint">进门就在戏里，后面每一句也还在这场。可随机、点选或现编。背景、镜头、情绪跟着走。</p>
-          <label class="switch-row">
-            重写 · 重说、回溯、再演
+          <div class="switch-row">
+            <span>重写 · 重说、回溯、再演</span>
             <n-switch :value="settings.modules.rewrite" @update:value="(v: boolean) => toggleMod('rewrite', v)" />
-          </label>
+          </div>
           <p class="hint">上一句换个说法；回到某句之后重来；同一句换情绪再演一遍（不调模型）。</p>
-          <label class="switch-row">
-            证物 · 剧照和 8 秒短片
+          <div class="switch-row">
+            <span>证物 · 剧照和 8 秒短片</span>
             <n-switch :value="settings.modules.keepsake" @update:value="(v: boolean) => toggleMod('keepsake', v)" />
-          </label>
+          </div>
           <p class="hint">从舞台截下今晚的画面。记忆开启时，保存证物也会记一笔。开关立即生效，不必再点保存。</p>
+          <div class="switch-row">
+            <span>塔罗 · 面对面抽牌</span>
+            <n-switch :value="settings.modules.tarot" @update:value="(v: boolean) => toggleMod('tarot', v)" />
+          </div>
+          <p class="hint">她坐在对面给你抽。口头说「抽一张」或点对话栏的牌。仅供娱乐，不构成建议。关掉等于没装。</p>
         </div>
       </n-tab-pane>
       <n-tab-pane name="ai" tab="AI 对话">
@@ -426,7 +462,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake', on: 
                    placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
           <label>API Key</label>
           <n-input v-model:value="settings.llm.api_key" type="password"
-                   show-password-on="click" placeholder="sk-…" />
+                   show-password-on="click" placeholder="留空则使用系统环境变量 / .env" />
           <label>模型名</label>
           <n-input v-model:value="settings.llm.model"
                    placeholder="qwen-plus / deepseek-chat / doubao-seed-1-6 …" />
@@ -434,9 +470,13 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake', on: 
             <n-button size="small" type="primary" secondary
                       :loading="testing" @click="testLlm">测试连接</n-button>
           </div>
+          <p v-if="settings.llm_env || settings.llm_local" class="hint">
+            设置里未填 Key，正在使用系统环境变量 / 本地 .env。密钥不会写入数据库。
+          </p>
           <p class="hint">
             切换服务商后记得同时换成该服务商的 API Key（Key 不通用）。
-            火山方舟通常要填 ep- 开头的推理接入点 ID 作为模型名。
+            也可以把 Key 写到环境变量或 companion/scripts/.env（COMPANION_LLM_API_KEY / ARK_API_KEY），
+            前端留空即可直接用。火山方舟可用模型名（如 doubao-seed-character-260628），或填 ep- 接入点 ID。
             填完点「测试连接」自检，通过后再保存。
           </p>
           <label>思考（推理）模式</label>
@@ -461,6 +501,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake', on: 
       </n-tab-pane>
       <n-tab-pane name="voice" tab="语音">
         <div class="form">
+          <p v-if="hwHint" class="hint">{{ hwHint }}</p>
           <h3 class="section-title">语音识别 ASR</h3>
           <label>识别引擎（与合成互相独立）</label>
           <n-select v-model:value="settings.stt.engine" :options="asrEngineOptions" />
@@ -529,7 +570,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake', on: 
             <n-switch v-model:value="settings.tts.duplex_ingress" />
           </div>
           <p class="hint">
-            同一轮回复切成 A1、A2、A3 多段音频：只排队顺播，互不打断。
+            同一轮回复按完整句子切成 A1、A2、A3 多段音频：只排队顺播，互不打断。
             你又问了一句、上一轮还在播：剩得比上面的秒数多就切到新回答，少就让当前这句说完再播新的；上一轮还没开口的后半段丢掉。
             插话分流开着时：正在跳舞你说「跳的真好」不会停，说「换一支」才会停；正在说话时，嗯啊先记下，问句才开新一轮。语音也等出字再判，不会一出声就掐表演。
             双方都沉默时：先过一会儿再续聊（大约 10–28 秒，不会卡在整 6 秒），再过一阵主动搭话（大约半分钟到一分多），再按你多久没开口告别（大约 1.5–3.5 分钟）。每次都在区间里随机，像人在想要不要再开口。会话总长到了也会告别，之后不再自动说话，你开口才继续。
@@ -562,10 +603,12 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake', on: 
       </n-tab-pane>
       <n-tab-pane name="quality" tab="画质">
         <div class="form">
-          <label class="switch-row">
-            物理模拟（头发/裙摆摆动，低配机可关闭）
-            <n-switch v-model:value="settings.quality.physics" />
-          </label>
+          <div class="switch-row">
+            <span>物理模拟（头发/裙摆摆动，低配机可关闭）</span>
+            <n-switch v-model:value="settings.quality.physics"
+                      @update:value="onPhysics" />
+          </div>
+          <p class="hint">仅对 PMX 模型有效。开关立刻生效并记住。</p>
           <label>渲染分辨率上限（devicePixelRatio）</label>
           <n-slider v-model:value="settings.quality.pixel_ratio_cap"
                     :min="1" :max="3" :step="0.5" />
@@ -614,11 +657,11 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake', on: 
             <input ref="bgFileInput" type="file" accept="image/*" hidden
                    @change="onBgImageChosen" />
           </div>
-          <label class="switch-row" style="margin-top: 10px">
-            圆形舞台底座
+          <div class="switch-row" style="margin-top: 10px">
+            <span>圆形舞台底座</span>
             <n-switch v-model:value="settings.quality.stage_show"
                       @update:value="settings.applyQuality()" />
-          </label>
+          </div>
           <template v-if="settings.quality.stage_show">
             <div class="style-chips">
               <n-button v-for="s in STAGE_STYLES" :key="s.value" size="tiny" round
@@ -704,6 +747,12 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake', on: 
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.switch-row > span {
+  opacity: 0.8;
 }
 
 .hint {

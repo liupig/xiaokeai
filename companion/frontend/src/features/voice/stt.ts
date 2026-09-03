@@ -1,14 +1,23 @@
 /** 语音识别：在线浏览器 Web Speech，或离线 SenseVoice（浏览器端 Silero VAD 切段后送后端）。 */
 
-import * as vadWeb from '@ricky0123/vad-web';
 import { api } from '../../api/client';
 import { speechPlayer } from './tts';
 import { peekIngressCut } from './ingress';
 import { getMicStream, noteEchoLeak, isWasmMicStream } from './aec';
+import { isTarotVoiceCommand } from '../tarot/intent';
+import { tarotUi } from '../tarot/session';
 
 type MicVAD = import('@ricky0123/vad-web').MicVAD;
-const MicVAD = ((vadWeb as { MicVAD?: typeof import('@ricky0123/vad-web').MicVAD }).MicVAD
-  ?? (vadWeb as { default?: { MicVAD: typeof import('@ricky0123/vad-web').MicVAD } }).default?.MicVAD)!;
+
+async function loadMicVAD(): Promise<typeof import('@ricky0123/vad-web').MicVAD> {
+  const vadWeb = await import('@ricky0123/vad-web') as {
+    MicVAD?: typeof import('@ricky0123/vad-web').MicVAD;
+    default?: { MicVAD: typeof import('@ricky0123/vad-web').MicVAD };
+  };
+  const Ctor = vadWeb.MicVAD ?? vadWeb.default?.MicVAD;
+  if (!Ctor) throw new Error('Silero VAD 模块无效');
+  return Ctor;
+}
 
 export type SttEngine = 'browser' | 'sensevoice';
 
@@ -72,28 +81,66 @@ function rmsOf(samples: Float32Array) {
 }
 
 const JUNK_RE = /^([.。,，!！?？…~～、]+|(yeah|yes|yep|yup|ok(ay)?)+|(the|a|oh+|ah+|um+|hmm+|uh+|huh|mhm)[.。!！]*)+$/i;
+const FILLER_RE = /^(嗯+|啊+|哦+|噢+|额+|唔+|哈+|嘿+|哇+|呵+)$/;
+const GARBAGE_LINE_RE =
+  /^(字幕(组|志愿者|by.*)?|中文字幕|谢谢(观看|收看|大家)|感谢观看|请(订阅|点赞|收看)|下[一期集]再见|作[词曲]|编曲|哔哩哔哩|bilibili|thankyouforwatching|thanksforwatching|pleasesubscribe|明镜与点点|欢迎收看|本期节目|打开腾讯|小爱同学|我是小爱|music|歌词|asmr)$/i;
 
-/** 句号、The.、Yeah.、OkayOkay 这类基本是回声，不当作用户话发出去。 */
+function compactVoice(text: string) {
+  return (text || '').replace(/\s+/g, '').trim();
+}
+
+function cjkCount(text: string) {
+  return (text.match(/[\u4e00-\u9fff]/g) || []).length;
+}
+
+function meaningfulLen(text: string) {
+  return Array.from(text.replace(/[^\u4e00-\u9fffA-Za-z0-9]/g, '')).length;
+}
+
+/** 句号、The.、Yeah.、字幕、嗯嗯 这类杂音，不当作用户话。 */
 export function looksLikeAsrJunk(text: string) {
-  const t = (text || '').replace(/\s+/g, '').trim();
+  const t = compactVoice(text);
   if (!t) return true;
-  if (t.length <= 16 && !/[\u4e00-\u9fff]/.test(t)) return true;
-  if (t.length === 1) return true;
+  if (meaningfulLen(t) <= 1) return true;
+  if (FILLER_RE.test(t)) return true;
+  if (GARBAGE_LINE_RE.test(t.replace(/[。！？、,.!?;；…~～]/g, ''))) return true;
   return JUNK_RE.test(t);
 }
 
-/** 她正在念时：只有明确插话（停/换一个/提问）或足够长的中文新句才当真。 */
-function isEchoWhileSpeaking(text: string) {
-  if (looksLikeAsrJunk(text) || speechPlayer.matchesSpoken(text)) return true;
-  if (!speechPlayer.isSpeaking()) return false;
-  if (peekIngressCut(text)) return false;
-  const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length;
-  return cjk < 6;
+/**
+ * 像回声就不发送。
+ * 她在说话：真回声 + 单字/杂音拦；三个汉字以上放行（整句落在她刚说的正文里除外）。
+ * 她没说话：只拦单字和杂音，方便收音。
+ * 跳舞夸奖不在这里拦，交给 ingress 走「附和」。
+ */
+export function shouldDropAsEcho(text: string) {
+  const raw = (text || '').trim();
+  const t = compactVoice(raw);
+  if (!t) return true;
+
+  const phase = tarotUi.phase || '';
+  if (phase === 'intent' || isTarotVoiceCommand(raw, phase)) return false;
+
+  if (looksLikeAsrJunk(t)) return true;
+
+  const cjk = cjkCount(t);
+  const live = speechPlayer.isSpeaking() || speechPlayer.spokeRecently(900);
+
+  if (!live) {
+    if (cjk >= 2) return false;
+    return JUNK_RE.test(t) || meaningfulLen(t) < 3;
+  }
+
+  if (speechPlayer.matchesSpoken(raw)) return true;
+  if (cjk >= 3) return false;
+  if (peekIngressCut(raw)) return false;
+  return true;
 }
 
 export class SpeechInput {
   engine: SttEngine = 'browser';
   listening = false;
+  opening = false;
 
   private recognition: any = null;
   private vad: MicVAD | null = null;
@@ -141,9 +188,11 @@ export class SpeechInput {
     return this.ensureVad();
   }
 
-  start(onResult: ResultCb, onEnd: EndCb, onSpeechStart?: () => void): boolean {
+  start(onResult: ResultCb, onEnd: EndCb, onSpeechStart?: () => void, onError?: (err: unknown) => void): boolean {
     if (this.engine === 'sensevoice') {
-      void this.startLocal(onResult, onEnd, onSpeechStart);
+      void this.startLocal(onResult, onEnd, onSpeechStart).catch((e) => {
+        onError?.(e);
+      });
       return true;
     }
     return this.startBrowser(onResult, onEnd, onSpeechStart);
@@ -281,7 +330,7 @@ export class SpeechInput {
           tap: speechPlayer.aecTap(),
         });
       };
-      this.vadLoading = MicVAD.new({
+      this.vadLoading = loadMicVAD().then((MicVAD) => MicVAD.new({
         startOnLoad: false,
         model: 'v5',
         baseAssetPath: base,
@@ -338,7 +387,7 @@ export class SpeechInput {
       }).catch((e) => {
         this.vadLoading = null;
         throw e;
-      });
+      }));
     }
     return this.vadLoading;
   }
@@ -376,7 +425,10 @@ export class SpeechInput {
         else interim += r[0].transcript;
       }
       if (final || interim) onSpeechStart?.();
-      if (final) onResult(final, true);
+      if (final) {
+        if (shouldDropAsEcho(final)) onResult(final, true, { echo: true });
+        else onResult(final, true);
+      }
       else if (interim) onResult(interim, false);
     };
     rec.onend = () => {
@@ -418,6 +470,7 @@ export class SpeechInput {
 
   private async startLocal(onResult: ResultCb, onEnd: EndCb, onSpeechStart?: () => void) {
     const gen = ++this.gen;
+    this.opening = true;
     this.onResult = onResult;
     this.onEnd = onEnd;
     this.onSpeechStart = onSpeechStart;
@@ -428,26 +481,21 @@ export class SpeechInput {
     let vad: MicVAD;
     try {
       vad = await this.ensureVad();
-    } catch (e) {
-      console.warn('Silero VAD 加载失败', e);
       if (this.gen !== gen) return;
-      this.finishSession();
-      return;
-    }
-    if (this.gen !== gen) return;
-    try {
       await vad.start();
+      if (this.gen !== gen) {
+        await this.pauseVad();
+        return;
+      }
+      this.armSliceTimer();
     } catch (e) {
       console.warn('打开麦克风失败', e);
       if (this.gen !== gen) return;
       this.finishSession();
-      return;
+      throw e;
+    } finally {
+      if (this.gen === gen) this.opening = false;
     }
-    if (this.gen !== gen) {
-      await this.pauseVad();
-      return;
-    }
-    this.armSliceTimer();
   }
 
   private async recognize(audio: Float32Array) {
@@ -467,7 +515,7 @@ export class SpeechInput {
       if (this.gen !== gen) return;
       const text = (r.text || '').trim();
       if (!text) this.onResult?.('', true, { asrFail: true });
-      else if (isEchoWhileSpeaking(text)) {
+      else if (shouldDropAsEcho(text)) {
         this.onResult?.(text, true, { echo: true });
         if (noteEchoLeak()) this.needMicBounce = true;
       } else {

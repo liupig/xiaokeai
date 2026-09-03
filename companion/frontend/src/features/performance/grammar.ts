@@ -82,7 +82,6 @@ export const COMBOS: Combo[] = [
     distance: 'threeQ',
     shots: [
       { id: 'threeQ', grade: 'S' },
-      { id: 'low45', grade: 'A' },
       { id: 'yawL90', grade: 'B' },
       { id: 'yawR90', grade: 'B' },
     ],
@@ -100,7 +99,6 @@ export const COMBOS: Combo[] = [
     distance: 'full',
     shots: [
       { id: 'full', grade: 'S' },
-      { id: 'low45', grade: 'A' },
       { id: 'high45', grade: 'A' },
       { id: 'yawL90', grade: 'B' },
       { id: 'yawR90', grade: 'B' },
@@ -164,7 +162,7 @@ export function distanceOfShot(id: CamShotId | null | undefined): Distance {
   if (id === 'threeQ') return 'threeQ';
   if (id === 'full') return 'full';
   if (id === 'long') return 'long';
-  // 运镜（仰拍/左转…）不改景别
+  // 运镜（俯拍/左转…）不改景别
   if (id === 'half') return 'half';
   return 'half';
 }
@@ -364,7 +362,7 @@ export function shotHoldMs(id: CamShotId, cue: CoverCue): number {
 export function shotMoveSec(id: CamShotId): number {
   const table: Partial<Record<CamShotId, number>> = {
     close: 1.6, bust: 1.5, half: 1.5, threeQ: 1.7, full: 1.8, long: 2.0,
-    low45: 1.5, high45: 1.5,
+    high45: 1.5,
     yawL45: 1.6, yawR45: 1.6,
     yawL90: 2.0, yawR90: 2.0,
   };

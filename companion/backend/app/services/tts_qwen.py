@@ -11,6 +11,7 @@ import io
 import multiprocessing as mp
 import os
 import queue
+import re
 import threading
 import time
 import uuid
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Optional
 
 from ..paths import SPEECH_DIR
+from ..infer_backends import tts_framework
 
 SAMPLE_RATE = 24000
 DEFAULT_SIZE = "0.6b"
@@ -91,6 +93,7 @@ _state: Dict[str, Any] = {
     "message": "",
     "device": "",
     "size": "",
+    "framework": "",
 }
 _mp = mp.get_context("spawn")
 _spawn_lock = threading.Lock()
@@ -180,6 +183,7 @@ def _status_inproc() -> Dict[str, Any]:
         "gpu": gpu,
         "device": _state.get("device") or "",
         "size": _state.get("size") or _loaded_size or "",
+        "framework": _state.get("framework") or "",
         "sizes": sizes,
         "message": msg,
     }
@@ -306,14 +310,15 @@ def _load_model(size: str):
 
     import torch
     from qwen_tts import Qwen3TTSModel
+    from ..infer_runtime import configure_torch_for_tts
 
     _ensure_streaming_patch()
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    dtype = torch.bfloat16 if device.startswith("cuda") else torch.float32
+    device, dtype = configure_torch_for_tts()
     _state["loading"] = True
     _state["device"] = device
     _state["size"] = size
-    _state["message"] = f"正在加载 Qwen3-TTS {spec['label']}（{device}）…"
+    dtype_name = str(dtype).replace("torch.", "")
+    _state["message"] = f"正在加载 Qwen3-TTS {spec['label']}（{device}，{dtype_name}）…"
     last_err: Optional[Exception] = None
     source = _model_source(size)
     for attn in ("sdpa", None):
@@ -343,12 +348,41 @@ def _load_model(size: str):
     if not hasattr(_model, "generate_custom_voice_streaming"):
         _state["loading"] = False
         raise RuntimeError("未挂上流式接口。请安装：pip install qwen3-tts-streaming")
+    if hasattr(_model, "eval"):
+        try:
+            _model.eval()
+        except Exception:
+            pass
     _loaded_size = size
+    fw = tts_framework(device)
+    if device == "cpu":
+        inner = getattr(_model, "model", None)
+        if inner is not None:
+            try:
+                compiled = torch.compile(inner, mode="reduce-overhead", dynamic=True)
+                _model.model = compiled
+                fw = {"name": "torch.inductor", "via": "torch.compile"}
+            except Exception as exc:
+                print(f"[tts] torch.compile skip: {exc}")
+    _state["framework"] = fw.get("name") or ""
     _state["ready"] = True
     _state["loading"] = False
     _state["downloading"] = False
-    _state["message"] = f"Qwen3-TTS {spec['label']} 已加载（{device}，本地流式）"
+    _state["message"] = (
+        f"Qwen3-TTS {spec['label']} 已加载（{device}，{dtype_name}，{fw.get('name')}）"
+    )
     return _model
+
+
+_TRAIL_OPEN = re.compile(r"[，、：:～~]+$")
+
+
+def _speak_text(text: str) -> str:
+    """半句逗号收尾会让模型接着含糊往下编，合成前改成句号。"""
+    s = (text or "").strip()
+    if _TRAIL_OPEN.search(s):
+        return _TRAIL_OPEN.sub("。", s)
+    return s
 
 
 def _stream_chunks(
@@ -358,33 +392,36 @@ def _stream_chunks(
     """同步生成器：产出 float PCM numpy / tensor 块。"""
     model = _load_model(size)
     kwargs = dict(
-        text=text,
+        text=_speak_text(text),
         speaker=speaker,
         language=language,
-        chunk_size=2,
+        # 库默认 12≈1 秒；2 只有约 0.17 秒，生成稍慢或经反代就会播成一字一顿
+        chunk_size=8,
         max_new_tokens=512,
         non_streaming_mode=False,
     )
     if instruct.strip() and size != "0.6b":
         kwargs["instruct"] = instruct.strip()
-    backends = ("auto", "dynamic") if str(_state.get("device") or "").startswith("cuda") else ("dynamic",)
+    backends = ("faster", "dynamic") if str(_state.get("device") or "").startswith("cuda") else ("dynamic",)
     last_err: Optional[Exception] = None
-    for backend in backends:
-        try:
-            gen = model.generate_custom_voice_streaming(backend=backend, **kwargs)
+    import torch
+    with torch.inference_mode():
+        for backend in backends:
             try:
-                for item in gen:
-                    if cancel is not None and cancel.is_set():
-                        return
-                    yield item[0] if isinstance(item, tuple) else item
-            finally:
+                gen = model.generate_custom_voice_streaming(backend=backend, **kwargs)
                 try:
-                    gen.close()
-                except Exception:
-                    pass
-            return
-        except Exception as exc:
-            last_err = exc
+                    for item in gen:
+                        if cancel is not None and cancel.is_set():
+                            return
+                        yield item[0] if isinstance(item, tuple) else item
+                finally:
+                    try:
+                        gen.close()
+                    except Exception:
+                        pass
+                return
+            except Exception as exc:
+                last_err = exc
     raise RuntimeError(f"本地流式合成失败：{last_err}")
 
 
@@ -455,9 +492,11 @@ def synthesize_pcm_sync(
             if pcm:
                 if first:
                     first = False
-                    print(
-                        f"[perf] tts lock={lock_ms:.0f}ms first={(time.perf_counter()-t0)*1000:.0f}ms "
-                        f"n={len(text)} {text[:24]!r}"
+                    first_ms = (time.perf_counter() - t0) * 1000
+                    from .. import talk_log
+                    talk_log.write(
+                        "tts",
+                        f"锁 {lock_ms:.0f}ms · 首包 {first_ms:.0f}ms · {len(text)}字  {text[:40]}",
                     )
                 yield pcm
     finally:
@@ -488,6 +527,24 @@ def _stop_worker() -> None:
     _out_q = None
     _cancel_ev = None
     _reader = None
+
+
+def release() -> None:
+    """当前没用本地 Qwen TTS 时卸掉 GPU 进程，把显存还回去。"""
+    global _cached_status
+    if _is_tts_worker():
+        unload()
+        return
+    _stop_worker()
+    _cached_status = None
+    _state["ready"] = False
+    _state["loading"] = False
+    _state["downloading"] = False
+    _state["device"] = ""
+    _state["size"] = ""
+    _state["framework"] = ""
+    _state["message"] = "未加载（当前 TTS 不是本地 Qwen）"
+    print("[tts] released worker")
 
 
 def _reader_loop() -> None:
@@ -561,6 +618,7 @@ def status() -> Dict[str, Any]:
         "gpu": True,
         "device": "",
         "size": "",
+        "framework": "",
         "sizes": sizes,
         "message": _state.get("message") or "TTS 独立进程未启动",
         "process": "tts-worker",
@@ -568,8 +626,12 @@ def status() -> Dict[str, Any]:
     }
 
 
-def warmup(size: str = DEFAULT_SIZE) -> Dict[str, Any]:
+def warmup(size: str = DEFAULT_SIZE, *, download: bool = False) -> Dict[str, Any]:
     size = normalize_size(size)
+    if not _pkg_ok():
+        raise RuntimeError("未安装 qwen-tts")
+    if not download and not _local_ready(size):
+        raise FileNotFoundError(f"本地没有 Qwen3-TTS {VARIANTS[size]['label']} 权重")
     if _is_tts_worker():
         return _warmup_inproc(size)
     _ensure_worker()
@@ -605,6 +667,10 @@ async def synthesize_pcm(
     stop = cancel if cancel is not None else threading.Event()
     box = _waiter(job)
     _in_q.put(("synth", job, text, voice, size, instruct))
+    first_limit = 40.0
+    chunk_limit = 25.0
+    t_wait = time.perf_counter()
+    got = False
     try:
         while True:
             if stop.is_set():
@@ -617,6 +683,17 @@ async def synthesize_pcm(
             except queue.Empty:
                 if not _worker_alive():
                     raise RuntimeError("TTS 进程已退出")
+                limit = chunk_limit if got else first_limit
+                if (time.perf_counter() - t_wait) > limit:
+                    stop.set()
+                    try:
+                        _in_q.put(("cancel", job))
+                    except Exception:
+                        pass
+                    raise RuntimeError(
+                        "本地 TTS 超时。显存可能被其它残留 python 占满，"
+                        "请关掉旧的开发后端或任务管理器里无主 python.exe 后再试。"
+                    )
                 continue
             kind = msg[0]
             if kind == "pcm":
@@ -624,9 +701,13 @@ async def synthesize_pcm(
                     _in_q.put(("cancel", job))
                     return
                 yield msg[2]
+                got = True
+                t_wait = time.perf_counter()
             elif kind == "err":
                 raise RuntimeError(str(msg[2]))
             else:
+                if not got:
+                    raise RuntimeError("本地 TTS 未返回音频")
                 return
     finally:
         if stop.is_set():

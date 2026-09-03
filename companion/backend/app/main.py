@@ -1,24 +1,37 @@
 """Companion Studio 后端入口。"""
 import threading
+import warnings
+
+# Triton 在缺 CUDA Toolkit 时会刷 Failed to find CUDA/cuobjdump；推理仍走已编译的 torch 核。
+warnings.filterwarnings("ignore", message=r"Failed to find .*", module=r"triton(\.|$)")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlmodel import Session, select
+from starlette.types import Scope
+from sqlmodel import Session
 
 from .db import engine, init_db
 from .models import CamReview, Character, SceneState  # noqa: F401 — register table
-from .paths import ASSETS_DIR, KEEPSAKES_DIR
+from .paths import ASSETS_DIR, KEEPSAKES_DIR, WEB_DIR
 from .routers import assets, characters, chat, download, review, settings, speech
 from .modules.memory.router import router as memory_router
 from .modules.scenes.router import router as scenes_router
 from .modules.rewrite.router import router as rewrite_router
 from .modules.keepsake.router import router as keepsake_router
+from .modules.tarot.router import router as tarot_router
 from .services import catalog
 from .services import asr as asr_svc
 from .services import review_store
 from .services import settings_store
 from .services import tts_qwen
+from . import proc_reap
+
+
+class _AssetFiles(StaticFiles):
+    async def get_response(self, path: str, scope: Scope):
+        return await super().get_response((path or "").replace("\\", "/"), scope)
+
 
 app = FastAPI(title="Companion Studio API", version="0.1.0")
 
@@ -41,20 +54,21 @@ app.include_router(memory_router)
 app.include_router(scenes_router)
 app.include_router(rewrite_router)
 app.include_router(keepsake_router)
+app.include_router(tarot_router)
 
-app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
+app.mount("/assets", _AssetFiles(directory=str(ASSETS_DIR)), name="assets")
 app.mount("/keepsakes", StaticFiles(directory=str(KEEPSAKES_DIR)), name="keepsakes")
-
-DEFAULT_PERSONA = (
-    "你叫清宵，是一位国风御姐系虚拟陪玩。性格：温柔中带一点撩人，说话自信从容，"
-    "偶尔调侃用户但分寸得体。喜欢古风音乐和舞蹈，擅长跳极乐净土。"
-    "称呼用户为「小哥哥」或按用户要求。"
-)
 
 
 @app.on_event("startup")
 def startup() -> None:
+    n = proc_reap.reap_dead_workers()
+    if n:
+        print(f"[proc] reaped {n} leftover workers from last run")
+    import atexit
+    atexit.register(proc_reap.shutdown_workers)
     init_db()
+    print(f"[paths] assets={ASSETS_DIR}")
     with Session(engine) as session:
         n = review_store.migrate_if_needed(session)
         if n:
@@ -66,75 +80,101 @@ def startup() -> None:
         purged = catalog.purge_unreferenced_audio(session)
         if purged:
             print(f"[catalog] deleted {purged} non-dance audio files")
-        # 默认角色：清宵
-        if not session.exec(select(Character)).first():
-            from .models import Asset
-            model = session.exec(
-                select(Asset).where(Asset.kind == "model", Asset.name == "qingxiao")
-            ).first()
-            session.add(Character(
-                name="清宵",
-                model_asset_id=model.id if model else 0,
-                persona=DEFAULT_PERSONA,
-                greeting="小哥哥，你来啦～想聊点什么，还是想看我跳支舞？",
-                voice="",
-            ))
-            session.commit()
-        _migrate_tts_to_local_qwen(session)
+        seeded = catalog.ensure_default_characters(session)
+        if seeded:
+            print(f"[character] seeded {seeded} default characters")
+        from .services import autotune
+        autotune.apply_on_boot(session)
+        env = settings_store.env_llm()
+        if env.get("api_key"):
+            print(
+                f"[llm] env fallback ready model={env.get('model') or '-'} "
+                f"base={env.get('base_url') or '-'} (used when settings api_key is empty)"
+            )
     threading.Thread(target=_warmup_offline_speech, daemon=True).start()
 
 
-def _migrate_tts_to_local_qwen(session: Session) -> None:
-    """默认改回本地 Qwen 流式。云端 edge/cosy 仅作备选，不自动留下。"""
-    tts_conf = settings_store.get_all(session).get("tts") or {}
-    if tts_conf.get("engine") == "qwen":
-        return
-    tts_conf["engine"] = "qwen"
-    allowed = {v["id"] for v in tts_qwen.QWEN_VOICES}
-    if tts_conf.get("voice") not in allowed:
-        tts_conf["voice"] = "Vivian"
-    settings_store.update(session, {"tts": tts_conf})
+def _speech_engines() -> tuple[str, str]:
+    with Session(engine) as session:
+        conf = settings_store.get_all(session)
+    tts_eng = ((conf.get("tts") or {}).get("engine") or "").strip().lower()
+    stt_eng = ((conf.get("stt") or {}).get("engine") or "").strip().lower()
+    return tts_eng, stt_eng
+
+
+def _memory_enabled() -> bool:
+    with Session(engine) as session:
+        return bool((settings_store.get_all(session).get("modules") or {}).get("memory", True))
 
 
 def _warmup_offline_speech() -> None:
-    """启动后并行拉起 ASR CPU 进程、TTS GPU 进程、记忆抽取进程。"""
-    asr_thread = threading.Thread(target=_warmup_asr, daemon=True)
-    tts_thread = threading.Thread(target=_warmup_tts, daemon=True)
-    mem_thread = threading.Thread(target=_warmup_memory, daemon=True)
-    asr_thread.start()
-    tts_thread.start()
-    mem_thread.start()
+    """只预热当前选中的本地引擎。浏览器 ASR / edge-tts 不拉 SenseVoice、Qwen。"""
+    tts_eng, stt_eng = _speech_engines()
+    print(f"[speech] startup engines tts={tts_eng or 'unset'} stt={stt_eng or 'unset'}")
+    threads: list[threading.Thread] = []
+    if _memory_enabled():
+        threads.append(threading.Thread(target=_warmup_memory, daemon=True))
+    else:
+        print("[memory] skip warmup (module off)")
+    if stt_eng == "sensevoice":
+        threads.append(threading.Thread(target=_warmup_asr, daemon=True))
+    else:
+        print("[asr] skip warmup (engine is not sensevoice)")
+    if tts_eng == "qwen":
+        threads.append(threading.Thread(target=_warmup_tts, daemon=True))
+    else:
+        print("[tts] skip warmup (engine is not qwen)")
+    for t in threads:
+        t.start()
 
 
 def _warmup_memory() -> None:
     from .modules.memory import worker as memory_worker
+    from .services import autotune
     try:
         memory_worker.ensure()
     except Exception as exc:
         print(f"[memory] worker start failed: {exc}")
+        autotune.fallback_memory(str(exc))
 
 
 def _warmup_asr() -> None:
+    from .services import autotune
     try:
-        asr_svc.warmup()
+        asr_svc.warmup(download=False)
     except Exception as exc:
         asr_svc._state["message"] = str(exc)
         asr_svc._state["downloading"] = False
+        print(f"[asr] warmup failed: {exc}")
+        autotune.fallback_stt(str(exc))
 
 
 def _warmup_tts() -> None:
+    from .services import autotune
     with Session(engine) as session:
         tts_conf = settings_store.get_all(session).get("tts") or {}
     if tts_conf.get("engine") != "qwen":
         return
     try:
-        tts_qwen.warmup(tts_conf.get("qwen_size") or "0.6b")
+        tts_qwen.warmup(tts_conf.get("qwen_size") or "0.6b", download=False)
     except Exception as exc:
         tts_qwen._state["message"] = str(exc)
         tts_qwen._state["loading"] = False
         tts_qwen._state["downloading"] = False
+        print(f"[tts] warmup failed: {exc}")
+        autotune.fallback_tts(str(exc))
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    proc_reap.shutdown_workers()
+    proc_reap.reap_children()
 
 
 @app.get("/api/health")
 def health():
     return {"ok": True}
+
+
+if (WEB_DIR / "index.html").is_file():
+    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")

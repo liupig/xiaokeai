@@ -4,6 +4,11 @@
   box-sizing: border-box;
 }
 
+html {
+  --desk-chrome: 0px;
+  --desk-controls: 0px;
+}
+
 html,
 body,
 #app {
@@ -13,6 +18,15 @@ body,
   background: #141420;
   color: #e8e8f0;
   font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+html.is-desktop {
+  --desk-chrome: env(titlebar-area-height, 36px);
+  --desk-controls: calc(100vw - env(titlebar-area-x, 100vw) - env(titlebar-area-width, 0px));
+}
+
+html.is-desktop .n-drawer-container {
+  inset: var(--desk-chrome) 0 0 0;
 }
 
 ::-webkit-scrollbar {

@@ -42,12 +42,36 @@ Setup, tag protocol, and troubleshooting: [`companion/README.md`](./companion/RE
 
 Needs Windows, Node.js 18+, Python 3.11+. A NVIDIA GPU helps local Qwen3-TTS.
 
+Use two terminals of your own. Do not leave the servers as Cursor background jobs (they often survive as orphans after the chat ends).
+
+**Terminal 1 · backend** (http://127.0.0.1:8600)
+
 ```bat
-cd companion
-start.bat
+cd companion\backend
+set NO_PROXY=*
+set PYTHONUNBUFFERED=1
+.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8600
 ```
 
-Opens http://localhost:5175 (API at http://127.0.0.1:8600). Fill an OpenAI-compatible `base_url` / `api_key` / `model` in Settings for real chat. An empty stage is expected until you import a PMX / VRM / GLB. Offline ASR / TTS weights download on first “prepare model”; do not commit `companion/backend/data/`.
+PowerShell: `$env:NO_PROXY='*'; $env:PYTHONUNBUFFERED='1'` then the same uvicorn line.
+
+**Terminal 2 · frontend** (http://localhost:5175)
+
+```bat
+cd companion\frontend
+npm run dev
+```
+
+Do **not** pass `--reload` or `--workers`. After Python changes, Ctrl+C in terminal 1 and start uvicorn again. Stop with Ctrl+C in both terminals. If a port is still held:
+
+```powershell
+foreach ($port in 8600, 5175) {
+  Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+    ForEach-Object { taskkill /PID $_.OwningProcess /T /F }
+}
+```
+
+Open http://localhost:5175. Fill an OpenAI-compatible `base_url` / `api_key` / `model` in Settings for real chat. An empty stage is expected until you import a PMX / VRM / GLB. Offline ASR / TTS weights download on first “prepare model”; do not commit `companion/backend/data/`. First-time deps: `python -m venv .venv` then pip/npm, or run `companion\start.bat` once.
 
 ## Acknowledgements
 

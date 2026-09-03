@@ -37,6 +37,46 @@ class SampleQueue {
   }
 }
 
+type Aec3Factory = {
+  AEC3: new (rate: number, r: number, c: number) => Aec3Instance;
+};
+
+type WebRtcAec3Fn = () => Promise<Aec3Factory>;
+
+function publicUrl(rel: string): string {
+  const base = import.meta.env.BASE_URL.endsWith('/')
+    ? import.meta.env.BASE_URL
+    : `${import.meta.env.BASE_URL}/`;
+  return `${base}${rel}`;
+}
+
+let aec3Loader: Promise<WebRtcAec3Fn> | null = null;
+
+/** 用经典 script 加载：库顶层写了 WebRtcAec3Wasm=…，ES 模块严格模式会直接抛 ReferenceError。 */
+function loadWebRtcAec3(): Promise<WebRtcAec3Fn> {
+  if (aec3Loader) return aec3Loader;
+  aec3Loader = new Promise<WebRtcAec3Fn>((resolve, reject) => {
+    const w = window as Window & { WebRtcAec3?: WebRtcAec3Fn };
+    if (typeof w.WebRtcAec3 === 'function') {
+      resolve(w.WebRtcAec3);
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = publicUrl('aec3/webrtcaec3-0.3.0.js');
+    s.async = true;
+    s.onload = () => {
+      if (typeof w.WebRtcAec3 === 'function') resolve(w.WebRtcAec3);
+      else reject(new Error('webrtcaec3 模块无效'));
+    };
+    s.onerror = () => reject(new Error('webrtcaec3 脚本加载失败'));
+    document.head.appendChild(s);
+  }).catch((e) => {
+    aec3Loader = null;
+    throw e;
+  });
+  return aec3Loader;
+}
+
 export async function openWasmAec(ctx: AudioContext, tap: AudioNode): Promise<WasmAecHandle> {
   const raw = await navigator.mediaDevices.getUserMedia({
     audio: {
@@ -48,12 +88,7 @@ export async function openWasmAec(ctx: AudioContext, tap: AudioNode): Promise<Wa
   });
   if (ctx.state === 'suspended') await ctx.resume();
 
-  const imported = await import('@ennuicastr/webrtcaec3.js') as {
-    default?: () => Promise<{ AEC3: new (rate: number, r: number, c: number) => Aec3Instance }>;
-    WebRtcAec3?: () => Promise<{ AEC3: new (rate: number, r: number, c: number) => Aec3Instance }>;
-  };
-  const WebRtcAec3 = imported.default ?? imported.WebRtcAec3;
-  if (!WebRtcAec3) throw new Error('webrtcaec3 模块无效');
+  const WebRtcAec3 = await loadWebRtcAec3();
   const factory = await WebRtcAec3();
   const aec: Aec3Instance = new factory.AEC3(48000, 1, 1);
   aec.setAudioBufferDelay(80);

@@ -25,6 +25,12 @@ def list_assets(kind: Optional[str] = None,
     return session.exec(stmt.order_by(Asset.id)).all()
 
 
+@router.get("/music")
+def list_music() -> List[dict]:
+    """舞蹈没绑专属 BGM 时，从曲库随机抽一曲。"""
+    return catalog.list_music_library()
+
+
 @router.post("/rescan")
 def rescan(session: Session = Depends(get_session)):
     created = catalog.scan_all(session)

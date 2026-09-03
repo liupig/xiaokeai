@@ -34,10 +34,17 @@ export const useCharacterStore = defineStore('character', {
       if (!char) return;
       // 换角色：中断旧角色的对话流、语音、动作和 BGM
       const { useChatStore } = await import('./chat');
-      useChatStore().cancelStream();
+      void useChatStore().cancelStream();
       speechPlayer.stop();
       stage.stopMotion();
       this.currentId = id;
+      try {
+        const { tarotLayerOn } = await import('../features/tarot/gate');
+        if (tarotLayerOn.value) {
+          const { onCharacterSwitch } = await import('../features/tarot');
+          await onCharacterSwitch();
+        }
+      } catch { /* 塔罗未触发过 */ }
       const assets = useAssetsStore();
       if (!assets.models.length) await assets.refresh();
       const model = assets.modelById(char.model_asset_id) ?? assets.models[0];

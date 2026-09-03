@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { api, type AssetItem, type DownloadTask } from '../api/client';
+import { ensureDanceMusicLibrary } from '../features/assets/motionMeta';
 
 export const useAssetsStore = defineStore('assets', {
   state: () => ({
@@ -21,6 +22,7 @@ export const useAssetsStore = defineStore('assets', {
         this.models = all.filter((a) => a.kind === 'model');
         this.motions = all.filter((a) => a.kind === 'motion');
         this.cameras = all.filter((a) => a.kind === 'camera');
+        void ensureDanceMusicLibrary();
       } finally {
         this.loading = false;
       }

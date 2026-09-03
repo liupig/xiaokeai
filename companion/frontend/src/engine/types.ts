@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import type * as THREE from 'three';
 
 export type BoneKey =
   | 'hips' | 'spine' | 'chest' | 'head'
@@ -12,7 +12,7 @@ export type CamPreset = 'close' | 'half' | 'full';
 export type CamShotId =
   | CamPreset
   | 'bust' | 'threeQ' | 'long'
-  | 'low45' | 'high45'
+  | 'high45'
   | 'yawL45' | 'yawR45'
   | 'yawL90' | 'yawR90';
 

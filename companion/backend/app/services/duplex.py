@@ -9,11 +9,8 @@ import re
 import uuid
 from typing import Any, Dict, List, Tuple
 
-HARD_END = re.compile(r"[。！？!?；;\n]")
-SOFT_END = re.compile(r"[，、～~]")
-FIRST_FLUSH_CHARS = 10
-# 一句一个请求，不超过 15 字，插话时 GPU 锁得住
-MAX_UNIT_CHARS = 15
+from .narration import peel_stage_dirs
+from .speech_split import SentenceSplitter
 
 BODY_CMDS = {
     "queue", "interrupt", "interrupt_or_queue",
@@ -47,6 +44,18 @@ GOODBYE_HINT = (
     "不要提问，不要邀舞，不要旁白，不要说「超时」「会话结束」。"
 )
 
+CONTINUE_IN_SCENE = (
+    "用户这轮暂时没再说话。这是超时续聊：一两句口语，最后轻轻追问。"
+    "不要旁白，不要 [dance:]，不要重复上一句。"
+    "场合和镜头见后面的情境，不要切回空白半身闲聊。"
+)
+
+PROACTIVE_IN_SCENE = (
+    "双方沉默了一会儿。再轻轻接一句，换个角度追问。"
+    "一两句口语。不要旁白，不要 [dance:]。"
+    "场合和镜头见后面的情境，不要切回空白半身闲聊。"
+)
+
 WELCOME_HINT = (
     "对方刚打开页面，这是会话开头「Welcome」。用户这轮还没说话。"
     "你要像真人刚看见对方那样随口接一句，不要念稿。"
@@ -65,7 +74,8 @@ WELCOME_HINT = (
 _NARRATION_START = re.compile(
     r"^(轻轻[地]?|微微|抬手|伸手|低头|侧过|转过|给自己|为自己|"
     r"倒了杯|端起|抿了|眨了眨眼|笑了笑|把玩|摩挲|拂了拂|"
-    r"抬眼|垂眸|撑着腮|托着腮)"
+    r"抬眼|垂眸|撑着腮|托着腮|脑袋一歪|歪着头|凑过来|蹭了蹭|"
+    r"一头扎|撞进你)"
 )
 
 
@@ -111,9 +121,8 @@ def tag_for_kind(kind: str, body_cmd: str = "interrupt_or_queue") -> Tuple[str, 
 
 
 def make_unit(text: str, kind: str, body_cmd: str = "interrupt_or_queue") -> Dict[str, Any]:
-    cleaned = (text or "").strip()
-    if (kind or "").lower() in ("delayed", "proactive", "goodbye", "welcome"):
-        cleaned = strip_spoken_narration(cleaned)
+    cleaned, _extras = peel_stage_dirs(text or "")
+    cleaned = strip_spoken_narration(cleaned)
     cmd, stype = tag_for_kind(kind, body_cmd)
     return {
         "type": "speech",
@@ -124,73 +133,6 @@ def make_unit(text: str, kind: str, body_cmd: str = "interrupt_or_queue") -> Dic
         "kind": kind,
         "update_context": cmd != "skip",
     }
-
-
-def _split_max(text: str) -> List[str]:
-    chars = list(text or "")
-    if not chars:
-        return []
-    if len(chars) <= MAX_UNIT_CHARS:
-        return [text]
-    return ["".join(chars[i:i + MAX_UNIT_CHARS]) for i in range(0, len(chars), MAX_UNIT_CHARS)]
-
-
-class SentenceSplitter:
-    """与前端 orchestrator 同一套：句号切开，首包约 10 字，每段不超过 15 字。"""
-
-    def __init__(self) -> None:
-        self.buf = ""
-        self.started = False
-
-    def feed(self, delta: str) -> List[str]:
-        if not delta:
-            return []
-        self.buf += delta
-        out: List[str] = []
-        out.extend(self._drain_hard())
-        if not self.started and self.buf.strip():
-            m = SOFT_END.search(self.buf)
-            if m and m.start() >= 3:
-                out.append(self.buf[: m.end()])
-                self.buf = self.buf[m.end():]
-                self.started = True
-            else:
-                chars = list(self.buf)
-                if len(chars) >= FIRST_FLUSH_CHARS:
-                    out.append("".join(chars[:FIRST_FLUSH_CHARS]))
-                    self.buf = "".join(chars[FIRST_FLUSH_CHARS:])
-                    self.started = True
-        out.extend(self._drain_hard())
-        if self.started:
-            out.extend(self._drain_long())
-        return [s for piece in out for s in _split_max(piece) if s.strip()]
-
-    def flush(self) -> List[str]:
-        left = self.buf.strip()
-        self.buf = ""
-        return [s for s in _split_max(left) if s.strip()]
-
-    def _drain_long(self) -> List[str]:
-        out: List[str] = []
-        chars = list(self.buf)
-        while len(chars) >= MAX_UNIT_CHARS:
-            out.append("".join(chars[:MAX_UNIT_CHARS]))
-            chars = chars[MAX_UNIT_CHARS:]
-        self.buf = "".join(chars)
-        return out
-
-    def _drain_hard(self) -> List[str]:
-        out: List[str] = []
-        while True:
-            m = HARD_END.search(self.buf)
-            if not m:
-                break
-            piece = self.buf[: m.end()]
-            self.buf = self.buf[m.end():]
-            if piece.strip():
-                out.append(piece)
-                self.started = True
-        return out
 
 
 async def annotate_stream(
@@ -211,7 +153,10 @@ async def annotate_stream(
                 yield ev
                 kind = unit_kind if unit_kind != "body" else ("phrase" if first_body else "body")
                 for sent in splitter.feed(ev.get("delta") or ""):
-                    unit = make_unit(sent, kind, body_cmd)
+                    spoken, extras = peel_stage_dirs(sent)
+                    for extra in extras:
+                        yield extra
+                    unit = make_unit(spoken, kind, body_cmd)
                     if unit["text"]:
                         yield unit
                     first_body = False
@@ -221,7 +166,10 @@ async def annotate_stream(
             if ev.get("type") == "done":
                 kind = unit_kind if unit_kind != "body" else ("phrase" if first_body else "body")
                 for sent in splitter.flush():
-                    unit = make_unit(sent, kind, body_cmd)
+                    spoken, extras = peel_stage_dirs(sent)
+                    for extra in extras:
+                        yield extra
+                    unit = make_unit(spoken, kind, body_cmd)
                     if unit["text"]:
                         yield unit
                     first_body = False

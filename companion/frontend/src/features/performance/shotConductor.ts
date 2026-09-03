@@ -61,6 +61,11 @@ export class ShotConductor {
     return this.comboDist;
   }
 
+  private sizeLockNeed() {
+    const sizes = stage.camSizeLock;
+    return sizes?.length ? { sizes } : {};
+  }
+
   indexFrom(cameras: AssetItem[]) {
     this.cards = buildCamCards(cameras);
   }
@@ -80,7 +85,9 @@ export class ShotConductor {
       this.danceCut();
       return;
     }
-    const sizeHint = cue.llmShot && SIZE_SHOTS.has(cue.llmShot) ? cue.llmShot : undefined;
+    const rawHint = cue.llmShot && SIZE_SHOTS.has(cue.llmShot) ? cue.llmShot : undefined;
+    const sizeHint = rawHint ? stage.clampCamSize(rawHint) : undefined;
+    const prefer = dancing ? undefined : this.current ?? undefined;
     const intent = (cue.intents || []).find((i): i is Intent =>
       INTENTS.includes(i as Intent) && repertoire.hasIntent(i as Intent));
     const beat = repertoire.pick({
@@ -89,15 +96,16 @@ export class ShotConductor {
       idle: cue.beat === 'open' && cue.phase !== 'qa',
       intent: dancing ? undefined : intent,
       size: sizeHint,
-      allowWalk: cue.beat === 'open' || cue.forceWide,
+      allowWalk: !dancing && (cue.beat === 'open' || cue.forceWide),
       preferStand: stage.standSlot,
-      preferSize: dancing ? undefined : this.current ?? undefined,
+      preferSize: prefer ? stage.clampCamSize(prefer) : undefined,
+      ...this.sizeLockNeed(),
     });
     if (!beat) return;
     this.syncFromBeat(beat);
     void repertoire.perform(beat, {
       cam: true,
-      stand: cue.beat === 'open' || !!cue.forceWide,
+      stand: !dancing && (cue.beat === 'open' || !!cue.forceWide),
       // 跳舞等 playDance 开动作，这里只先把镜头落到这支舞能用的景别
       motion: !dancing && cue.beat === 'line',
     });
@@ -140,9 +148,16 @@ export class ShotConductor {
     this.lastIdleMove = move;
 
     if (!beat) {
-      const fallback = kind === 'alone'
-        ? (this.current && this.current !== 'close' ? this.current : 'full')
-        : (this.current && this.current !== 'long' ? this.current : 'half');
+      const lock = stage.camSizeLock;
+      let fallback: CamShotId;
+      if (lock?.length) {
+        const cur = this.current && lock.includes(this.current) ? this.current : lock[0];
+        fallback = lock.find((s) => s !== cur) ?? cur;
+      } else {
+        fallback = kind === 'alone'
+          ? (this.current && this.current !== 'close' ? this.current : 'full')
+          : (this.current && this.current !== 'long' ? this.current : 'half');
+      }
       stage.playIdleCut(fallback, move, kind === 'alone' ? 3.2 : 2.2 + Math.random() * 0.8);
       this.current = fallback;
       this.lastAt = now;
@@ -183,16 +198,20 @@ export class ShotConductor {
   private pickIdleBeat(wantMotion: boolean, kind: IdleKind): ApprovedBeat | null {
     const preferStand = stage.standSlot;
     const sceneCam = stage.director.sceneCam;
-    const preferSize = (sceneCam && SIZE_SHOTS.has(sceneCam) ? sceneCam : this.current) ?? undefined;
+    let preferSize = (sceneCam && SIZE_SHOTS.has(sceneCam) ? sceneCam : this.current) ?? undefined;
+    if (preferSize) preferSize = stage.clampCamSize(preferSize);
     const mood = stage.director.moodKey;
     let intent = wantMotion ? idleIntentForMode(kind, mood) : undefined;
     const sceneIntent = stage.director.sceneIntent as Intent | null;
     if (wantMotion && kind === 'chat' && sceneIntent && repertoire.hasIntent(sceneIntent)
-        && Math.random() < 0.55) {
+        && Math.random() < 0.7) {
       intent = sceneIntent;
     }
     const allowWalk = kind === 'alone';
-    const idle = { idle: true as const, idleKind: kind, allowWalk, preferStand, preferSize, varyCam: true };
+    const idle = {
+      idle: true as const, idleKind: kind, allowWalk, preferStand, preferSize, varyCam: true,
+      ...this.sizeLockNeed(),
+    };
 
     if (!wantMotion && stage.motion.active && this.lastIdleAsset) {
       return repertoire.pick({ ...idle, assetName: this.lastIdleAsset })
@@ -227,6 +246,13 @@ export class ShotConductor {
   /** goodbye 开口时记下，说完再切到一个人玩 */
   armAloneIdle() {
     this.pendingAlone = true;
+  }
+
+  /** 刚切过一刀：记下景别，闲时先别抢 */
+  holdShot(id: CamShotId) {
+    this.current = id;
+    this.lastAt = Date.now();
+    this.holdUntil = this.lastAt + 2800;
   }
 
   /** 进场 / 舞停：打开闲时导演，马上第一拍 */
@@ -275,19 +301,22 @@ export class ShotConductor {
     const now = Date.now();
     if (now - this.lastAt < 2200) return;
     const name = this.danceAsset;
+    const preferSize = this.current ? stage.clampCamSize(this.current) : undefined;
     const beat = repertoire.pick({
       assetName: name,
       dancing: true,
       allowWalk: false,
       preferStand: stage.standSlot,
-      preferSize: this.current ?? undefined,
+      preferSize,
       varyCam: true,
+      ...this.sizeLockNeed(),
     }) ?? repertoire.pick({
       assetName: name,
       allowWalk: false,
       preferStand: stage.standSlot,
-      preferSize: this.current ?? undefined,
+      preferSize,
       varyCam: true,
+      ...this.sizeLockNeed(),
     });
     if (!beat) return;
     this.syncFromBeat(beat);
@@ -322,13 +351,15 @@ export class ShotConductor {
   /** LLM 点名一条程序镜头：必须落在过审组合上 */
   suggest(id: CamShotId, cue: SceneCue = {}) {
     if (this.reviewLock) return;
-    const asSize = SIZE_SHOTS.has(id);
+    const shot = SIZE_SHOTS.has(id) ? stage.clampCamSize(id) : id;
+    const asSize = SIZE_SHOTS.has(shot);
     const beat = repertoire.pick({
-      size: asSize ? id : undefined,
-      camKey: asSize ? undefined : `move:${id}`,
+      size: asSize ? shot : undefined,
+      camKey: asSize ? undefined : `move:${shot}`,
       allowWalk: false,
       preferStand: stage.standSlot,
-      preferSize: asSize ? id : this.current ?? undefined,
+      preferSize: asSize ? shot : (this.current ? stage.clampCamSize(this.current) : undefined),
+      ...this.sizeLockNeed(),
     });
     if (!beat) return;
     this.syncFromBeat(beat);
@@ -338,12 +369,13 @@ export class ShotConductor {
   /** 走位 / 舞蹈等必须全身时，只切到表里过审的全身组合 */
   ensure(distance: Distance, cue: SceneCue = {}) {
     if (this.comboDist === distance && this.current) return;
-    const size = ANCHOR_SHOT[distance];
+    const size = stage.clampCamSize(ANCHOR_SHOT[distance]);
     const beat = repertoire.pick({
       size,
       allowWalk: !!cue.forceWide,
       preferStand: stage.standSlot,
       preferSize: size,
+      ...this.sizeLockNeed(),
     });
     if (!beat) return;
     this.syncFromBeat(beat);

@@ -30,7 +30,11 @@ class FactIn(BaseModel):
 def get_facts(character_id: int, session: Session = Depends(get_session)) -> List[Dict[str, Any]]:
     if not enabled(session, "memory"):
         return []
-    return memory_worker.list_facts(character_id)
+    try:
+        return memory_worker.list_facts(character_id)
+    except Exception as exc:
+        print(f"[memory] get_facts failed: {exc}")
+        return []
 
 
 @router.put("/facts")
@@ -48,6 +52,9 @@ def put_fact(body: FactIn, session: Session = Depends(get_session)) -> Dict[str,
         raise HTTPException(404, "fact not found")
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        print(f"[memory] put_fact failed: {exc}")
+        raise HTTPException(503, "记忆暂不可用") from exc
 
 
 @router.delete("/facts/{character_id}/{fact_id}")

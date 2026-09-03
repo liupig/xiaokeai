@@ -9,11 +9,15 @@ import traceback
 
 def main(in_q, out_q) -> None:
     os.environ["COMPANION_MEM_WORKER"] = "1"
+    os.environ["MEM0_TELEMETRY"] = "False"
+    from app.infer_runtime import prepare_worker
+    prepare_worker("memory")
     try:
         from app.db import engine, init_db
         from sqlmodel import Session
 
-        from app.modules.memory.service import warmup
+        from app.modules.memory.service import _patch_mem0_optional, warmup
+        _patch_mem0_optional()
 
         init_db()
         with Session(engine) as session:

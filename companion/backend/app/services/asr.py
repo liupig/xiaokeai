@@ -12,6 +12,8 @@ import wave
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from ..infer_runtime import cpu_infer_threads
+from ..infer_backends import asr_framework
 from ..paths import SPEECH_DIR
 
 SENSEVOICE_DIR = SPEECH_DIR / "sensevoice"
@@ -68,8 +70,11 @@ def status() -> Dict[str, Any]:
         msg = "未安装 sherpa-onnx，请在后端目录执行 pip install sherpa-onnx"
     elif not installed and not _state["downloading"]:
         msg = msg or "模型未下载（约 230MB），点「准备模型」或首次识别时自动拉取"
+    fw = asr_framework()
     return {
         "engine": "sensevoice",
+        "framework": fw["name"],
+        "framework_via": fw["via"],
         "installed": installed,
         "ready": bool(_worker_alive()) or bool(_recognizer) or (installed and sherpa_ok),
         "downloading": bool(_state["downloading"]),
@@ -190,33 +195,28 @@ def _get_recognizer():
     with _lock:
         if _recognizer is not None:
             return _recognizer
+        threads = cpu_infer_threads(cap=4, floor=2)
+        kwargs = dict(
+            model=str(MODEL_FILE),
+            tokens=str(TOKENS_FILE),
+            num_threads=threads,
+            use_itn=True,
+            language="auto",
+            provider="cpu",
+            decoding_method="greedy_search",
+        )
         try:
-            _recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
-                model=str(MODEL_FILE),
-                tokens=str(TOKENS_FILE),
-                num_threads=2,
-                use_itn=True,
-                language="auto",
-                provider="cpu",
-            )
+            _recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(**kwargs)
         except TypeError:
+            kwargs.pop("decoding_method", None)
             try:
-                _recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
-                    model=str(MODEL_FILE),
-                    tokens=str(TOKENS_FILE),
-                    num_threads=2,
-                    use_itn=True,
-                    language="auto",
-                )
+                _recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(**kwargs)
             except TypeError:
-                _recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
-                    model=str(MODEL_FILE),
-                    tokens=str(TOKENS_FILE),
-                    num_threads=2,
-                    use_itn=True,
-                )
+                kwargs.pop("provider", None)
+                kwargs.pop("language", None)
+                _recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(**kwargs)
         _state["ready"] = True
-        _state["message"] = "SenseVoice 已加载（CPU）"
+        _state["message"] = f"SenseVoice 已加载（CPU INT8，{threads} 线程）"
         return _recognizer
 
 
@@ -241,11 +241,11 @@ def _stop_worker() -> None:
     _state["pid"] = 0
 
 
-def _ensure_worker() -> None:
+def _ensure_worker(*, download: bool = True) -> None:
     global _proc, _in_q, _out_q
     if _worker_alive():
         return
-    ensure_model(download=True)
+    ensure_model(download=download)
     with _lock:
         if _worker_alive():
             return
@@ -260,20 +260,40 @@ def _ensure_worker() -> None:
             raise RuntimeError(f"ASR 进程启动失败：{payload}")
         _state["pid"] = int(_proc.pid or 0)
         _state["ready"] = True
-        _state["message"] = f"SenseVoice 已加载（独立 CPU 进程 pid={_proc.pid}）"
+        _state["message"] = (
+            f"SenseVoice 已加载（独立 CPU 进程 pid={_proc.pid}，"
+            f"{cpu_infer_threads(cap=4, floor=2)} 线程）"
+        )
         print(f"[asr] worker pid={_proc.pid}")
         atexit.register(_stop_worker)
 
 
-def warmup() -> Dict[str, Any]:
+def release() -> None:
+    """当前没用 SenseVoice 时卸掉 CPU 识别进程。"""
     import os
+    if os.environ.get("COMPANION_ASR_WORKER") == "1":
+        return
+    _stop_worker()
+    _state["ready"] = False
+    _state["downloading"] = False
+    _state["pid"] = 0
+    _state["message"] = "未加载（当前 ASR 不是 SenseVoice）"
+    print("[asr] released worker")
+
+
+def warmup(*, download: bool = False) -> Dict[str, Any]:
+    import os
+    try:
+        import sherpa_onnx  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError("未安装 sherpa-onnx") from exc
     if os.environ.get("COMPANION_ASR_WORKER") == "1":
         _get_recognizer()
         _state["ready"] = True
         _state["downloading"] = False
-        _state["message"] = "SenseVoice 已加载（CPU）"
+        _state["message"] = f"SenseVoice 已加载（CPU INT8，{cpu_infer_threads(cap=4, floor=2)} 线程）"
         return status()
-    _ensure_worker()
+    _ensure_worker(download=download)
     return status()
 
 

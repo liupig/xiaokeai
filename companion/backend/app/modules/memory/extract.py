@@ -1,13 +1,12 @@
 """按历史窗口切 Mem0 抽取：满 9 轮新对话才抽，重叠 2 轮，游标只前进。"""
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from sqlmodel import Session, select
 
 from ...conversation import EXTRACT_NEW_TURNS, EXTRACT_OVERLAP_TURNS, SIDE_KINDS
-from ...models import ChatMessage, MemoryExtractCursor
+from ...models import ChatMessage, MemoryExtractCursor, utc_now
 from ...services import settings_store
 from .service import llm_extract_facts, store_extracted_facts, strip_perf
 
@@ -18,7 +17,9 @@ def _qa_rows(session: Session, character_id: int) -> List[ChatMessage]:
         .where(ChatMessage.character_id == character_id)
         .order_by(ChatMessage.id)
     ).all()
-    return [m for m in rows if (m.kind or "qa") not in SIDE_KINDS]
+    # rp = 扮演片段：留在聊天历史里，但不当成用户真实信息抽进长期记忆
+    return [m for m in rows
+            if (m.kind or "qa") not in SIDE_KINDS and (m.kind or "qa") != "rp"]
 
 
 def _cursor_id(session: Session, character_id: int) -> int:
@@ -27,7 +28,7 @@ def _cursor_id(session: Session, character_id: int) -> int:
 
 
 def _save_cursor(session: Session, character_id: int, upto_id: int) -> None:
-    now = datetime.utcnow()
+    now = utc_now()
     row = session.get(MemoryExtractCursor, character_id)
     if row is None:
         session.add(MemoryExtractCursor(

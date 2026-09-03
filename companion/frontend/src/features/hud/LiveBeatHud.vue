@@ -89,11 +89,14 @@ async function ban(id: string) {
 <style scoped>
 .hud {
   position: absolute;
-  top: 68px;
+  top: calc(68px + var(--desk-chrome, 0px));
   right: 16px;
   z-index: 8;
   width: min(340px, calc(100vw - 32px));
   padding: 10px 12px 12px;
+  pointer-events: none;
+}
+.hud :deep(.n-button) {
   pointer-events: auto;
 }
 .cap {

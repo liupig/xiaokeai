@@ -9,6 +9,7 @@ import { useCharacterStore } from '../../stores/character';
 import { useChatStore } from '../../stores/chat';
 import { useSettingsStore } from '../../stores/settings';
 import { catLabel, parseMotionCat, stripCatPrefix } from '../assets/motionMeta';
+import { PERSONA_TEMPLATE_OPTIONS, genericPersona, personaTemplate } from './personas';
 
 const props = defineProps<{ show: boolean }>();
 const emit = defineEmits<{ (e: 'update:show', v: boolean): void }>();
@@ -80,6 +81,21 @@ async function switchTo(id: number) {
   await chat.beginVisit();
 }
 
+// 红线层管暧昧的上限；露骨违法在任何档都挡。角色平时的口吻由人设卡决定
+const boundaryOptions = [
+  { label: '清爽：全年龄向，暧昧也不接茬', value: 'strict' },
+  { label: '心动：接得住暧昧、若即若离，不主动撩', value: 'warm' },
+  { label: '可撩：撩骚擦边可聊可回撩，露骨仍挡', value: 'flirt' },
+  { label: '恋人：亲密称呼撒娇吃醋都行，露骨仍挡', value: 'lover' },
+  { label: '自由：不设上限，分寸由人设和对话把握', value: 'free' },
+];
+
+function applyTemplate(id: string | null) {
+  if (!id || !editing.value) return;
+  editing.value.persona = personaTemplate(id, editing.value.name || '新角色');
+  message.info('已套用模板，记得保存');
+}
+
 async function save() {
   if (!editing.value) return;
   editing.value.emotion_map = JSON.stringify(emotionMap.value);
@@ -91,7 +107,7 @@ async function createNew() {
   const created = await characters.create({
     name: '新角色',
     model_asset_id: assets.models[0]?.id ?? 0,
-    persona: '你是一个活泼可爱的虚拟陪玩。 ',
+    persona: genericPersona('新角色'),
     voice: '',
   });
   await switchTo(created.id!);
@@ -128,9 +144,15 @@ async function removeCurrent() {
         <n-select v-model:value="editing.voice" :options="voiceOptions" filterable
                   :fallback-option="false" placeholder="空=用设置里的默认音色"
                   :disabled="settings.tts.engine !== 'edge' && settings.tts.engine !== 'qwen' && settings.tts.engine !== 'cosy'" />
+        <label>聊天尺度（越界请求的挡法由后端红线层控制）</label>
+        <n-select :value="editing.boundary || 'free'" :options="boundaryOptions"
+                  @update:value="(v: string) => { if (editing) editing.boundary = v; }" />
         <label>人设（System Prompt）</label>
-        <n-input v-model:value="editing.persona" type="textarea" :rows="5"
-                 placeholder="描述她的性格、说话风格、称呼方式…" />
+        <n-select :value="null" :options="PERSONA_TEMPLATE_OPTIONS" size="small"
+                  placeholder="套用人设模板（会覆盖下方人设，按角色名代入）"
+                  @update:value="applyTemplate" />
+        <n-input v-model:value="editing.persona" type="textarea" :rows="14"
+                 placeholder="身份、怎么接下一句、临时扮演进出、对白样例。见 docs/persona-guide.md" />
         <label>打招呼语</label>
         <n-input v-model:value="editing.greeting" />
         <label>闲时动作偏好（进入闲时池轮换，不再单条死循环）</label>

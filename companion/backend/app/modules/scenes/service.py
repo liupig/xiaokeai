@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select
 
-from ...models import Character, ChatMessage, SceneState
+from ...models import Character, ChatMessage, SceneState, utc_now
 from ...services import llm as llm_service
 from ...services import settings_store
 from .catalog import find_by_background, get_card, list_cards
@@ -40,12 +40,24 @@ SCENE_STAY = (
     "场合没变。心里那点事还在——除非对方刚才已经把这事说开、改口，或明确要换地方、回家、不想演了。"
     "接着刚才的话往下演：不要重新介绍场合，不要再打一遍招呼，不要跳出来说这是情境卡。"
     "说话要像站在这个地方的人，细节可以随口带，不要导游腔，不要旁白。"
-    "镜头和身体跟着这场：优先 [cam:{cam}] [intent:{intent}]，除非对方把场面拉开或拉近。"
-    "禁止 [dance:]，除非对方这轮明确要跳。"
+    "记忆里的事可以顺嘴带一句，人还站在这个场合，不要把对话拽回空白工作室或邀舞。"
+    "覆盖上面默认的半身闲聊镜头：这场优先 [cam:{cam}] [intent:{intent}]，除非对方把场面拉开或拉近。"
+    "不要自己开舞、不要邀舞。对方这轮如果明确要跳，必须 [dance:文件名]，可以一边跳一边还在这场里说话。"
     "对方如果明显要离开这场，用口语带走，不要宣布『场景结束』。\n"
     "这场戏：{title}\n"
     "场合：{setting}\n"
     "心里那点事：{conflict}"
+)
+
+# 同一场里再进门：接着演，不是重新开场
+SCENE_RESUME = (
+    "对方又走进来。你们还在这场戏里，刚才的话还在。"
+    "顺着上次的情绪和没说完的事接着演，不要重新介绍场合，不要『欢迎回来』，不要当没发生过。"
+    "一两句口语，必须是此刻新想的。禁止旁白，禁止 [dance:]。\n"
+    "这场戏：{title}\n"
+    "场合：{setting}\n"
+    "心里那点事：{conflict}\n"
+    "必须带：[emo:] [cam:{cam}] [intent:{intent}]"
 )
 
 SCENE_SIDECAR = (
@@ -64,6 +76,18 @@ SCENE_BYE = (
     "这场戏：{title}\n"
     "场合：{setting}"
 )
+
+SCENE_DANCE = (
+    "对方这轮明确要你跳舞，不是闲聊。"
+    "必须输出 [dance:文件名]，从可用舞蹈列表里选一支；不要只口头答应，不要用 [intent:] 或 [act:] 代替。"
+    "可以一边跳一边还站在这场场合里说话，不要切回空白工作室或邀舞客服。"
+    "禁止说『我们来演』。\n"
+    "这场戏：{title}\n"
+    "场合：{setting}\n"
+    "心里那点事：{conflict}"
+)
+
+_DANCE_ASK = re.compile(r"跳.{0,6}舞|来一段|来一支|再跳|换一支|跳一个|dance", re.I)
 
 
 def scene_playing(
@@ -91,17 +115,24 @@ def inject_scene(
     cam = card.get("cam") or "half"
     intent = card.get("intent") or "look"
     if phase == "welcome":
-        hint = SCENE_OPEN.format(
-            title=title,
-            setting=setting,
-            conflict=conflict,
-            opening=card.get("opening") or "像已经在这儿等过，随口接。",
-            avoid=(extra.get("scene_avoid") or "（无固定台词）"),
-            salt=(extra.get("scene_salt") or "a"),
-            cam=cam,
-            intent=intent,
-        )
-        keep_history = (card.get("id") or "") == "unfinished"
+        has_talk = any(m.get("role") in ("user", "assistant") for m in messages)
+        resume = _truthy(extra.get("scene_resume")) and has_talk
+        keep_history = resume or (card.get("id") or "") == "unfinished"
+        if resume:
+            hint = SCENE_RESUME.format(
+                title=title, setting=setting, conflict=conflict, cam=cam, intent=intent,
+            )
+        else:
+            hint = SCENE_OPEN.format(
+                title=title,
+                setting=setting,
+                conflict=conflict,
+                opening=card.get("opening") or "像已经在这儿等过，随口接。",
+                avoid=(extra.get("scene_avoid") or "（无固定台词）"),
+                salt=(extra.get("scene_salt") or "a"),
+                cam=cam,
+                intent=intent,
+            )
         out = list(messages) if keep_history else [m for m in messages if m.get("role") == "system"]
         out.append({"role": "system", "content": hint})
         return out
@@ -110,7 +141,15 @@ def inject_scene(
     elif phase == "goodbye":
         tmpl, kwargs = SCENE_BYE, dict(title=title, setting=setting)
     else:
-        tmpl, kwargs = SCENE_STAY, dict(title=title, setting=setting, conflict=conflict, cam=cam, intent=intent)
+        last_user = ""
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                last_user = m.get("content") or ""
+                break
+        if _DANCE_ASK.search(last_user):
+            tmpl, kwargs = SCENE_DANCE, dict(title=title, setting=setting, conflict=conflict)
+        else:
+            tmpl, kwargs = SCENE_STAY, dict(title=title, setting=setting, conflict=conflict, cam=cam, intent=intent)
     out = list(messages)
     out.append({"role": "system", "content": tmpl.format(**kwargs)})
     return out
@@ -156,6 +195,12 @@ def resolve_scene(
         }
     stored = card_from_row(session.get(SceneState, character_id))
     return stored
+
+
+def _truthy(v: Any) -> bool:
+    if isinstance(v, bool):
+        return v
+    return str(v or "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _pad2(n: int) -> str:
@@ -229,7 +274,7 @@ def save_current(session: Session, character_id: int, card: Dict[str, Any],
     row.scene_id = str(payload["id"])
     row.assigned_day = day
     row.card_json = json.dumps(payload, ensure_ascii=False)
-    row.updated_at = datetime.utcnow()
+    row.updated_at = utc_now()
     session.commit()
     session.refresh(row)
     return row
@@ -361,25 +406,52 @@ def _background_for(title: str, setting: str) -> str:
     return random.choice(pool) if pool else ""
 
 
+def _recent_qa_blob(session: Session, character_id: int, limit: int = 6) -> str:
+    from ...conversation import SIDE_KINDS
+    rows = session.exec(
+        select(ChatMessage)
+        .where(ChatMessage.character_id == character_id)
+        .order_by(ChatMessage.id.desc())
+        .limit(24)
+    ).all()
+    lines: List[str] = []
+    for m in reversed(list(rows)):
+        if (m.kind or "qa") in SIDE_KINDS:
+            continue
+        role = "对方" if m.role == "user" else "你"
+        text = (m.content or "").strip()
+        if not text:
+            continue
+        lines.append(f"{role}：{text[:80]}")
+    return "\n".join(lines[-limit:])
+
+
 async def generate_tonight(session: Session, character_id: int) -> Dict[str, str]:
     conf = settings_store.get_all(session).get("llm") or {}
     char = session.get(Character, character_id)
     persona = (char.persona if char else "")[:600]
     from ..memory.worker import scene_hints
     loops = scene_hints(character_id)
+    recent = _recent_qa_blob(session, character_id)
     hour = datetime.now().hour
     minute = datetime.now().minute
     tod = "凌晨" if hour < 5 else "上午" if hour < 11 else "中午" if hour < 14 else "下午" if hour < 18 else "晚上"
     used = [c["title"] for c in list_cards()]
     blob = await llm_service.complete_json(conf, [
-        {"role": "system", "content": "你为 3D 陪玩设计今晚一场短戏。只输出 JSON。每次都不许重复常见开场。"},
+        {"role": "system", "content": (
+            "你为 3D 陪玩现编今晚一场戏。只输出 JSON。"
+            "这场要能撑住整晚合写，不是一句开场白加一张壁纸。"
+            "每次场合、冲突都要新，不许套常见寒暄。"
+        )},
         {"role": "user", "content": (
             f"人设：{persona or '温柔带一点撩的虚拟陪玩'}\n"
             f"现在是{tod}，大约{hour}点{minute}分。\n"
-            f"未完话题：{'; '.join(loops) or '无'}\n"
+            f"记忆里未完的事：{'; '.join(loops) or '无'}\n"
+            f"刚才几句对话：\n{recent or '（还没聊过）'}\n"
             f"不要用这些已有标题：{'、'.join(used)}\n"
-            "场合要具体到能看见的细节，不要空泛的『房间里』。"
-            "要能撑住整晚对话：有未说完的事，不是一句开场白。"
+            "场合要具体到能看见、能闻到、能碰到的细节，不要空泛的『房间里』。"
+            "conflict 必须是今晚还没说开的事：可以接记忆或刚才的话现编，不要写成开场台词。"
+            "人一进门就已经站在这件事中间。"
             "输出 JSON："
             '{"title":"四字内","setting":"场合一句","conflict":"心里那点事一句",'
             '"opening":"怎么开口的语气一句，不是台词","cam":"close|bust|half|full|threeQ|long",'
@@ -392,12 +464,12 @@ async def generate_tonight(session: Session, character_id: int) -> Dict[str, str
         save_current(session, character_id, card)
         return card
     title = str(blob.get("title") or "今晚")[:16]
-    setting = str(blob.get("setting") or "")[:80]
+    setting = str(blob.get("setting") or "")[:120]
     card = {
         "id": f"tonight-{hour:02d}{minute:02d}-{random.randint(10, 99)}",
         "title": title,
         "setting": setting,
-        "conflict": str(blob.get("conflict") or "")[:80],
+        "conflict": str(blob.get("conflict") or "")[:120],
         "opening": str(blob.get("opening") or "像刚看见对方那样随口接。")[:80],
         "cam": str(blob.get("cam") or "half"),
         "intent": str(blob.get("intent") or "look"),

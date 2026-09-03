@@ -12,4 +12,9 @@ qwen-tts==0.1.1
 qwen3-tts-streaming>=0.1.2
 transformers==4.57.3
 accelerate==1.12.0
+onnxruntime>=1.17.0
+jieba>=0.42.1
+fastembed>=0.5.0,<1
+# 本地推理框架：ASR=onnxruntime(sherpa-onnx)；embedding=fastembed(ORT)；TTS=CUDA Graph(fast_tts)
+# 不能装 vLLM-Omni：它要求 transformers>=5.5，会把 qwen-tts 的 4.57.3 升坏。
 # 离线 TTS 权重约 2.4GB，模型目录：data/speech/qwen3-tts-0.6b-customvoice

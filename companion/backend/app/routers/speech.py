@@ -12,6 +12,7 @@ from ..db import get_session
 from ..services import asr, settings_store, tts
 from ..services import tts_cosy
 from ..services import tts_qwen
+from .. import talk_log
 
 router = APIRouter(prefix="/api/speech", tags=["speech"])
 
@@ -150,10 +151,10 @@ async def stt_endpoint(file: UploadFile = File(...)):
     try:
         text = await asyncio.to_thread(asr.transcribe, data)
     except Exception as exc:
-        print(f"[perf] asr fail bytes={len(data)} {exc}")
+        talk_log.write("asr", f"失败 {exc}")
         raise HTTPException(503, f"本地 ASR 失败：{exc}") from exc
     shown = (text or "").strip()
-    print(f"[perf] asr ok n={len(shown)} {shown[:40]!r}")
+    talk_log.write("asr", shown)
     return {"text": text}
 
 
@@ -178,9 +179,9 @@ def speech_status():
 def _run_warmup(target: str, qwen_size: str) -> None:
     try:
         if target in ("asr", "all"):
-            asr.warmup()
+            asr.warmup(download=True)
         if target in ("tts", "all"):
-            tts_qwen.warmup(qwen_size)
+            tts_qwen.warmup(qwen_size, download=True)
     except Exception as exc:
         if target in ("tts", "all"):
             tts_qwen._state["message"] = str(exc)
@@ -200,6 +201,13 @@ def warmup(req: WarmupRequest, session: Session = Depends(get_session)):
     if target not in ("asr", "tts", "all"):
         raise HTTPException(400, "target 必须是 asr / tts / all")
     conf = _tts_conf(session)
+    stt_eng = ((settings_store.get_all(session).get("stt") or {}).get("engine") or "").strip().lower()
+    tts_eng = (conf.get("engine") or "").strip().lower()
+    # 显式 asr/tts 仍照做（设置页「准备模型」）；all 只加载当前选中的本地引擎
+    want_asr = target == "asr" or (target == "all" and stt_eng == "sensevoice")
+    want_tts = target == "tts" or (target == "all" and tts_eng == "qwen")
+    if not want_asr and not want_tts:
+        return {"ok": True, "message": "当前未使用本地 ASR/TTS，跳过加载", **speech_status()}
     try:
         qwen_size = tts_qwen.normalize_size(req.qwen_size or conf.get("qwen_size") or "0.6b")
     except ValueError as exc:
@@ -208,14 +216,15 @@ def warmup(req: WarmupRequest, session: Session = Depends(get_session)):
     tts_st = tts_qwen.status()
     tts_busy = bool(tts_st.get("loading") or tts_st.get("downloading"))
     tts_ready = bool(tts_st.get("ready")) and (tts_st.get("size") or "") == qwen_size
-    if target in ("asr", "all") and asr.status().get("downloading"):
+    if want_asr and asr.status().get("downloading"):
         return {"ok": True, "message": "ASR 已在准备中", **speech_status()}
-    if target in ("tts", "all") and tts_busy and not tts_ready:
+    if want_tts and tts_busy and not tts_ready:
         return {"ok": True, "message": "TTS 已在加载中", **speech_status()}
-    asr_need = target in ("asr", "all") and not asr_ready
-    tts_need = target in ("tts", "all") and not tts_ready
+    asr_need = want_asr and not asr_ready
+    tts_need = want_tts and not tts_ready
     if not asr_need and not tts_need:
         return {"ok": True, "message": "离线模型已在内存中，可直接用", **speech_status()}
+    run_target = "all" if asr_need and tts_need else ("asr" if asr_need else "tts")
     if asr_need:
         asr._state["downloading"] = True
         asr._state["message"] = "正在准备 SenseVoice…"
@@ -223,5 +232,5 @@ def warmup(req: WarmupRequest, session: Session = Depends(get_session)):
         label = tts_qwen.VARIANTS[qwen_size]["label"]
         tts_qwen._state["loading"] = True
         tts_qwen._state["message"] = f"正在加载 Qwen3-TTS {label}…"
-    threading.Thread(target=_run_warmup, args=(target, qwen_size), daemon=True).start()
+    threading.Thread(target=_run_warmup, args=(run_target, qwen_size), daemon=True).start()
     return {"ok": True, "message": "已开始准备模型", **speech_status()}

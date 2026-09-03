@@ -55,7 +55,7 @@ async function clearKeepsakeBg() {
   keepsakeSession.bgOverride = '';
   settings.quality.background_image = keepsakeSession.bgPrev || '';
   if (settings.modules.scenes && sceneSession.current) {
-    applySceneBackground(sceneSession.current);
+    applySceneStage(sceneSession.current);
   } else {
     restoreSettingsStage();
   }

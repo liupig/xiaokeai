@@ -23,6 +23,7 @@
   "devDependencies": {
     "@types/three": "^0.185.4",
     "@vitejs/plugin-vue": "^5.0.4",
+    "terser": "^5.31.0",
     "typescript": "^5.4.3",
     "vite": "^5.2.6"
   }

@@ -71,16 +71,16 @@ def import_archive(session: Session, archive: Path, source: str = "local",
 
     model_file = info["model"]
     if model_file is not None:
-        # 模型：整个所在目录（含贴图）搬进 models/<名字>/
-        src_dir = model_file.parent
-        dir_name = _safe_name(base_label if src_dir == work else src_dir.name)
+        # 贴图经常在压缩包根目录或 PMX 的上一级，只拷模型所在子文件夹会丢贴图。
+        # 整包解压目录搬进 models/<作品名>/，再按相对路径登记 PMX。
+        dir_name = _safe_name(base_label)
         dest_dir = MODELS_DIR / dir_name
         idx = 1
         while dest_dir.exists():
             idx += 1
             dest_dir = MODELS_DIR / f"{dir_name}_{idx}"
-        shutil.copytree(src_dir, dest_dir)
-        pmx_in_dest = dest_dir / model_file.relative_to(src_dir)
+        shutil.copytree(work, dest_dir)
+        pmx_in_dest = dest_dir / model_file.relative_to(work)
         a = catalog.register_model(session, pmx_in_dest, source=source,
                                    source_url=source_url, label=base_label)
         if a:
@@ -204,10 +204,11 @@ def import_downloaded(session: Session, file: Path, source: str = "local",
                       source_url: str = "", label: str = "",
                       extra_meta: Optional[dict] = None) -> List[Asset]:
     """下载完成后的统一入口：压缩包解压入库，单个 vmd 直接登记。"""
-    suffix = file.suffix.lower()
-    if suffix == ".vmd":
+    from .extractor import sniff_kind
+    kind = sniff_kind(file) or file.suffix.lower()
+    if kind == ".vmd":
         return import_single_file(session, file, source, source_url, label, extra_meta)
-    if suffix == ".vpd":
+    if kind == ".vpd":
         from .vpd_to_vmd import convert_file
         tmp_vmd = file.with_suffix(".vmd")
         convert_file(file, tmp_vmd)
@@ -215,6 +216,9 @@ def import_downloaded(session: Session, file: Path, source: str = "local",
             return import_single_file(session, tmp_vmd, source, source_url, label, extra_meta)
         finally:
             tmp_vmd.unlink(missing_ok=True)
-    if suffix in (".zip", ".rar", ".7z"):
-        return import_archive(session, file, source, source_url, label, extra_meta)
-    raise ValueError(f"不支持的文件类型: {suffix}")
+    if kind in (".zip", ".rar", ".7z"):
+        created = import_archive(session, file, source, source_url, label, extra_meta)
+        if not created:
+            raise ValueError("压缩包里没有可导入的模型、动作或镜头")
+        return created
+    raise ValueError(f"不支持的文件类型: {kind or file.suffix}")

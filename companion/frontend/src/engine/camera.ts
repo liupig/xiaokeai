@@ -12,6 +12,25 @@ const DEG90 = Math.PI / 2;
 /** MMD 单位 → 米（与 Stage.setupMMD 的 0.08 缩放一致） */
 const MMD_SCALE = 0.08;
 const BASE_FOV = 30;
+const CLIP_CACHE_MAX = 4;
+
+function rememberClip(
+  map: Map<string, THREE.AnimationClip>,
+  key: string,
+  clip: THREE.AnimationClip,
+  keep?: string,
+) {
+  if (map.has(key)) map.delete(key);
+  map.set(key, clip);
+  while (map.size > CLIP_CACHE_MAX) {
+    let drop: string | undefined;
+    for (const k of map.keys()) {
+      if (k !== keep && k !== key) { drop = k; break; }
+    }
+    if (drop === undefined) break;
+    map.delete(drop);
+  }
+}
 
 interface ShotSpherical {
   theta: number;
@@ -27,7 +46,6 @@ export const CAM_SHOTS: { id: CamShotId; label: string; duration: number }[] = [
   { id: 'threeQ', label: '3/4', duration: 1.0 },
   { id: 'full', label: '全身', duration: 0.9 },
   { id: 'long', label: '远景', duration: 1.1 },
-  { id: 'low45', label: '仰拍45度', duration: 1.3 },
   { id: 'high45', label: '俯拍45度', duration: 1.3 },
   { id: 'yawL45', label: '左侧45度旋转', duration: 1.4 },
   { id: 'yawR45', label: '右侧45度旋转', duration: 1.4 },
@@ -63,6 +81,7 @@ export class CameraRig {
   private clipCache = new Map<string, THREE.AnimationClip>();
   private vmdSeq = 0;
   private vmdRemain = 0;
+  private vmdCacheKey = '';
 
   constructor(
     private camera: THREE.PerspectiveCamera,
@@ -148,9 +167,7 @@ export class CameraRig {
     const dur = duration && duration > 0.3 ? duration : base;
     const from = this.readSph();
     let to: ShotSpherical;
-    if (id === 'low45') {
-      to = { ...from, height: Math.max(0.12, from.lookY - from.radius * Math.tan(DEG45)) };
-    } else if (id === 'high45') {
+    if (id === 'high45') {
       to = { ...from, height: from.lookY + from.radius * Math.tan(DEG45) };
     } else if (id === 'yawL45') {
       to = { ...from, theta: -DEG45 };
@@ -207,14 +224,15 @@ export class CameraRig {
   async playVmd(url: string, opts?: { once?: boolean; scale?: number }): Promise<boolean> {
     this.stopVmd(false);
     const seq = ++this.vmdSeq;
-    const clip = await this.loadClip(url);
+    const scale = opts?.scale ?? MMD_SCALE;
+    const clip = await this.loadClip(url, scale);
     if (!clip || seq !== this.vmdSeq) return false;
-    const scaled = this.scaleClip(clip, opts?.scale ?? MMD_SCALE);
     this.controls.enabled = false;
     this.vmdHelper = new MMDAnimationHelper({ afterglow: 0, sync: false });
-    this.vmdHelper.add(this.camera, { animation: scaled });
+    this.vmdHelper.add(this.camera, { animation: clip.clone() });
     this.vmdPlaying = true;
-    this.vmdRemain = opts?.once === false ? 0 : Math.max(scaled.duration, 0.3);
+    this.vmdCacheKey = `${url}#${scale}`;
+    this.vmdRemain = opts?.once === false ? 0 : Math.max(clip.duration, 0.3);
     this.anim = null;
     return true;
   }
@@ -236,17 +254,18 @@ export class CameraRig {
     }
   }
 
-  private loadClip(url: string): Promise<THREE.AnimationClip | null> {
-    const cached = this.clipCache.get(url);
+  private loadClip(url: string, scale: number): Promise<THREE.AnimationClip | null> {
+    const key = `${url}#${scale}`;
+    const cached = this.clipCache.get(key);
     if (cached) return Promise.resolve(cached);
     return new Promise((resolve) => {
       this.loader.loadAnimation(
         url,
         this.camera,
         (c) => {
-          const clip = c as THREE.AnimationClip;
-          this.clipCache.set(url, clip);
-          resolve(clip);
+          const scaled = this.scaleClip(c as THREE.AnimationClip, scale);
+          rememberClip(this.clipCache, key, scaled, this.vmdCacheKey);
+          resolve(scaled);
         },
         undefined,
         (e) => {
