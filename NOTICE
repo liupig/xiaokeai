@@ -1,0 +1,25 @@
+xiaoke.ai
+Copyright 2026 xiaoke.ai contributors
+https://xiaoke.ai
+
+This product includes software developed by xiaoke.ai contributors,
+licensed under the Apache License, Version 2.0.
+
+Trademarks
+----------
+"xiaoke.ai"、"小可爱" and related names, logos, and product marks are not
+licensed under the Apache License except as required to describe the origin
+of the Work (see Apache License 2.0 §6). You may fork and ship the code;
+you may not present a fork as the official xiaoke.ai product.
+
+Third-party assets (not under this License)
+-------------------------------------------
+3D models, motions, cameras, music, and voice assets — including files
+downloaded from 模之屋 / aplaybox — remain copyright of each original
+author. This repository does not relicense them. Follow each work's own
+terms; most prohibit commercial use and redistribution (二次配布).
+
+Project-generated art
+---------------------
+Tarot card faces and scene-card backgrounds created for this project are
+licensed under the same Apache License 2.0 as the source code.

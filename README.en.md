@@ -2,7 +2,7 @@
 
 A locally hosted **3D virtual companion** (desktop 3D companion / 虚拟陪玩): pick or download a 3D character, set persona and voice, then talk in text or speech. She sits across from you — voice, lip-sync, expression, motion, dance, and tarot.
 
-This repo is for learning and personal use, not commercial distribution. Bundled models, motions, and music remain copyright of their original authors. Follow each asset’s own terms.
+Source code is [Apache License 2.0](./LICENSE): free to use, modify, and redistribute, including commercially. The names “xiaoke.ai” / “小可爱” are not licensed (see [NOTICE](./NOTICE)). Bundled or downloaded 3D models, motions, and music remain copyright of their original authors — most prohibit commercial use and redistribution.
 
 [中文](./README.md) · [xiaoke.ai](https://xiaoke.ai)
 
@@ -105,4 +105,4 @@ mem0, Qdrant, Hugging Face / MiniLM, Qwen / Qwen3-TTS, FunAudioLLM SenseVoice, k
 
 ## Notes
 
-Code is for study, research, and personal deployment. Third-party models, motions, and music are not relicensed by this repo. aplaybox and similar sites may change or require login. LLM / TTS / ASR send data to whichever provider you configure.
+Source is Apache 2.0 (commercial use allowed). Third-party models, motions, and music are not relicensed by this repo. aplaybox and similar sites may change or require login. LLM / TTS / ASR send data to whichever provider you configure.

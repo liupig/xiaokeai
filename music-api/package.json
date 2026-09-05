@@ -9,5 +9,5 @@
   "engines": {
     "node": ">=18.14"
   },
-  "license": "MIT"
+  "license": "Apache-2.0"
 }
