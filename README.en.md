@@ -1,6 +1,6 @@
 # xiaoke.ai
 
-A locally hosted, desktop-class companion: pick or download a 3D character, set persona and voice, then talk in text or speech. She sits across from you — voice, lip-sync, expression, motion, and dance.
+A locally hosted **3D virtual companion** (desktop 3D companion / 虚拟陪玩): pick or download a 3D character, set persona and voice, then talk in text or speech. She sits across from you — voice, lip-sync, expression, motion, dance, and tarot.
 
 This repo is for learning and personal use, not commercial distribution. Bundled models, motions, and music remain copyright of their original authors. Follow each asset’s own terms.
 
