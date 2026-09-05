@@ -77,7 +77,7 @@ A local **3D virtual companion** for desktop — voice, lip-sync, expression, mo
 
 日常使用请跑 `companion/`。`companion-3d` 可以单独打开，用来对照渲染和动作管线。
 
-仓库提交 **完整源码**、情境卡背景 / 舞台贴图、以及整套 AI 原创塔罗牌面。3D 模型、VMD、音乐、语音权重、SQLite、密钥都不入库，克隆后按下面「快速开始」跑起来，再从资产中心导入自己的角色即可。
+仓库提交 **完整源码**、情境卡背景 / 舞台贴图、以及整套 AI 原创塔罗牌面。3D 模型、VMD、音乐、语音权重、SQLite、密钥都不入库。`companion/assets/` 下的 `models` / `motions` / `cameras` / `audio` / `music` 只留目录和 `README.txt`（写明该放什么）；克隆后舞台是空的，从资产中心导入，或按各目录说明把文件拷进去。
 
 要打成双击即开的本地 exe（自带 Chromium 窗口、Python 运行时、模型与权重），见 [`companion/README_BUILD.md`](./companion/README_BUILD.md)。
 

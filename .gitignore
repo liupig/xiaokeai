@@ -115,19 +115,29 @@ companion/frontend/public/vad/
 companion/frontend/public/aec3/
 
 # 用户导入的 3D / 动作 / 音频 / 镜头（第三方版权，体积大，请本地导入）
+# 目录本身和说明进仓库，模型/动作文件不进
 companion/assets/models/*
 !companion/assets/models/.gitkeep
+!companion/assets/models/README.txt
 companion/assets/motions/*
 !companion/assets/motions/.gitkeep
+!companion/assets/motions/README.txt
 companion/assets/audio/*
 !companion/assets/audio/.gitkeep
+!companion/assets/audio/README.txt
 companion/assets/cameras/*
 !companion/assets/cameras/.gitkeep
+!companion/assets/cameras/README.txt
+companion/assets/music/*
+!companion/assets/music/.gitkeep
+!companion/assets/music/README.txt
 
 companion-3d/public/models/*
 !companion-3d/public/models/.gitkeep
+!companion-3d/public/models/README.txt
 companion-3d/public/motions/*
 !companion-3d/public/motions/.gitkeep
+!companion-3d/public/motions/README.txt
 !companion-3d/public/motions/motions.json
 
 music-api/downloads/*

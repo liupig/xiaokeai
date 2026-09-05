@@ -77,7 +77,7 @@ Characters in the screenshots are by aplaybox authors, for demo only. Copyright 
 
 Use `companion/` day to day. `companion-3d` is a smaller sandbox for the render and motion pipeline.
 
-This repo ships **full source**, scene-card backgrounds / stage textures, and the full set of AI-original tarot faces. 3D models, VMD, music, speech weights, SQLite, and API keys stay local. Clone, follow Quick start, then import your own character in the asset hub.
+This repo ships **full source**, scene-card backgrounds / stage textures, and the full set of AI-original tarot faces. 3D models, VMD, music, speech weights, SQLite, and API keys stay local. `companion/assets/` keeps empty `models` / `motions` / `cameras` / `audio` / `music` folders with a `README.txt` in each. After clone the stage is empty — import in the asset hub, or drop files where those notes say.
 
 To build a double-click Windows exe (bundled Chromium, Python runtime, models and weights), see [`companion/README_BUILD.md`](./companion/README_BUILD.md) (Chinese).
 

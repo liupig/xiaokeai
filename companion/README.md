@@ -80,7 +80,7 @@ foreach ($port in 8600, 5175) {
 }
 ```
 
-打开 http://localhost:5175 即可使用。仓库不含 3D 模型和动作文件：用资产中心本地导入，或配置模之屋 token 后在线下载。
+打开 http://localhost:5175 即可使用。仓库不含 3D 模型和动作文件，但 `assets/models` 等目录和说明在：[`assets/README.txt`](./assets/README.txt)。用资产中心本地导入，按各子目录 `README.txt` 拷文件，或配置模之屋 token 后在线下载。
 
 ## 配置指南
 

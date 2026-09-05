@@ -153,8 +153,11 @@ def purge_unreferenced_audio(session: Session) -> int:
     if not AUDIO_DIR.exists():
         return 0
     n = 0
+    skip = {".gitkeep", "readme.txt", "放什么.txt"}
     for f in AUDIO_DIR.iterdir():
         if not f.is_file():
+            continue
+        if f.name.lower() in skip or f.name.startswith("."):
             continue
         if f.name.lower() in used:
             continue

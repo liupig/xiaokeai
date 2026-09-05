@@ -75,7 +75,8 @@ def _monolithic(root: Path) -> bool:
     if speech.is_dir() and any(speech.iterdir()):
         return True
     models = root / "assets" / "models"
-    if models.is_dir() and any(p.name != ".gitkeep" for p in models.iterdir()):
+    skip = {".gitkeep", "README.txt", "放什么.txt"}
+    if models.is_dir() and any(p.name not in skip for p in models.iterdir()):
         return True
     return False
 
