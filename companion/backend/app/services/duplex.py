@@ -1,7 +1,7 @@
-"""全双工对话节奏（小冰 Jarvis Processor / Transaction 侧）。
+"""全双工对话节奏（小冰 Processor / Transaction 侧）。
 
 不负责 ASR/TTS 模型本身：只把回复切成 PlayableUnit，并打上 DuplexCmd / SentenceType。
-真正合成音频由 /api/speech/tts 在 ChannelPool 决定「要播」之后才发生（Skip 的句子不会去占 GPU）。
+真正合成音频由 /api/speech/tts 在 Pool 决定「要播」之后才发生（Skip 的句子不会去占 GPU）。
 """
 from __future__ import annotations
 
@@ -42,6 +42,20 @@ GOODBYE_HINT = (
     "会话要结束了。这是「告别 Goodbye」：用一句很短的口语道别，"
     "带 [emo:] [intent:nod] 或 [intent:look]。表情道别即可，不要挥手鞠躬、不要必须拉远。"
     "不要提问，不要邀舞，不要旁白，不要说「超时」「会话结束」。"
+)
+
+TAROT_SYNTH_HINT = (
+    "该翻的都翻过了。按临时身份里【这一轮任务】把桌上已翻开的画面收成一场短戏，"
+    "列出的每一张都要点一下，一口气讲完。"
+    "不要「先讲现状」「再讲第二张」，不要从第一张重新报牌，不要只讲一张。"
+    "不要问对方还看不看、要不要再抽，不要寒暄。"
+)
+
+AFTERGLOW_HINT = (
+    "看牌刚收完。这是收摊后的余韵，不是续聊追问。"
+    "一两句很淡的口语就停，不要提问，不要「吗／呢／要不要／还是」。"
+    "不要问牌解懂不懂，不要邀再看、换玩法、喝水。"
+    "不要旁白，不要 [dance:]。"
 )
 
 CONTINUE_IN_SCENE = (

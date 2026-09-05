@@ -11,10 +11,10 @@ from ..paths import DATA_DIR, ROOT_DIR
 DEFAULTS: Dict[str, Any] = {
     # thinking: default=跟随模型默认 / on=强制开启思考 / off=强制关闭思考
     # max_tokens 为 0 表示不传该参数（用服务商默认值）
-    "llm": {"base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "api_key": "",
-            "model": "qwen-plus", "temperature": 0.85, "top_p": 1.0,
-            "max_tokens": 0, "thinking": "default"},
-    "tts": {"engine": "qwen", "voice": "Vivian", "rate": "+0%", "qwen_size": "0.6b",
+    "llm": {"base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "",
+            "model": "doubao-seed-character-260628", "temperature": 0.85, "top_p": 1.0,
+            "max_tokens": 0, "thinking": "off"},
+    "tts": {"engine": "qwen", "voice": "Serena", "rate": "+0%", "qwen_size": "0.6b",
             "qwen_style": "yujie", "qwen_instruct": "",
             "duplex_cmd": "interrupt_or_queue", "duplex_remain_sec": 3,
             "duplex_delayed_sec": 16, "duplex_proactive_sec": 45,
@@ -22,12 +22,12 @@ DEFAULTS: Dict[str, Any] = {
             "duplex_filler": False, "duplex_ingress": True},
     "stt": {"engine": "sensevoice"},  # browser=在线 Web Speech；sensevoice=离线 SenseVoice
     "download": {"aplaybox_token": ""},
-    "quality": {"physics": True, "pixel_ratio_cap": 2, "camera_follow": False, "bgm_volume": 0.5,
+    "quality": {"physics": False, "pixel_ratio_cap": 2, "camera_follow": False, "bgm_volume": 0.5,
                 "background_color": "#141420", "background_image": "", "light_level": 1.0,
                 # 圆形舞台底座：显隐 / 台面颜色 / 发光环颜色 / 风格 / 台面贴图 / 不透明度
                 "stage_show": True, "stage_color": "#232342", "stage_glow": "#5b5bd6",
                 "stage_style": "classic", "stage_texture": "", "stage_opacity": 1.0},
-    "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True},
+    "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "codewatch": True},
     "hardware": {
         "auto": False, "tier": "", "ram_gb": 0, "vram_gb": 0, "cores": 0,
         "reason": "", "fingerprint": "",
@@ -111,7 +111,7 @@ def apply_llm_overlay(llm: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if env.get("model"):
         out["model"] = env["model"]
         if "character" in str(env["model"]).lower():
-            out["thinking"] = "default"
+            out["thinking"] = "off"
     return out
 
 

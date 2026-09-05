@@ -19,7 +19,7 @@ import { repertoire, type ApprovedBeat } from './repertoire';
 import type { SidecarKind } from './caster';
 
 const EMOTIONS: EmotionKey[] = ['neutral', 'happy', 'angry', 'sad', 'relaxed'];
-const ACTIONS: ActionKey[] = ['wave', 'nod', 'shake'];
+const ACTIONS: ActionKey[] = ['nod', 'shake'];
 const STAND_ALIASES: Record<string, StandSlot> = {
   left: 'left', l: 'left', '左': 'left', '左边': 'left', '¼': 'left', '1/4': 'left',
   center: 'center', mid: 'center', middle: 'center',
@@ -153,10 +153,13 @@ export class Orchestrator {
         break;
       case 'act': {
         if (this.continueMode && caster.holdingDance) break;
+        if (ev.value === 'wave') {
+          caster.applyIntent('greet');
+          break;
+        }
         const act = ev.value as ActionKey;
         if (ACTIONS.includes(act)) {
-          const mapped = act === 'wave' ? 'greet' : act;
-          caster.applyIntent(mapped);
+          caster.applyIntent(act);
           break;
         }
         this.playMotionByName(ev.value, { once: true });

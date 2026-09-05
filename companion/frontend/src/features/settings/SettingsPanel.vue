@@ -60,6 +60,7 @@ function applyLlmPreset(key: string) {
   if (!p) return;
   settings.llm.base_url = p.base;
   settings.llm.model = p.model;
+  if (key === 'volcano_character') settings.llm.thinking = 'off';
 }
 
 const thinkingOptions = [
@@ -67,6 +68,46 @@ const thinkingOptions = [
   { label: '强制开启思考', value: 'on' },
   { label: '强制关闭思考', value: 'off' },
 ];
+
+const contentPath = ref(settings.content.path || '');
+const contentBusy = ref(false);
+const contentHint = ref('');
+const canPickFolder = computed(() => typeof window.companionDesktop?.pickFolder === 'function');
+const contentFound = computed(() => {
+  const f = settings.content.found || {};
+  const labels: Record<string, string> = {
+    models: '角色', motions: '动作', cameras: '镜头',
+    music: '歌曲', speech: '语音', embed: '记忆向量', torch: '推理库',
+  };
+  return Object.entries(labels)
+    .map(([k, name]) => `${name}${f[k] ? '✓' : '–'}`)
+    .join('  ');
+});
+
+async function pickContentFolder() {
+  const folder = await window.companionDesktop?.pickFolder?.();
+  if (folder) contentPath.value = folder;
+}
+
+async function saveContentPath() {
+  contentBusy.value = true;
+  contentHint.value = '';
+  try {
+    const r = await settings.applyContent(contentPath.value.trim());
+    contentHint.value = r.message || (r.ok ? '已保存' : '设置失败');
+    if (r.ok && r.path) contentPath.value = r.path;
+    if (!r.ok) message.error(r.message || '设置失败', { duration: 6000, closable: true });
+    else if (r.restart) message.success(r.message || '已保存，请关窗再开');
+  } catch (e) {
+    contentHint.value = String(e);
+  } finally {
+    contentBusy.value = false;
+  }
+}
+
+watch(() => settings.content.path, (v) => {
+  if (v && !contentPath.value) contentPath.value = v;
+});
 
 const testing = ref(false);
 async function testLlm() {
@@ -316,7 +357,9 @@ const ttsNeedsVoice = computed(() =>
 watch(() => settings.tts.engine, (eng) => {
   const list = settings.voices.filter((v) => v.engine === eng);
   if (list.length && !list.some((v) => v.id === settings.tts.voice)) {
-    settings.tts.voice = '';
+    settings.tts.voice = eng === 'qwen'
+      ? (list.find((v) => v.id === 'Serena')?.id || list[0].id)
+      : '';
   }
 });
 
@@ -388,7 +431,7 @@ function onPhysics(v: boolean) {
   void settings.save().catch(() => {});
 }
 
-async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot', on: boolean) {
+async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'codewatch', on: boolean) {
   const prev = settings.modules[key];
   settings.modules[key] = on;
   try {
@@ -396,6 +439,10 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
     if (key === 'tarot' && !on) {
       const { onModuleOff } = await import('../tarot');
       await onModuleOff();
+    }
+    if (key === 'codewatch' && !on) {
+      const { onModuleOff } = await import('../codewatch');
+      onModuleOff();
     }
     if (key !== 'scenes') return;
     if (on && characters.currentId) {
@@ -420,6 +467,21 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
             :width="480" placement="right" show-mask="transparent" to="body">
     <n-drawer-content title="设置" closable :native-scrollbar="false">
     <n-tabs type="line">
+      <n-tab-pane name="content" tab="资源包">
+        <div class="form">
+          <p class="hint">选 B 那个文件夹，不要选里面的 xiaoke-content.json。选错了再点浏览即可改，保存后关窗再开。</p>
+          <label>B 包目录</label>
+          <div class="content-row">
+            <n-input v-model:value="contentPath" placeholder="例如 E:\xiaoke-ai-B" />
+            <n-button v-if="canPickFolder" @click="pickContentFolder">浏览</n-button>
+          </div>
+          <p class="hint">{{ contentFound }}</p>
+          <p v-if="contentHint" class="hint">{{ contentHint }}</p>
+          <n-button type="primary" :loading="contentBusy" :disabled="!contentPath.trim()"
+                    @click="saveContentPath">保存路径</n-button>
+          <p class="hint">保存后关掉窗口再打开才会换到新目录。</p>
+        </div>
+      </n-tab-pane>
       <n-tab-pane name="modules" tab="体验模块">
         <div class="form">
           <p class="hint">关掉等于没装：对话、舞台和界面都不再走这条能力。低配会自动关掉记忆，避免向量库把进程拖死。</p>
@@ -449,6 +511,11 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
             <n-switch :value="settings.modules.tarot" @update:value="(v: boolean) => toggleMod('tarot', v)" />
           </div>
           <p class="hint">她坐在对面给你抽。口头说「抽一张」或点对话栏的牌。仅供娱乐，不构成建议。关掉等于没装。</p>
+          <div class="switch-row">
+            <span>Code 伴侣 · 看着你写代码</span>
+            <n-switch :value="settings.modules.codewatch" @update:value="(v: boolean) => toggleMod('codewatch', v)" />
+          </div>
+          <p class="hint">打开对话栏的「码」，盯 Cursor / Codex / Claude Code / 通义灵码 / Trae / 文心快码。开工和收工她会接，进行中只亮牌子。关掉等于没装。</p>
         </div>
       </n-tab-pane>
       <n-tab-pane name="ai" tab="AI 对话">
@@ -728,6 +795,11 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
   font-size: 13px;
   opacity: 0.8;
   margin-top: 6px;
+}
+
+.content-row {
+  display: flex;
+  gap: 8px;
 }
 
 .section-title {

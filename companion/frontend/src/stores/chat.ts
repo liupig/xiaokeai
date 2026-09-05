@@ -101,7 +101,7 @@ function fallbackReply(input: string, motionNames: string[]): string {
     return `[emo:happy]好呀，看我的！[dance:${pick}]`;
   }
   if (/你好|hi|hello|在吗|嗨/i.test(input)) {
-    return '[emo:happy][act:wave]你好呀～我在呢。想聊天还是想看我跳舞？';
+    return '[emo:happy][intent:greet]你好呀～我在呢。想聊天还是想看我跳舞？';
   }
   if (/难过|伤心|不开心|烦/.test(input)) {
     return '[emo:sad]别难过啦…有我陪着你呢。[act:nod]说说看发生什么了？';
@@ -119,7 +119,7 @@ function sidecarFallback(
   messages: Message[],
 ): string {
   if (mode === 'goodbye') {
-    return '[emo:relaxed][intent:wave]那我先去忙啦，想我了再叫我～';
+    return '[emo:relaxed][intent:look]那我先去忙啦，想我了再叫我～';
   }
   if (mode === 'proactive') {
     return '[emo:happy][intent:tease]还在吗？我这边还想听你再说两句呢～';
@@ -227,6 +227,7 @@ let goodbyeDeadline = 0;
 let silencePhase: 'delayed' | 'proactive' | 'goodbye' | 'idle' = 'idle';
 let sceneRotateTimer: ReturnType<typeof setTimeout> | null = null;
 let holdBuf = '';
+let tarotAfterglow = false;
 
 function clearDelayed() {
   if (delayedTimer != null) {
@@ -615,6 +616,13 @@ export const useChatStore = defineStore('chat', {
         delayedTimer = setTimeout(fn, Math.max(0, sec) * 1000);
       };
       if (silencePhase === 'delayed') {
+        if (tarotAfterglow) {
+          tarotAfterglow = false;
+          silencePhase = 'proactive';
+          const sec = Math.max(32, humanSilenceSec('proactive', Number(tts.duplex_proactive_sec)));
+          waitThen(sec, () => { void this.sidecarChat('proactive'); });
+          return;
+        }
         const sec = humanSilenceSec('delayed', Number(tts.duplex_delayed_sec));
         if (sec <= 0) {
           silencePhase = 'proactive';
@@ -693,7 +701,7 @@ export const useChatStore = defineStore('chat', {
       this.messages = [];
       resetSession();
     },
-    async send(text: string, opts: { fromHold?: boolean; scripted?: boolean; tarotRole?: string; fromVoice?: boolean } = {}) {
+    async send(text: string, opts: { fromHold?: boolean; scripted?: boolean; tarotRole?: string; fromVoice?: boolean; hideUser?: boolean } = {}) {
       let input = text.trim();
       if (!input) return 'empty';
       let tarotLock = false;
@@ -755,11 +763,13 @@ export const useChatStore = defineStore('chat', {
       }
       silencePhase = 'delayed';
       this.rollGoodbyeDeadline();
-      this.messages.push({
-        role: 'user', content: input,
-        created_at: new Date().toISOString(),
-        when: localStamp(),
-      });
+      if (!opts.hideUser) {
+        this.messages.push({
+          role: 'user', content: input,
+          created_at: new Date().toISOString(),
+          when: localStamp(),
+        });
+      }
       const assistant: Message = {
         role: 'assistant', content: '', fullContent: '', kind: 'qa', spokenLen: 0,
         created_at: new Date().toISOString(), when: localStamp(),
@@ -813,7 +823,17 @@ export const useChatStore = defineStore('chat', {
       streamAbort = controller;
       void (async () => {
         try {
-          await api.streamChat(chars.currentId, input, onEvent, controller.signal, morphs, 'user', liveScenePack());
+          let quiet = '';
+          if (useSettingsStore().modules.tarot) {
+            const tarot = await import('../features/tarot');
+            quiet = tarot.ritualQuietLine(opts.tarotRole || '');
+          }
+          if (quiet) {
+            orchestrator.allowLocalSpeech();
+            emitLocal(quiet, onEvent);
+          } else {
+            await api.streamChat(chars.currentId, input, onEvent, controller.signal, morphs, 'user', liveScenePack());
+          }
         } catch (e) {
           if (!controller.signal.aborted) this.lastError = String(e);
         }
@@ -955,8 +975,100 @@ export const useChatStore = defineStore('chat', {
       }
       if (mode === 'welcome' && !sessionClosed) this.scheduleDelayed();
     },
+    async codewatchSpeak(snap: {
+      phase: string; title?: string; project?: string; tools?: string[]; source?: string;
+    }) {
+      if (snap.phase !== 'started' && snap.phase !== 'done') return;
+      if (dancePlaying()) return;
+      if (useSettingsStore().modules.tarot) {
+        const { tarotLive } = await import('../features/tarot/gate');
+        if (tarotLive.value) return;
+      }
+      const chars = useCharacterStore();
+      if (!chars.currentId) return;
+      if (this.sending || speechPlayer.streamOpen || speechPlayer.isSpeaking()) return;
+      sessionClosed = false;
+      this.sending = true;
+      const controller = new AbortController();
+      streamAbort = controller;
+      const assistant: Message = {
+        role: 'assistant', content: '', fullContent: '', kind: 'aside',
+        spokenLen: 0,
+        created_at: new Date().toISOString(),
+        when: localStamp(),
+      };
+      this.messages.push(assistant);
+      this.applyVoice();
+      orchestrator.beginContinue('proactive');
+      const bag = { speech: false };
+      let apiKeyMissing = false;
+      const onEvent = (ev: any) => {
+        if (ev.type === 'error') {
+          if (ev.code === 'no_api_key') apiKeyMissing = true;
+          else this.lastError = ev.message || this.lastError;
+          return;
+        }
+        if (ev.type === 'meta') {
+          if (ev.message_id) assistant.id = ev.message_id;
+          return;
+        }
+        applyBubbleEvent(assistant, ev, bag);
+        orchestrator.handle(ev);
+        const said = stripPerfTags(assistant.content || assistant.fullContent || '');
+        if (said) {
+          void import('../features/codewatch/live').then((m) => {
+            m.codewatchLive.line = said;
+          });
+        }
+      };
+      const morphs = (chars.modelInfo?.morphNames ?? [])
+        .filter((n) => !BASE_MORPHS.has(n))
+        .slice(0, 50);
+      const extra: ChatExtra = {
+        ...liveScenePack(),
+        codewatch_phase: snap.phase,
+        codewatch_title: snap.title || '',
+        codewatch_tools: (snap.tools || []).join(','),
+        codewatch_project: snap.project || '',
+        codewatch_source: snap.source || '',
+      };
+      try {
+        await api.streamChat(chars.currentId, '', onEvent, controller.signal, morphs, 'codewatch', extra);
+      } catch (e) {
+        if (!controller.signal.aborted) this.lastError = String(e);
+      }
+      if (controller.signal.aborted) {
+        if (streamAbort === controller) {
+          streamAbort = null;
+          this.sending = false;
+          speechPlayer.streamOpen = false;
+        }
+        if (!assistant.content && !assistant.fullContent) this.messages.pop();
+        return;
+      }
+      const fallback = snap.phase === 'started' ? '你动笔了呀。' : '先这样吧。';
+      const silent = !bag.speech && !assistant.content;
+      if ((apiKeyMissing || silent) && !controller.signal.aborted) {
+        orchestrator.allowLocalSpeech();
+        emitLocal(
+          snap.phase === 'started'
+            ? `[emo:happy][intent:look]${fallback}`
+            : `[emo:relaxed][intent:nod]${fallback}`,
+          onEvent,
+        );
+      }
+      if (!assistant.content && !assistant.fullContent) this.messages.pop();
+      if (streamAbort === controller) {
+        streamAbort = null;
+        this.sending = false;
+        speechPlayer.streamOpen = false;
+      }
+    },
     cancelTarotNext() {
       clearTarotNext();
+    },
+    markTarotAfterglow() {
+      tarotAfterglow = true;
     },
     armTarotNext() {
       if (!useSettingsStore().modules.tarot) return;

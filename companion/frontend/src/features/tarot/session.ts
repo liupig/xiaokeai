@@ -49,6 +49,7 @@ let voicePlay = false;
 let flipTimer: ReturnType<typeof setTimeout> | null = null;
 let lastProgKey = '';
 let armedWaitKey = '';
+let synthBeats = 0;
 const queued: Array<() => void> = [];
 
 function withActing(fn: () => Promise<void>) {
@@ -215,10 +216,18 @@ export function tarotGameLock() {
     || tarotUi.phase === 'synth';
 }
 
+function frontLive() {
+  return tarotLive.value || (tarotUi.phase !== 'off' && tarotUi.phase !== 'leaving');
+}
+
 export async function syncTarotSession(characterId: number) {
   try {
     const snap = await api.tarotSession(characterId);
-    if (snap.active) applySnap(snap);
+    if (snap.active) {
+      applySnap(snap);
+      return snap;
+    }
+    if (frontLive()) await playDismiss();
     else {
       tarotUi.canContinue = false;
       tarotUi.canCut = false;
@@ -230,6 +239,28 @@ export async function syncTarotSession(characterId: number) {
   } catch {
     return null;
   }
+}
+
+/** 启动 / 回前台：后端还有局就恢复舞台，后端没了就清台。 */
+export async function reconcileTarot(characterId: number) {
+  if (!characterId) return null;
+  let snap: TarotSession | null = null;
+  try {
+    snap = await api.tarotSession(characterId);
+  } catch {
+    return null;
+  }
+  if (!snap?.active) {
+    if (frontLive()) await playDismiss();
+    return snap;
+  }
+  applySnap(snap);
+  const mod = pluginReady ? await pluginReady : null;
+  const plugin = mod?.getTarotPlugin();
+  if (frontLive() && plugin?.open) return snap;
+  if (snap.phase === 'intent') await playOffer(snap);
+  else await playRitual(snap);
+  return snap;
 }
 
 const TAROT_SHOTS = ['threeQ', 'full'] as const;
@@ -253,7 +284,21 @@ async function pushFocus(index: number | null) {
 async function speak(line: string, role: SpeakRole = 'ritual') {
   armSkipIntent();
   const { useChatStore } = await import('../../stores/chat');
-  await useChatStore().send(line, { scripted: true, tarotRole: role });
+  await useChatStore().send(line, {
+    scripted: true,
+    tarotRole: role,
+    hideUser: role === 'reveal' || role === 'ask',
+  });
+}
+
+/** 洗切选阶段不走模型，避免没翻开就报牌、另编画面。 */
+export function ritualQuietLine(role = '') {
+  if (role === 'reveal' || role === 'ask') return '';
+  const p = tarotUi.phase || '';
+  if (p === 'shuffle' || p === 'cut') return '好了，你可以切牌了。';
+  if (p === 'pick') return '好，从牌背里点一张。';
+  if (p === 'placed') return '说翻转，或点那张背面。';
+  return '';
 }
 
 /** 玩家已经切/抽/落位时，掐掉还在说「伸手切一下」的旧仪式句。 */
@@ -461,6 +506,7 @@ export async function askAbout(index: number) {
   };
   tarotUi.caption = `${card.position} · ${card.name}${card.reversed ? ' · 逆位' : ''}`;
   void pushFocus(index);
+  void pluginMod().then((m) => m.getTarotPlugin()?.inspect(index));
   if (tarotUi.phase !== 'linger') return;
   await speak(`这张「${card.position}」什么意思`, 'ask');
 }
@@ -515,11 +561,13 @@ export async function playDismiss() {
     tarotLive.value = false;
     placedOnce = false;
     lastProgKey = '';
+    synthBeats = 0;
     speechPlayer.tarotHold = false;
     unlockCam();
     try {
       const { useChatStore } = await import('../../stores/chat');
       useChatStore().cancelTarotNext();
+      useChatStore().markTarotAfterglow();
     } catch { /* */ }
   }
 }
@@ -613,8 +661,10 @@ async function applyIntentAction(res: { action: string; session: TarotSession })
       }
       if (!wasUp) {
         const card = typeof idx === 'number' ? (snap.cards || [])[idx] : undefined;
-        const pos = card?.position || `第${(idx ?? 0) + 1}`;
-        void speak(`翻开第${(idx ?? 0) + 1}张，${pos}`, 'reveal');
+        tarotUi.inspect = typeof idx === 'number' ? idx : tarotUi.inspect;
+        tarotUi.caption = card
+          ? `${card.position} · ${card.name}${card.reversed ? ' · 逆位' : ''}`
+          : tarotUi.caption;
       }
       return;
     }
@@ -708,13 +758,28 @@ export async function afterTarotSpeak(
 ) {
   const snap = await syncTarotSession(characterId);
   if (!snap?.active) return 'idle';
-  if (mode === 'continue' && (snap.phase === 'synth' || snap.can_continue)) {
+  // 综合（自动续一拍或用户说「串起来」）讲完就收线，不再自动续第二拍。
+  if (snap.phase === 'synth') {
+    synthBeats = 0;
+    applySnap(await api.tarotSynthDone(characterId));
+    return 'linger';
+  }
+  if (mode === 'continue' && snap.can_continue) {
+    synthBeats = 0;
     applySnap(await api.tarotSynthDone(characterId));
     return 'linger';
   }
   if (role === 'ritual') return 'idle';
-  if (role === 'reveal' || role === 'ask') {
-    if (snap.can_continue) return 'synth';
+  if (snap.can_continue) {
+    if (role !== 'reveal') {
+      synthBeats = 0;
+      applySnap(await api.tarotSynthDone(characterId));
+      return 'linger';
+    }
+    synthBeats = 0;
+    return 'synth';
+  }
+  if (role === 'reveal' || role === 'ask' || role === 'chat') {
     if (snap.phase === 'open' && snap.all_revealed && (snap.need || 1) <= 1) {
       applySnap(await api.tarotLinger(characterId));
       return 'linger';

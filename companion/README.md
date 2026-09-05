@@ -1,6 +1,8 @@
-# Companion Studio · AI 陪玩
+# xiaoke.ai · 小可爱
 
-单机部署的 AI 陪玩桌面级 Web 产品：挑选 / 下载 3D 角色，配置人设与声音，通过文本或语音对话；角色用语音 + 口型 + 表情 + 动作 + 舞蹈实时回应。
+单机部署的桌面级 3D 陪伴产品：挑选 / 下载 3D 角色，配置人设与声音，通过文本或语音对话；角色用语音 + 口型 + 表情 + 动作 + 舞蹈实时回应。
+
+不想自己装 Node / Python 时，用仓库根目录 [README · 体验包](../README.md#体验包不用自己编译)：网盘里是 A、B 两份 7z 和一份一体包，解压后双击 `xiaoke-ai.exe`。[下载（提取码 xkai）](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)
 
 ## 功能一览
 
@@ -11,6 +13,7 @@
 - **对话表演**：LLM 流式输出内嵌 `[emo:]` `[act:]` `[dance:]` `[cam:]` 标签，实时驱动表情、动作、舞蹈和运镜；无 API Key 时本地兜底应答，表演链路完全可用。
 - **语音闭环**：ASR / TTS 分开设置。在线：浏览器 Web Speech + edge-tts / 百炼 CosyVoice；离线：SenseVoice-Small（CPU）+ Qwen3-TTS 本地流式。真实振幅口型同步。
 - **长期记忆 / 情境 / 证物**：mem0 抽取并召回长期事实；情境卡设定「今晚这场戏」；舞台截图与短片按角色归档。
+- **Code 伴侣**：对话栏点「码」打开。盯本机 Cursor / Codex / Claude Code / 通义灵码 / Trae / 文心快码 的开工与收工，她用表情、动作和一句短话接上。Cursor 默认可看 agent-transcripts，也可选装用户钩子。
 
 ## 目录结构
 
@@ -113,7 +116,8 @@ LLM 输出内嵌标签驱动表演（后端剥离，不会念出来）：
 | 标签 | 说明 |
 |---|---|
 | `[emo:happy/angry/sad/relaxed/neutral]` | 切换表情（可叠加角色卡自定义形态键） |
-| `[act:wave/nod/shake]` | 挥手 / 点头 / 摇头 |
+| `[act:nod/shake]` | 点头 / 摇头 |
+| `[intent:greet]` | 打招呼（用过审动作，不再走内置挥手） |
 | `[dance:文件名.vmd]` | 播放舞蹈（仅 MMD/PMX 模型支持 VMD） |
 
 ## 常见问题
@@ -132,4 +136,4 @@ LLM 输出内嵌标签驱动表演（后端剥离，不会念出来）：
 
 ## 致谢
 
-舞台上的模型、表情、动作、镜头几乎全部来自 [模之屋](https://www.aplaybox.com/)，在此统一感谢站点以及所有在那里分享作品的作者。全双工对话节奏借鉴小冰（Xiaoice）的 Jarvis Processor / Transaction。动捕求解借鉴 [Reze MiPo](https://github.com/AmyangXYZ/reze-mipo)。完整名单见仓库根目录 [README · 致谢](../README.md#致谢)。
+舞台上的模型、表情、动作、镜头几乎全部来自 [模之屋](https://www.aplaybox.com/)，在此统一感谢站点以及所有在那里分享作品的作者。全双工对话节奏借鉴小冰（Xiaoice）。动捕求解借鉴 [Reze MiPo](https://github.com/AmyangXYZ/reze-mipo)。完整名单见仓库根目录 [README · 致谢](../README.md#致谢)。

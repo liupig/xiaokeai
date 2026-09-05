@@ -18,7 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Optional
 
-from ..paths import SPEECH_DIR
+from ..paths import SPEECH_DIR, current_speech_dir
 from ..infer_backends import tts_framework
 
 SAMPLE_RATE = 24000
@@ -139,15 +139,20 @@ def _weight_bytes(folder: Path) -> int:
     return total
 
 
+def _variant_dir(size: str) -> Path:
+    spec = VARIANTS[size]
+    return current_speech_dir() / Path(spec["dir"]).name
+
+
 def _local_ready(size: str) -> bool:
     spec = VARIANTS[size]
-    return _weight_bytes(spec["dir"]) >= spec["min_bytes"]
+    return _weight_bytes(_variant_dir(size)) >= spec["min_bytes"]
 
 
 def _model_source(size: str) -> str:
     spec = VARIANTS[size]
     if _local_ready(size):
-        return str(spec["dir"])
+        return str(_variant_dir(size))
     return spec["id"]
 
 
@@ -167,13 +172,15 @@ def _status_inproc() -> Dict[str, Any]:
         for key, spec in VARIANTS.items()
     }
     msg = _state["message"]
+    if msg and "不是本地 Qwen" in msg:
+        msg = ""
     if not _pkg_ok():
         msg = "未安装 qwen-tts。请用 Python 3.10+ 的后端环境执行：pip install qwen-tts qwen3-tts-streaming"
     elif not _state["ready"] and not _state["loading"] and not _state["downloading"]:
         if sizes["0.6b"]["installed"] or sizes["1.7b"]["installed"]:
-            msg = msg or "权重已在本地。点「加载」或首次合成时载入（需数分钟）"
+            msg = msg or "权重已在本地。点「加载 / 切换规格」载入显存（首次可能要一两分钟）"
         else:
-            msg = msg or "尚未加载。点「加载」会从 ModelScope 下载权重"
+            msg = msg or "本地还没有权重。把资源包 B 选好后重启，或点「加载」下载"
     return {
         "engine": "qwen",
         "available": _pkg_ok(),
@@ -260,7 +267,7 @@ def unload() -> None:
 
 def _download_variant(size: str) -> None:
     spec = VARIANTS[size]
-    dest: Path = spec["dir"]
+    dest: Path = _variant_dir(size)
     dest.mkdir(parents=True, exist_ok=True)
     _state["downloading"] = True
     errors: list[str] = []
@@ -605,25 +612,7 @@ def status() -> Dict[str, Any]:
         st["process"] = "tts-worker"
         st["pid"] = int(_proc.pid or 0) if _proc else 0
         return st
-    sizes = {
-        key: {"installed": _local_ready(key), "label": spec["label"], "gb": spec["gb"]}
-        for key, spec in VARIANTS.items()
-    }
-    return {
-        "engine": "qwen",
-        "available": True,
-        "ready": False,
-        "loading": False,
-        "downloading": False,
-        "gpu": True,
-        "device": "",
-        "size": "",
-        "framework": "",
-        "sizes": sizes,
-        "message": _state.get("message") or "TTS 独立进程未启动",
-        "process": "tts-worker",
-        "pid": 0,
-    }
+    return _status_inproc()
 
 
 def warmup(size: str = DEFAULT_SIZE, *, download: bool = False) -> Dict[str, Any]:

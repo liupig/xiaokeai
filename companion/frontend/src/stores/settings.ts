@@ -20,12 +20,12 @@ export const useSettingsStore = defineStore('settings', {
     llm_env: false,
     llm_local: false,
     llm: {
-      base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', api_key: '',
-      model: 'qwen-plus', temperature: 0.85, top_p: 1.0,
-      max_tokens: 0, thinking: 'default',
+      base_url: 'https://ark.cn-beijing.volces.com/api/v3', api_key: '',
+      model: 'doubao-seed-character-260628', temperature: 0.85, top_p: 1.0,
+      max_tokens: 0, thinking: 'off',
     },
     tts: { engine: 'qwen' as 'cosy' | 'edge' | 'qwen' | 'browser' | 'off',
-           voice: 'Vivian', rate: '+0%', qwen_size: '0.6b' as '0.6b' | '1.7b',
+           voice: 'Serena', rate: '+0%', qwen_size: '0.6b' as '0.6b' | '1.7b',
            qwen_style: 'yujie' as string, qwen_instruct: '',
            duplex_cmd: 'interrupt_or_queue' as DuplexCmd,
            duplex_remain_sec: DEFAULT_DUPLEX_REMAIN_SEC,
@@ -37,18 +37,24 @@ export const useSettingsStore = defineStore('settings', {
     stt: { engine: 'sensevoice' as 'browser' | 'sensevoice' },
     download: { aplaybox_token: '' },
     quality: {
-      physics: true, pixel_ratio_cap: 2, camera_follow: false, bgm_volume: 0.5,
+      physics: false, pixel_ratio_cap: 2, camera_follow: false, bgm_volume: 0.5,
       background_color: '#141420', background_image: '', light_level: 1,
       stage_show: true, stage_color: '#232342', stage_glow: '#5b5bd6', stage_style: 'classic',
       stage_texture: '', stage_opacity: 1,
     },
-    modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true },
+    modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, codewatch: true },
     hardware: {
       auto: false, tier: '', ram_gb: 0, vram_gb: 0, cores: 0,
       reason: '', fingerprint: '',
       failed: { stt: '', tts: '', memory: '' },
     },
     voices: [] as { id: string; label: string; engine?: string }[],
+    content: {
+      packed: false,
+      path: '',
+      ok: false,
+      found: {} as Record<string, boolean>,
+    },
   }),
   getters: {
     hasLlm(): boolean {
@@ -117,10 +123,20 @@ export const useSettingsStore = defineStore('settings', {
         rewrite: mods?.rewrite !== false,
         keepsake: mods?.keepsake !== false,
         tarot: mods?.tarot !== false,
+        codewatch: mods?.codewatch !== false,
       };
+      const content = (data as { content?: Record<string, unknown> }).content;
+      if (content && typeof content === 'object') {
+        this.content = {
+          packed: !!content.packed,
+          path: String(content.path || ''),
+          ok: !!content.ok,
+          found: (content.found || {}) as Record<string, boolean>,
+        };
+      }
       this.loaded = true;
       if (typeof this.quality.physics !== 'boolean') {
-        this.quality.physics = this.quality.physics !== false && this.quality.physics !== 0;
+        this.quality.physics = false;
       }
       this.applyQuality();
       this.applyTts();
@@ -129,7 +145,7 @@ export const useSettingsStore = defineStore('settings', {
         if (!v.length) return;
         const ok = v.some((x) => x.engine === this.tts.engine && x.id === this.tts.voice);
         if ((this.tts.engine === 'edge' || this.tts.engine === 'qwen' || this.tts.engine === 'cosy') && !ok) {
-          this.tts.voice = '';
+          this.tts.voice = this.tts.engine === 'qwen' ? 'Serena' : '';
         }
       }).catch(() => {});
       this.maybeWarmupSpeech();
@@ -203,6 +219,19 @@ export const useSettingsStore = defineStore('settings', {
         texture: this.quality.stage_texture,
         opacity: this.quality.stage_opacity,
       });
+    },
+    async applyContent(path: string) {
+      const r = await api.setContent(path);
+      if (!r.ok) {
+        return r;
+      }
+      this.content = {
+        packed: !!r.packed,
+        path: String(r.path || path),
+        ok: !!(r.ok && !r.restart),
+        found: r.found || {},
+      };
+      return r;
     },
   },
 });

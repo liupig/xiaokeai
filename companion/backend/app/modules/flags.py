@@ -5,7 +5,7 @@ from sqlmodel import Session
 
 from ..services import settings_store
 
-MODULE_KEYS = ("memory", "scenes", "rewrite", "keepsake", "tarot")
+MODULE_KEYS = ("memory", "scenes", "rewrite", "keepsake", "tarot", "codewatch")
 
 
 def all_flags(session: Session) -> Dict[str, bool]:

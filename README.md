@@ -1,6 +1,6 @@
-# Companion Studio · AI 陪玩
+# xiaoke.ai · 小可爱
 
-> **开源免费 · 本地运行 —— 让一个会说、会动、会记得你的她，住进你的电脑。**
+> **开源免费 · 本地运行 —— 让一个会说、会动、会记得你的她，坐到你对面。**
 
 单机部署的桌面级 3D 陪伴产品：挑选或下载 3D 角色，配好人设与声音，用文字或语音聊天。角色用语音、口型、表情、动作、舞蹈和运镜实时回应；还能坐在你对面给你抽一副牌。
 
@@ -11,7 +11,7 @@
 
 舞台上的 3D 模型、动作、音乐、音色不在本协议内，版权归原作者，请遵守各资产自带的使用条款（多数同样禁止商用和二次配布）。
 
-[English](./README.en.md)
+[English](./README.en.md) · [xiaoke.ai](https://xiaoke.ai)
 
 ## 看一眼
 
@@ -64,7 +64,7 @@
 
 | 目录 | 说明 |
 |---|---|
-| [`companion/`](./companion) | **主产品**：Vue 前端 + FastAPI 后端 + Electron 桌面壳，完整陪玩工作室 |
+| [`companion/`](./companion) | **主产品**：Vue 前端 + FastAPI 后端 + Electron 桌面壳 |
 | [`companion/docs/`](./companion/docs) | 产品与设计文档：人设怎么写、提示词分层、塔罗玩法与牌面规范、原创歌词 |
 | [`companion-3d/`](./companion-3d) | 早期 3D 舞台原型：VRM / GLB / PMX 加载、表情、VMD 舞蹈 |
 | [`music-api/`](./music-api) | 独立的学习用音乐检索接口（数据源：爱听音乐网） |
@@ -74,6 +74,38 @@
 仓库提交 **完整源码**、情境卡背景 / 舞台贴图、以及整套 AI 原创塔罗牌面。3D 模型、VMD、音乐、语音权重、SQLite、密钥都不入库，克隆后按下面「快速开始」跑起来，再从资产中心导入自己的角色即可。
 
 要打成双击即开的本地 exe（自带 Chromium 窗口、Python 运行时、模型与权重），见 [`companion/README_BUILD.md`](./companion/README_BUILD.md)。
+
+## 体验包（不用自己编译）
+
+网盘里是已经打好的 Windows 包，解压就能开。里面有 **A / B 两份 7z**，以及一份 **一体包**：
+
+[xiaoke.ai 3D本地陪聊 · 百度网盘](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)　提取码：`xkai`
+
+| 你下到的 | 是什么 | 怎么开 |
+|---|---|---|
+| `xiaoke-ai-A-….7z` | **A 程序包**：窗口、代码、瘦 Python。日常换版本只换这个 | 和 B 解压到**同一层目录**，双击 A 里的 `xiaoke-ai.exe` |
+| `xiaoke-ai-B.7z` | **B 资源包**：角色、动作、歌曲、离线语音、PyTorch/CUDA。很少重下 | 解压后目录里能看到 `xiaoke-content.json` |
+| `xiaoke-ai-20….7z`（没有 `-A` / `-B`） | **一体包**：程序和资源打在同一个文件夹 | 解压后直接双击 `xiaoke-ai.exe`，不用选 B |
+
+用 [7-Zip](https://www.7-zip.org/) 解压。A 和 B 不要一套再套一层，正确样子是：
+
+```
+某盘:\xiaoke\
+  xiaoke-ai-A-20260904233641\   ← 双击这里的 xiaoke-ai.exe
+    xiaoke-ai.exe
+  xiaoke-ai-B\
+    xiaoke-content.json
+```
+
+**第一次开 A**：设置 → 资源包 → 选旁边的 `xiaoke-ai-B` 文件夹（看到 `xiaoke-content.json` 就对了）→ **关掉窗口再开一次**。路径会记在 A 目录的 `content.path`，以后只换新 A 时把这个文件拷过去即可。一体包跳过这一步。
+
+打包版自己带 Chromium，不用再开浏览器。本机端口是后端 `127.0.0.1:5201`、前端 `127.0.0.1:5211`。
+
+- Windows 10+。本地 Qwen TTS 建议有 NVIDIA 显卡和驱动；没有显卡：设置 → 语音 → TTS 改成 edge-tts。
+- 包里**不含**聊天密钥。设置 → AI 对话里填 OpenAI 兼容的 `base_url` / `api_key` / `model`。不填也能看舞台、跳舞、听本地兜底回复。
+- 请勿删除 A 里的 `electron/`、`runtime/`。3D 角色版权归原作者，仅供个人体验。
+
+自己从源码打包见 [`companion/README_BUILD.md`](./companion/README_BUILD.md)。
 
 ## 能做什么
 
@@ -97,12 +129,13 @@
 - **情境卡**：内置「今晚这场戏」（雨夜小巷、刚吵完、花树下等），也可按记忆生成当晚情境。
 - **证物相册**：舞台截图和短片（mediabunny 编码），按角色归档。
 - **对话记录**：侧边抽屉回看本场对话与后端 talk log。
+- **Code 伴侣**：对话栏点「码」，看着 Cursor 开工、写着、写完，她跟着演。默认盯本机 transcript，可选装钩子。Codex 稍后。
 
 ### 资产与角色
 
 - **资产中心**：本地导入 zip / rar / 单文件（解压、乱码文件名修复、PMX / VMD / 音频自动入库）；可对接[模之屋](https://www.aplaybox.com/)在线搜索下载。
 - **角色卡**：模型 + 人设 + 音色 + 情绪到形态键的映射 + 闲置动作。
-- **模块开关**：记忆、情境、重说、证物、塔罗都可以在设置里独立关掉，关掉等于没装。
+- **模块开关**：记忆、情境、重说、证物、塔罗、Code 伴侣都可以在设置里独立关掉，关掉等于没装。
 
 更细的配置、标签协议和排错见 [`companion/README.md`](./companion/README.md)。
 
@@ -215,7 +248,7 @@ foreach ($port in 8600, 5175) {
 ### 算法与产品思路
 
 - **小冰（Xiaoice）**  
-  全双工语音交互的产品与工程思想：一边听一边说、按句排队或打断、沉默后续聊 / 主动搭话 / 告别。我们的对话节奏（`DuplexCmd`、句子类型、ChannelPool 播或不播）直接借鉴了小冰 Jarvis Processor / Transaction 这一侧，而不是把整段回复锁死再播完。
+  全双工语音交互的产品与工程思想：一边听一边说、按句排队或打断、沉默后续聊 / 主动搭话 / 告别。我们的对话节奏（`DuplexCmd`、句子类型、Pool 播或不播）直接借鉴了小冰 这一侧，而不是把整段回复锁死再播完。
 - **豆包（Doubao）**  
   多段 system 每轮动态拼接、账号级人设与会话级扮演分层、记忆护栏、代码侧拦截优先于 prompt 文本。我们的 `prompt_stack` 按公开行为反推了这套组织方式，详见 [`persona-stack.md`](./companion/docs/persona-stack.md)。
 - **[AmyangXYZ](https://github.com/AmyangXYZ) / [Reze MiPo](https://github.com/AmyangXYZ/reze-mipo)**（曾用名 MiKaPo）  

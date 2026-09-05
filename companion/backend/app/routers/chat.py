@@ -44,6 +44,11 @@ class ChatRequest(BaseModel):
     scene_resume: str = ""
     variation: str = ""
     reroll: bool = False
+    codewatch_phase: str = ""
+    codewatch_title: str = ""
+    codewatch_tools: str = ""
+    codewatch_project: str = ""
+    codewatch_source: str = ""
 
 
 class ContinueRequest(BaseModel):
@@ -109,7 +114,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     ).all()
     history: List[Dict[str, str]] = _prompt_history(history_rows)
     mode = (req.mode or "user").lower()
-    sidecar = mode in ("continue", "proactive", "goodbye", "welcome")
+    sidecar = mode in ("continue", "proactive", "goodbye", "welcome", "codewatch")
     if not sidecar and not req.reroll:
         history.append({"role": "user", "content": req.text})
 
@@ -157,6 +162,11 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         "scene_resume": req.scene_resume,
         "variation": req.variation,
         "user_text": req.text or "",
+        "codewatch_phase": req.codewatch_phase,
+        "codewatch_title": req.codewatch_title,
+        "codewatch_tools": req.codewatch_tools,
+        "codewatch_project": req.codewatch_project,
+        "codewatch_source": req.codewatch_source,
     }
     messages = hooks.before_messages(session, req.character_id, mode, messages, extra)
 
@@ -209,13 +219,27 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         hint = duplex_service.PROACTIVE_IN_SCENE
     elif mode == "welcome" and (req.text or "").strip():
         hint = f"{duplex_service.WELCOME_HINT}\n补充：{(req.text or '').strip()}"
+    tarot_afterglow = False
+    if module_on(session, "tarot"):
+        from ..modules.tarot.service import peek_exited as tarot_peek_exited
+        tarot_afterglow = tarot_peek_exited(req.character_id)
     if tarot_now and mode == "continue":
-        hint = (
-            "还在看牌这场戏里。按临时身份里【这一轮任务】往下讲指定的那一张，"
-            "不要问对方还看不看、要不要再抽，不要寒暄，不要说「还在扒拉牌阵吗」。"
-        )
+        from ..modules.tarot.service import snapshot as tarot_snap
+        phase = str((tarot_snap(req.character_id) or {}).get("phase") or "")
+        if phase == "synth":
+            hint = duplex_service.TAROT_SYNTH_HINT
+        else:
+            hint = (
+                "还在看牌这场戏里。按临时身份里【这一轮任务】往下讲指定的那一张，"
+                "不要问对方还看不看、要不要再抽，不要寒暄，不要说「还在扒拉牌阵吗」。"
+            )
     elif tarot_now and mode == "proactive":
         hint = None
+    elif tarot_afterglow and mode in ("continue", "proactive", "user"):
+        hint = duplex_service.AFTERGLOW_HINT
+    elif mode == "codewatch":
+        from ..modules.codewatch.speak import from_request as codewatch_hint
+        hint = codewatch_hint(extra)
     if hint:
         messages = messages + [{"role": "system", "content": hint}]
     messages = hooks.after_messages(session, req.character_id, mode, messages, extra)
@@ -224,9 +248,13 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         "proactive": "proactive",
         "goodbye": "goodbye",
         "welcome": "welcome",
+        "codewatch": "proactive",
     }.get(mode, "body")
     body_cmd = dx["body_cmd"]
     delayed_sec = 0 if sidecar else dx["delayed_sec"]
+    if mode == "codewatch":
+        body_cmd = "queue"
+        delayed_sec = 0
     if tarot_now and mode in ("user", "continue"):
         # 游戏模式：句子排队顺播。综合收线由前端在全翻后点一次 continue，不要按张自动续。
         body_cmd = "queue"
@@ -237,6 +265,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         "proactive": "proactive",
         "goodbye": "goodbye",
         "welcome": "welcome",
+        "codewatch": "aside",
     }.get(mode, "rp" if isolate else "qa")
 
     async def event_stream():

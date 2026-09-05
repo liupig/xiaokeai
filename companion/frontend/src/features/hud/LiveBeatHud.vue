@@ -10,9 +10,21 @@ import {
 } from '../performance/repertoire';
 import { banApprovedCombo } from '../review/camReview';
 
+const OPEN_KEY = 'xiaoke.livebeat.open';
 const message = useMessage();
 const banning = ref(false);
 const banned = ref(new Set<string>());
+const open = ref(false);
+try {
+  open.value = localStorage.getItem(OPEN_KEY) === '1';
+} catch { /* */ }
+
+function toggle() {
+  open.value = !open.value;
+  try {
+    localStorage.setItem(OPEN_KEY, open.value ? '1' : '0');
+  } catch { /* */ }
+}
 
 const now = computed(() => liveNow.value);
 const labels = computed(() => now.value ? describeBeat(now.value.beat) : null);
@@ -53,9 +65,12 @@ async function ban(id: string) {
 </script>
 
 <template>
-  <div class="hud glass">
-    <div class="cap">当前表演</div>
-    <template v-if="now && labels">
+  <div class="hud glass" :class="{ shut: !open }">
+    <button type="button" class="cap" @click="toggle">
+      当前表演
+      <span class="fold">{{ open ? '收起' : '展开' }}</span>
+    </button>
+    <template v-if="open && now && labels">
       <div class="chips">
         <span class="chip"><em>景别</em>{{ labels.size }}</span>
         <span class="chip"><em>运镜</em>{{ labels.cam }}</span>
@@ -71,9 +86,9 @@ async function ban(id: string) {
         {{ currentBanned ? '已去掉' : '这个不好' }}
       </n-button>
     </template>
-    <p v-else class="empty">说话或闲时运镜时，这里会显示正在用的景别、运镜、站位、动作</p>
-    <div v-if="recent.length" class="recent">
-      <div class="cap dim">刚才</div>
+    <p v-else-if="open" class="empty">说话或闲时运镜时，这里会显示正在用的景别、运镜、站位、动作</p>
+    <div v-if="open && recent.length" class="recent">
+      <div class="sub">刚才</div>
       <div v-for="b in recent" :key="b.id" class="row">
         <span class="line">{{ lineOf(b) }}</span>
         <n-button size="tiny" quaternary type="error"
@@ -96,16 +111,47 @@ async function ban(id: string) {
   padding: 10px 12px 12px;
   pointer-events: none;
 }
-.hud :deep(.n-button) {
+.hud.shut {
+  width: auto;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(16, 16, 28, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(16px);
+}
+.hud :deep(.n-button),
+.hud .cap {
   pointer-events: auto;
 }
 .cap {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
   font-size: 11px;
   letter-spacing: 0.08em;
   opacity: 0.55;
-  margin-bottom: 8px;
+  cursor: pointer;
+  text-align: left;
 }
-.cap.dim { margin: 10px 0 4px; }
+.shut .cap { margin: 0; }
+.fold {
+  margin-left: auto;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+.sub {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  opacity: 0.45;
+  margin: 10px 0 4px;
+}
 .chips {
   display: flex;
   flex-wrap: wrap;

@@ -9,7 +9,7 @@ import { useCharacterStore } from '../../stores/character';
 import { useChatStore } from '../../stores/chat';
 import { useSettingsStore } from '../../stores/settings';
 import { catLabel, parseMotionCat, stripCatPrefix } from '../assets/motionMeta';
-import { PERSONA_TEMPLATE_OPTIONS, genericPersona, personaTemplate } from './personas';
+import { PERSONA_TEMPLATE_OPTIONS, personaTemplate } from './personas';
 
 const props = defineProps<{ show: boolean }>();
 const emit = defineEmits<{ (e: 'update:show', v: boolean): void }>();
@@ -107,7 +107,8 @@ async function createNew() {
   const created = await characters.create({
     name: '新角色',
     model_asset_id: assets.models[0]?.id ?? 0,
-    persona: genericPersona('新角色'),
+    persona: personaTemplate('puppygf', '新角色'),
+    boundary: 'free',
     voice: '',
   });
   await switchTo(created.id!);

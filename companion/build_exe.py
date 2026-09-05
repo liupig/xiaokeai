@@ -1,17 +1,20 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Companion Studio 大打包：做成双击即开的加密 exe 目录。
+"""xiaoke.ai 打包：A 程序包 + B 资源包。
 
 用法（在 companion 目录，用后端 venv 的 Python）：
-    python build_exe.py
-    python build_exe.py --skip-7z   # 只出目录，不打 7z
+    python build_exe.py              # 只打 A（代码 + 运行时，日常迭代）
+    python build_exe.py --content    # 只打 B（模型 / 动作 / 歌曲 / 语音权重）
+    python build_exe.py --all        # A 和 B 都打
+    python build_exe.py --skip-7z    # 只出目录，不打 7z
 
-产物不进仓库：输出到与 games 同级的 xiaoke_ai_YYYYMMDDHHMMSS/，
-默认再打一份同名 7z。中间构建目录也在 games 同级。
+产物不进仓库：A 在 games 同级 xiaoke-ai-A-时间戳/，B 固定为 xiaoke-ai-B/。
+一体包（旧）：python build_exe.py --full  → xiaoke-ai-时间戳/（代码+资源打一起）。
 """
 from __future__ import annotations
 
 import compileall
+import json
 import os
 import shutil
 import subprocess
@@ -28,10 +31,12 @@ VENV_PY = BACKEND / ".venv" / "Scripts" / "python.exe"
 # 国内拉 Electron/Chromium 预编译包（不装 Chrome，内核打进发行目录）
 ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
 
-# games 仓库根；产物放到它的上一级（与 games 同级），避免撑爆仓库
+# games 仓库根；产物默认放到它的上一级（与 games 同级），避免撑爆仓库。
+# 盘空间不够时：set XIAOKE_OUT=H:\xiaoke-ai-packs
 GAMES_ROOT = COMPANION.parent
-OUT_ROOT = GAMES_ROOT.parent
-WORK_DIR = OUT_ROOT / "_xiaoke_ai_work"
+OUT_ROOT = Path(os.environ.get("XIAOKE_OUT") or GAMES_ROOT.parent)
+WORK_DIR = OUT_ROOT / "_xiaoke-ai_work"
+EXE_NAME = "xiaoke-ai.exe"
 
 SEVEN_ZIP_CANDIDATES = (
     Path(r"D:\BingSoft\7-Zip\7z.exe"),
@@ -105,13 +110,16 @@ def find_7z() -> Path:
 
 def latest_pack_dir(exclude: Path | None = None) -> Path | None:
     cands = []
-    for p in OUT_ROOT.glob("xiaoke_ai_*"):
-        if not p.is_dir():
-            continue
-        if exclude and p.resolve() == exclude.resolve():
-            continue
-        if (p / "runtime" / "python.exe").is_file():
-            cands.append(p)
+    for pat in ("xiaoke-ai-A-*", "xiaoke-ai-*", "xiaoke_ai_*"):
+        for p in OUT_ROOT.glob(pat):
+            if not p.is_dir():
+                continue
+            if p.name.startswith("xiaoke-ai-B"):
+                continue
+            if exclude and p.resolve() == exclude.resolve():
+                continue
+            if (p / "runtime" / "python.exe").is_file():
+                cands.append(p)
     if not cands:
         return None
     return max(cands, key=lambda p: p.name)
@@ -169,7 +177,7 @@ def step_electron(dist_dir: Path) -> None:
 
 
 def step_copy_runtime(dist_dir: Path, py: Path) -> None:
-    print("\n[3/8] 复制 Python 运行时（含 torch / CUDA）")
+    print("\n[3/8] 复制 Python 运行时")
     runtime = dist_dir / "runtime"
     if (runtime / "python.exe").is_file():
         print(f"  已有 runtime，跳过重拷（{runtime}）")
@@ -195,6 +203,7 @@ def step_copy_runtime(dist_dir: Path, py: Path) -> None:
         extra_xd=[
             "Doc", "docs", "include", "man", "tcl", "conda-meta", "pkgs", "etc",
             "vllm", "ray", "IPython", "jupyter", "notebook", "nbconvert",
+            "gradio", "opencv", "scipy", "sklearn", "pandas", "matplotlib",
         ],
     )
     venv_sp = BACKEND / ".venv" / "Lib" / "site-packages"
@@ -326,16 +335,250 @@ def export_pack_db(src: Path, dst: Path) -> dict:
     return counts
 
 
-def step_copy_payload(dist_dir: Path) -> None:
-    print("\n[5/8] 复制前端、3D 资产、语音模型")
-    web = dist_dir / "web"
-    if web.exists():
-        shutil.rmtree(web)
-    shutil.copytree(FRONTEND / "dist", web)
-    print("  ok web/")
+CONTENT_ASSET_DIRS = ("models", "motions", "cameras", "audio", "music")
 
-    robocopy(COMPANION / "assets", dist_dir / "assets")
+# 本地 Qwen TTS 要的 CUDA / PyTorch，放进 B，A 只留瘦 Python。
+ML_DIR_NAMES = {
+    "torch", "torchaudio", "torchvision", "torchgen", "triton", "functorch", "nvidia",
+}
+ML_NAME_PREFIXES = ("torch-", "torchaudio-", "torchvision-", "triton", "nvidia-")
 
+
+def _is_ml_name(name: str) -> bool:
+    n = name.lower()
+    if n in ML_DIR_NAMES:
+        return True
+    return n.startswith(ML_NAME_PREFIXES)
+
+
+def ml_entries(site_packages: Path) -> list[Path]:
+    if not site_packages.is_dir():
+        return []
+    return [p for p in site_packages.iterdir() if _is_ml_name(p.name)]
+
+
+def strip_build_junk(root: Path) -> int:
+    """运行时不需要 .lib / .pdb（torch 里 dnnl.lib 就有 2GB）。"""
+    n = 0
+    if not root.is_dir():
+        return 0
+    for p in root.rglob("*"):
+        if p.is_file() and p.suffix.lower() in {".lib", ".pdb", ".a"}:
+            try:
+                p.unlink()
+                n += 1
+            except OSError:
+                pass
+    return n
+
+
+def copy_ml_runtime(src_sp: Path, dest_sp: Path) -> int:
+    entries = ml_entries(src_sp)
+    if not entries:
+        print("  skip ML runtime（源里没有 torch）")
+        return 0
+    dest_sp.mkdir(parents=True, exist_ok=True)
+    n = 0
+    for src in entries:
+        dst = dest_sp / src.name
+        if src.is_dir():
+            robocopy(src, dst)
+        else:
+            shutil.copy2(src, dst)
+        n += 1
+        print(f"  ok ML {src.name}")
+    junk = strip_build_junk(dest_sp)
+    print(f"  推理库 → {dest_sp}（{n} 项，去掉 {junk} 个编译文件）")
+    return n
+
+
+def remove_ml_runtime(site_packages: Path) -> int:
+    n = 0
+    for p in ml_entries(site_packages):
+        name = p.name
+        if p.is_dir():
+            shutil.rmtree(p, ignore_errors=True)
+        elif p.is_file():
+            p.unlink(missing_ok=True)
+        n += 1
+        print(f"  已从 A 去掉 {name}")
+    return n
+
+
+def find_ml_source(*prefer: Path) -> Path | None:
+    cands: list[Path] = []
+    cands.extend(p for p in prefer if p is not None)
+    prev = latest_pack_dir()
+    if prev is not None:
+        cands.append(prev / "runtime" / "Lib" / "site-packages")
+    cands.append(OUT_ROOT / "xiaoke-ai-B" / "runtime" / "Lib" / "site-packages")
+    cands.append(BACKEND / ".venv" / "Lib" / "site-packages")
+    try:
+        cands.append(base_prefix(venv_python()) / "Lib" / "site-packages")
+    except Exception:
+        pass
+    seen: set[str] = set()
+    for sp in cands:
+        key = str(sp.resolve()) if sp.exists() else str(sp)
+        if key in seen:
+            continue
+        seen.add(key)
+        if (sp / "torch").is_dir():
+            return sp
+    return None
+
+
+# 开发机 conda/venv 里有、发行版用不到的库（产品代码未 import）。
+# 不要删 scipy：qwen-tts → librosa 启动就要它，上次精简后打包版 TTS 直接加载失败。
+RUNTIME_DROP_NAMES = {
+    "gradio", "gradio_client", "safehttpx",
+    "cv2", "opencv_python", "opencv_contrib_python",
+    "sklearn", "pandas", "matplotlib", "mpl_toolkits",
+    "contourpy", "cycler", "kiwisolver", "fonttools", "fontTools",
+    "mistral_common", "openai_harmony", "outlines", "outlines_core",
+    "timm", "pythonwin",
+    "IPython", "jupyter", "jupyter_client", "jupyter_core",
+    "notebook", "nbconvert", "nbformat", "nbclient",
+    "vllm", "ray",
+}
+RUNTIME_DROP_PREFIXES = (
+    "gradio", "opencv", "scikit_learn", "scikit-learn",
+    "sklearn", "pandas", "matplotlib",
+    "mistral_common", "openai_harmony", "outlines", "timm",
+    "jupyter", "ipython", "notebook", "nbconvert",
+    "vllm", "ray",
+)
+
+
+def _is_drop_name(name: str) -> bool:
+    n = name.lower()
+    if n.startswith("~"):
+        return True
+    if n in {x.lower() for x in RUNTIME_DROP_NAMES}:
+        return True
+    for pfx in RUNTIME_DROP_PREFIXES:
+        if n == pfx or n.startswith(pfx + "-") or n.startswith(pfx + "_"):
+            return True
+    return False
+
+
+def strip_unused_site_packages(site_packages: Path) -> int:
+    """删掉开发环境残留（gradio / opencv / sklearn 等），产品跑起来不需要。"""
+    if not site_packages.is_dir():
+        return 0
+    n = 0
+    freed = 0
+    for p in list(site_packages.iterdir()):
+        if not _is_drop_name(p.name):
+            continue
+        try:
+            if p.is_dir():
+                for f in p.rglob("*"):
+                    if f.is_file():
+                        freed += f.stat().st_size
+                shutil.rmtree(p, ignore_errors=True)
+            elif p.is_file():
+                freed += p.stat().st_size
+                p.unlink(missing_ok=True)
+            n += 1
+            print(f"  去掉无关库 {p.name}")
+        except OSError as exc:
+            print(f"  skip {p.name}（{exc}）")
+    print(f"  共去掉 {n} 项无关库（约 {freed / (1024 ** 2):.0f} MB）")
+    return n
+
+
+# qwen-tts → librosa 必依赖。开发机常靠 Anaconda 带一份，venv 里没有；
+# 打包运行时是独立 Python，不补上就会 ModuleNotFoundError。
+TTS_KEEP_PACKAGES = ("scipy", "numba", "llvmlite")
+
+
+def ensure_tts_python_deps(dest_sp: Path) -> None:
+    print("  检查 TTS Python 依赖")
+    cands: list[Path] = [BACKEND / ".venv" / "Lib" / "site-packages"]
+    try:
+        cands.append(base_prefix(venv_python()) / "Lib" / "site-packages")
+    except Exception:
+        pass
+    prev = latest_pack_dir()
+    if prev is not None:
+        cands.append(prev / "runtime" / "Lib" / "site-packages")
+    for name in TTS_KEEP_PACKAGES:
+        if (dest_sp / name).is_dir():
+            print(f"  ok {name}")
+            continue
+        src_root = next((sp for sp in cands if (sp / name).is_dir()), None)
+        if src_root is None:
+            raise SystemExit(
+                f"A 运行时缺少 {name}，Qwen TTS 无法加载。"
+                f"请先执行：backend\\.venv\\Scripts\\pip install {name}"
+            )
+        robocopy(src_root / name, dest_sp / name)
+        for info in src_root.glob(f"{name}-*.dist-info"):
+            if info.is_dir():
+                robocopy(info, dest_sp / info.name)
+        print(f"  补上 {name} ← {src_root}")
+        if not (dest_sp / name).is_dir():
+            raise SystemExit(f"没能把 {name} 拷进 A 运行时")
+
+
+def smoke_packed_tts_import(dist_dir: Path) -> None:
+    """打包机上用 A 的独立 Python + B 的 torch 试 import，缺库当场失败。"""
+    py = dist_dir / "runtime" / "python.exe"
+    b_sp = OUT_ROOT / "xiaoke-ai-B" / "runtime" / "Lib" / "site-packages"
+    if not py.is_file():
+        print("  skip TTS import 冒烟（还没有 runtime python）")
+        return
+    code = (
+        "import os, sys\n"
+        f"sp = r'{b_sp}'\n"
+        "sys.path.insert(0, sp)\n"
+        "lib = os.path.join(sp, 'torch', 'lib')\n"
+        "if os.path.isdir(lib) and hasattr(os, 'add_dll_directory'):\n"
+        "    os.add_dll_directory(lib)\n"
+        "from librosa.filters import mel\n"
+        "import qwen_tts\n"
+        "from qwen_tts import Qwen3TTSModel\n"
+        "print('TTS_IMPORT_OK')\n"
+    )
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    print("  TTS import 冒烟…")
+    r = subprocess.run([str(py), "-c", code], env=env, capture_output=True, text=True)
+    out = (r.stdout or "") + "\n" + (r.stderr or "")
+    if r.returncode != 0 or "TTS_IMPORT_OK" not in out:
+        raise SystemExit(f"打包后 TTS 无法 import：\n{out[-2400:]}")
+    print("  ok TTS import 冒烟")
+
+
+def slim_a_runtime(dist_dir: Path) -> None:
+    """A 去掉 torch / CUDA（放到 B），再删开发残留和编译垃圾。"""
+    print("\n[3b/8] 精简 A 运行时")
+    src_sp = dist_dir / "runtime" / "Lib" / "site-packages"
+    if (src_sp / "torch").is_dir():
+        staged = WORK_DIR / "ml" / "Lib" / "site-packages"
+        copy_ml_runtime(src_sp, staged)
+        b_sp = OUT_ROOT / "xiaoke-ai-B" / "runtime" / "Lib" / "site-packages"
+        copy_ml_runtime(src_sp, b_sp)
+        marker = OUT_ROOT / "xiaoke-ai-B" / "xiaoke-content.json"
+        if not marker.is_file():
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(
+                json.dumps({"name": "xiaoke-ai-B", "kind": "content", "version": 1}, ensure_ascii=False, indent=2)
+                + "\n",
+                encoding="utf-8",
+            )
+        remove_ml_runtime(src_sp)
+    else:
+        print("  A 里没有 torch（已在 B 或不需要）")
+    strip_unused_site_packages(src_sp)
+    ensure_tts_python_deps(src_sp)
+    smoke_packed_tts_import(dist_dir)
+    junk = strip_build_junk(dist_dir / "runtime")
+    print(f"  A runtime 去掉编译文件 {junk} 个")
+
+
+def _copy_tools_7z(dist_dir: Path) -> None:
     tools = dist_dir / "tools"
     tools.mkdir(parents=True, exist_ok=True)
     seven_src = None
@@ -356,6 +599,24 @@ def step_copy_payload(dist_dir: Path) -> None:
     else:
         print("  skip 7z（没找到 7-Zip，rar 解压可能失败）")
 
+
+def step_copy_payload(dist_dir: Path) -> None:
+    """A 包：前端、塔罗牌面、空数据目录。大资源去 B。"""
+    print("\n[5/8] 复制前端与轻量资源（不含模型 / 语音权重）")
+    web = dist_dir / "web"
+    if web.exists():
+        shutil.rmtree(web)
+    shutil.copytree(FRONTEND / "dist", web)
+    print("  ok web/")
+
+    tarot = COMPANION / "assets" / "tarot"
+    if tarot.is_dir():
+        robocopy(tarot, dist_dir / "assets" / "tarot")
+    else:
+        (dist_dir / "assets" / "tarot").mkdir(parents=True, exist_ok=True)
+
+    _copy_tools_7z(dist_dir)
+
     data_dst = dist_dir / "data"
     data_dst.mkdir(parents=True, exist_ok=True)
     db_src = BACKEND / "data" / "app.db"
@@ -371,7 +632,29 @@ def step_copy_payload(dist_dir: Path) -> None:
     if review_src.is_file():
         shutil.copy2(review_src, data_dst / "cam_review.json")
         print("  ok data/cam_review.json")
+    for d in ("tmp", "keepsakes", "mem0", "speech", "embed"):
+        (dist_dir / "data" / d).mkdir(parents=True, exist_ok=True)
 
+    for leaked in (dist_dir / ".env", data_dst / ".env", dist_dir / "content.path"):
+        if leaked.is_file():
+            leaked.unlink()
+            print(f"  已删除误带的 {leaked.relative_to(dist_dir)}")
+    example = COMPANION / "scripts" / ".env.example"
+    if example.is_file():
+        shutil.copy2(example, dist_dir / ".env.example")
+        print("  ok .env.example（空模板，不含 Key）")
+
+
+def step_copy_payload_full(dist_dir: Path) -> None:
+    """旧一体包：A 的轻量文件 + 全部大资源。"""
+    step_copy_payload(dist_dir)
+    print("\n[5b/8] 一体包：再拷模型 / 动作 / 语音权重")
+    for name in CONTENT_ASSET_DIRS:
+        src = COMPANION / "assets" / name
+        if src.exists():
+            robocopy(src, dist_dir / "assets" / name)
+        else:
+            print(f"  skip assets/{name}")
     speech_src = BACKEND / "data" / "speech"
     speech_dst = dist_dir / "data" / "speech"
     speech_dst.mkdir(parents=True, exist_ok=True)
@@ -382,8 +665,6 @@ def step_copy_payload(dist_dir: Path) -> None:
             robocopy(src, speech_dst / name)
         else:
             print(f"  skip {name}")
-    for d in ("tmp", "keepsakes", "mem0", "embed"):
-        (dist_dir / "data" / d).mkdir(parents=True, exist_ok=True)
     embed_src = BACKEND / "data" / "embed" / "minilm"
     if embed_src.exists():
         print("  embedding MiniLM …")
@@ -397,15 +678,50 @@ def step_copy_payload(dist_dir: Path) -> None:
     else:
         print("  skip fastembed cache")
 
-    # 绝不拷开发机 .env：里面是 API Key。目标机自己填设置面板，或旁放一份空模板。
-    for leaked in (dist_dir / ".env", data_dst / ".env"):
-        if leaked.is_file():
-            leaked.unlink()
-            print(f"  已删除误带的 {leaked.relative_to(dist_dir)}")
-    example = COMPANION / "scripts" / ".env.example"
-    if example.is_file():
-        shutil.copy2(example, dist_dir / ".env.example")
-        print("  ok .env.example（空模板，不含 Key）")
+
+def step_copy_content(dist_dir: Path) -> None:
+    """B 包：模型、动作、镜头、歌曲、ASR / TTS / embedding。"""
+    print("\n[*] 复制资源包 B")
+    marker = {"name": "xiaoke-ai-B", "kind": "content", "version": 1}
+    (dist_dir / "xiaoke-content.json").write_text(
+        json.dumps(marker, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print("  ok xiaoke-content.json")
+    for name in CONTENT_ASSET_DIRS:
+        src = COMPANION / "assets" / name
+        if src.exists():
+            robocopy(src, dist_dir / "assets" / name)
+        else:
+            print(f"  skip assets/{name}")
+    speech_src = BACKEND / "data" / "speech"
+    speech_dst = dist_dir / "data" / "speech"
+    speech_dst.mkdir(parents=True, exist_ok=True)
+    for name in SPEECH_KEEP:
+        src = speech_src / name
+        if src.exists():
+            print(f"  语音模型 {name} …")
+            robocopy(src, speech_dst / name)
+        else:
+            print(f"  skip {name}")
+    embed_src = BACKEND / "data" / "embed" / "minilm"
+    if embed_src.exists():
+        print("  embedding MiniLM …")
+        robocopy(embed_src, dist_dir / "data" / "embed" / "minilm")
+    else:
+        print("  skip MiniLM")
+    fastembed_src = BACKEND / "data" / "embed" / "fastembed"
+    if fastembed_src.exists():
+        print("  embedding fastembed cache …")
+        robocopy(fastembed_src, dist_dir / "data" / "embed" / "fastembed")
+    else:
+        print("  skip fastembed cache")
+    print("  PyTorch / CUDA …")
+    src = find_ml_source(WORK_DIR / "ml" / "Lib" / "site-packages")
+    if src is not None:
+        copy_ml_runtime(src, dist_dir / "runtime" / "Lib" / "site-packages")
+    else:
+        print("  skip torch（找不到源，打 A 或一体包时会带上）")
 
 
 def step_pyinstaller(dist_dir: Path, py: Path) -> None:
@@ -421,34 +737,79 @@ def step_pyinstaller(dist_dir: Path, py: Path) -> None:
         "--workpath", str(work),
         str(spec),
     ])
-    exe = dist_dir / "CompanionStudio.exe"
+    exe = dist_dir / EXE_NAME
+    for legacy_name in ("Xiaoke.exe", "CompanionStudio.exe"):
+        legacy = dist_dir / legacy_name
+        if not exe.is_file() and legacy.is_file():
+            legacy.rename(exe)
     if not exe.is_file():
-        raise SystemExit("没有生成 CompanionStudio.exe")
+        raise SystemExit(f"没有生成 {EXE_NAME}")
     print(f"  ok {exe}")
 
 
-def write_readme(dist_dir: Path) -> None:
-    print("\n[7/8] 写使用说明")
-    text = """小可 AI 本地版
+def write_readme_a(dist_dir: Path) -> None:
+    print("\n[7/8] 写使用说明（A）")
+    text = """xiaoke.ai 程序包 A
 ======================
 
-双击 CompanionStudio.exe 会打开自带的 Chromium 窗口（不需要安装 Chrome），
-并同时启动前端和后端（和开发环境不是同一套端口）：
+这是可运行的程序（代码 + 瘦 Python + 窗口）。
+角色、动作、歌曲、离线语音、记忆向量和 PyTorch/CUDA 在资源包 B。
 
-  桌面窗口  内嵌 Chromium（electron/ 目录）
-  前端页面  http://127.0.0.1:9615
-  后端 API  http://127.0.0.1:9610
+第一次打开：设置 → 资源包 → 选 B 的目录（里面有 xiaoke-content.json），
+关掉窗口再打开。路径记在本目录的 content.path，换 A 不用重选。
 
-开发环境仍是 5175 / 8600，两边可以一起开，不会抢端口。
+双击 xiaoke-ai.exe 打开自带 Chromium 窗口：
+
+  前端  http://127.0.0.1:5211
+  后端  http://127.0.0.1:5201
+
+需要：Windows 10+。本地 Qwen TTS 建议有 NVIDIA 显卡。
+聊天 Key 在设置面板填，或自己放 .env（参考 .env.example）。
+
+请勿删除 runtime、app、web、electron。
+"""
+    (dist_dir / "使用说明.txt").write_text(text, encoding="utf-8")
+
+
+def write_readme_full(dist_dir: Path) -> None:
+    print("\n[7/8] 写使用说明（一体包）")
+    text = """xiaoke.ai 本地版（一体包）
+======================
+
+双击 xiaoke-ai.exe 会打开自带的 Chromium 窗口（不需要安装 Chrome），
+并同时启动前端和后端：
+
+  前端页面  http://127.0.0.1:5211
+  后端 API  http://127.0.0.1:5201
+
+本目录已含角色、动作、歌曲和离线语音权重，不用再选资源包。
 
 需要：Windows 10+、较新的 NVIDIA 显卡（本地语音合成）。
-
-聊天用的大模型 Key 请在设置面板填写，或在本目录自己放一份 .env
-（可参考旁边的 .env.example）。打包不会带开发机密钥。
+聊天 Key 在设置面板填，或自己放 .env（参考 .env.example）。
 
 请勿删除 runtime、app、web、electron、assets、data。
-关掉窗口或黑窗即退出前后端。
-数据库带镜头审查、默认可选角色，以及舞蹈配乐绑定；不含开发机的聊天记录。
+"""
+    (dist_dir / "使用说明.txt").write_text(text, encoding="utf-8")
+
+
+def write_readme_b(dist_dir: Path) -> None:
+    print("\n[*] 写使用说明（B）")
+    text = """xiaoke.ai 资源包 B
+======================
+
+这是大资源，一般不用重打：
+
+  assets/models     角色模型
+  assets/motions    动作
+  assets/cameras    镜头
+  assets/audio      动作自带音频
+  assets/music      舞蹈兜底曲库
+  data/speech       SenseVoice + Qwen3-TTS
+  data/embed        记忆用 MiniLM / fastembed
+  runtime/Lib/.../torch   本地 Qwen TTS 用的 PyTorch / CUDA
+
+解压后，在程序包 A 的设置 → 资源包里填本目录路径。
+看到 xiaoke-content.json 就说明选对了。
 """
     (dist_dir / "使用说明.txt").write_text(text, encoding="utf-8")
 
@@ -460,71 +821,130 @@ def step_7z(dist_dir: Path) -> Path:
         shutil.rmtree(logs, ignore_errors=True)
     seven = find_7z()
     archive = dist_dir.with_suffix(".7z")
-    if archive.exists():
-        archive.unlink()
-    # 压缩包内保留文件夹，解压后就是 xiaoke_ai_时间戳/
+    # 先写到不跟目录同名的临时包。旧的 .7z 成功后再换，避免 7z 多线程
+    # 在 Windows 上打不开源文件，或把 xiaoke-ai-B 目录冲掉。
+    tmp = dist_dir.parent / f"{dist_dir.name}.part.7z"
+    if tmp.exists():
+        tmp.unlink()
     run([
         str(seven), "a", "-t7z",
-        "-mx=3", "-mmt=on",
-        str(archive),
+        "-mx=3", "-mmt=1",
+        str(tmp),
         str(dist_dir.name),
     ], cwd=dist_dir.parent)
-    if not archive.is_file():
+    if not tmp.is_file() or tmp.stat().st_size < 1024:
         raise SystemExit("没有生成 7z")
+    if not dist_dir.is_dir():
+        raise SystemExit(f"压缩后源目录消失：{dist_dir}")
+    if archive.exists():
+        archive.unlink()
+    tmp.replace(archive)
     size_gb = archive.stat().st_size / (1024 ** 3)
     print(f"  ok {archive}  ({size_gb:.2f} GB)")
     return archive
 
 
 def cleanup_work() -> None:
-    if WORK_DIR.exists():
-        shutil.rmtree(WORK_DIR, ignore_errors=True)
+    for d in (WORK_DIR, OUT_ROOT / "_xiaoke_ai_work"):
+        if d.exists():
+            shutil.rmtree(d, ignore_errors=True)
     leftover = COMPANION / "build"
     if leftover.exists():
         shutil.rmtree(leftover, ignore_errors=True)
 
 
-def main() -> None:
-    skip_7z = "--skip-7z" in sys.argv
-    print("=" * 52)
-    print("小可 AI 大打包")
-    print("=" * 52)
-    py = venv_python()
-    print(f"Python: {py}")
-    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    dist_dir = OUT_ROOT / f"xiaoke_ai_{stamp}"
-    dist_dir.mkdir(parents=True, exist_ok=True)
-    print(f"输出目录: {dist_dir}")
-    print(f"（与 games 同级，不进仓库）")
-    if skip_7z:
-        print("本次跳过 7z 压缩包")
-
-    step_frontend(py)
-    step_electron(dist_dir)
-    step_copy_runtime(dist_dir, py)
-    step_encrypt_app(dist_dir, py)
-    step_copy_payload(dist_dir)
-    step_pyinstaller(dist_dir, py)
-    write_readme(dist_dir)
-    archive = None
+def _archive(dist_dir: Path, skip_7z: bool) -> Path | None:
     if skip_7z:
         print("\n[8/8] 跳过 7z 压缩包")
         logs = dist_dir / "logs"
         if logs.is_dir():
             shutil.rmtree(logs, ignore_errors=True)
-    else:
-        archive = step_7z(dist_dir)
-    cleanup_work()
+        return None
+    return step_7z(dist_dir)
 
+
+def build_a(py: Path, skip_7z: bool) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    dist_dir = OUT_ROOT / f"xiaoke-ai-A-{stamp}"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    print(f"A 输出: {dist_dir}")
+    step_frontend(py)
+    step_electron(dist_dir)
+    step_copy_runtime(dist_dir, py)
+    slim_a_runtime(dist_dir)
+    step_encrypt_app(dist_dir, py)
+    step_copy_payload(dist_dir)
+    step_pyinstaller(dist_dir, py)
+    write_readme_a(dist_dir)
+    archive = _archive(dist_dir, skip_7z)
+    print(f"  A 目录  {dist_dir / EXE_NAME}")
+    if archive is not None:
+        print(f"  A 压缩包 {archive}")
+    return dist_dir
+
+
+def build_full(py: Path, skip_7z: bool) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    dist_dir = OUT_ROOT / f"xiaoke-ai-{stamp}"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    print(f"一体包输出: {dist_dir}")
+    step_frontend(py)
+    step_electron(dist_dir)
+    step_copy_runtime(dist_dir, py)
+    junk = strip_build_junk(dist_dir / "runtime")
+    print(f"  一体包 runtime 去掉编译文件 {junk} 个")
+    strip_unused_site_packages(dist_dir / "runtime" / "Lib" / "site-packages")
+    ensure_tts_python_deps(dist_dir / "runtime" / "Lib" / "site-packages")
+    step_encrypt_app(dist_dir, py)
+    step_copy_payload_full(dist_dir)
+    step_pyinstaller(dist_dir, py)
+    write_readme_full(dist_dir)
+    archive = _archive(dist_dir, skip_7z)
+    print(f"  一体包目录  {dist_dir / EXE_NAME}")
+    if archive is not None:
+        print(f"  一体包压缩包 {archive}")
+    return dist_dir
+
+
+def build_b(skip_7z: bool) -> Path:
+    dist_dir = OUT_ROOT / "xiaoke-ai-B"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    print(f"B 输出: {dist_dir}")
+    step_copy_content(dist_dir)
+    write_readme_b(dist_dir)
+    archive = _archive(dist_dir, skip_7z)
+    print(f"  B 目录  {dist_dir}")
+    if archive is not None:
+        print(f"  B 压缩包 {archive}")
+    return dist_dir
+
+
+def main() -> None:
+    skip_7z = "--skip-7z" in sys.argv
+    want_full = "--full" in sys.argv
+    only_b = ("--content" in sys.argv or "--b" in sys.argv) and "--all" not in sys.argv and not want_full
+    want_b = only_b or "--all" in sys.argv
+    want_a = (not only_b and not want_full) or "--all" in sys.argv
+    if want_full:
+        want_a = False
+        want_b = False
+    label = "一体包" if want_full else ("A+B" if want_a and want_b else "B" if want_b else "A")
+    print("=" * 52)
+    print("xiaoke.ai 打包  " + label)
+    print("=" * 52)
+    py = venv_python()
+    print(f"Python: {py}")
+    if skip_7z:
+        print("本次跳过 7z 压缩包")
+    if want_full:
+        build_full(py, skip_7z)
+    if want_a:
+        build_a(py, skip_7z)
+    if want_b:
+        build_b(skip_7z)
+    cleanup_work()
     print("\n" + "=" * 52)
     print("打包完成")
-    print(f"  目录  {dist_dir / 'CompanionStudio.exe'}")
-    if archive is not None:
-        print(f"  压缩包 {archive}")
-        print("把整个文件夹或 7z 拷走即可。")
-    else:
-        print("  压缩包 （已跳过）")
-        print("把整个文件夹拷走即可。")
     print("=" * 52)
 
 

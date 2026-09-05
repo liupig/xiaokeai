@@ -1,6 +1,6 @@
 """LLM 网关：OpenAI 兼容接口代理，流式输出 + 情绪标签协议解析。
 
-情绪标签协议：要求 LLM 在回复文本中内嵌形如 [emo:happy] [act:wave] [dance:xxx.vmd]
+情绪标签协议：要求 LLM 在回复文本中内嵌形如 [emo:happy] [act:nod] [dance:xxx.vmd]
 的标记。本模块在流式转发时把标记剥离为独立事件，纯文本作为 text 增量下发。
 """
 import json

@@ -3,9 +3,9 @@
 /**
  * 自带 Chromium 的桌面壳：不依赖本机安装 Chrome。
  * 隐藏系统标题栏，用深色顶栏 + Windows 原生最小化/最大化/关闭。
- * 页面仍是现有 Vue 前端（打包 9615 / 开发 5175）。
+ * 页面仍是现有 Vue 前端（打包 5211 / 开发 5175）。
  */
-const { app, BrowserWindow, session, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, session, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -18,7 +18,7 @@ function homeUrl() {
   if (arg) return arg.slice('--url='.length);
   if (process.env.COMPANION_HOME) return process.env.COMPANION_HOME;
   if (process.argv.includes('--dev')) return 'http://127.0.0.1:5175/';
-  return 'http://127.0.0.1:9615/';
+  return 'http://127.0.0.1:5211/';
 }
 
 function originOf(url) {
@@ -34,9 +34,10 @@ const HOME_ORIGIN = originOf(HOME);
 const ICON = path.join(__dirname, 'icon.png');
 const PRELOAD = path.join(__dirname, 'preload.js');
 
-app.setName('Companion Studio');
+app.setName('xiaoke.ai');
+app.setPath('userData', path.join(app.getPath('appData'), 'xiaoke-ai'));
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.xiaoke.companion');
+  app.setAppUserModelId('ai.xiaoke.app');
 }
 
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
@@ -75,13 +76,30 @@ function grantPermissions() {
   });
 }
 
+function reveal(win) {
+  if (!win || win.isDestroyed() || win.isVisible()) return;
+  win.show();
+}
+
+function focusWindow(win) {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  reveal(win);
+  win.focus();
+}
+
 function createWindow() {
+  const existing = BrowserWindow.getAllWindows()[0];
+  if (existing && !existing.isDestroyed()) {
+    focusWindow(existing);
+    return existing;
+  }
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 960,
     minHeight: 600,
-    title: 'Companion Studio',
+    title: 'xiaoke.ai',
     icon: fs.existsSync(ICON) ? ICON : undefined,
     show: false,
     autoHideMenuBar: true,
@@ -103,8 +121,24 @@ function createWindow() {
     },
   });
   win.setMenuBarVisibility(false);
-  win.once('ready-to-show', () => win.show());
-  win.loadURL(HOME);
+  win.once('ready-to-show', () => reveal(win));
+  win.webContents.once('did-finish-load', () => reveal(win));
+  setTimeout(() => reveal(win), 4000);
+
+  let tries = 0;
+  const load = () => {
+    if (win.isDestroyed()) return;
+    win.loadURL(HOME);
+  };
+  win.webContents.on('did-fail-load', (_e, code, _desc, _url, isMain) => {
+    if (!isMain || win.isDestroyed()) return;
+    if (code === -3) return; // ERR_ABORTED
+    tries += 1;
+    if (tries <= 10) setTimeout(load, 400);
+    else reveal(win);
+  });
+  load();
+
   win.webContents.setWindowOpenHandler(({ url }) => {
     try {
       const u = new URL(url);
@@ -114,7 +148,18 @@ function createWindow() {
     } catch { /* 忽略坏链 */ }
     return { action: 'deny' };
   });
+  return win;
 }
+
+ipcMain.handle('pick-folder', async () => {
+  const win = BrowserWindow.getAllWindows()[0];
+  const r = await dialog.showOpenDialog(win ?? undefined, {
+    title: '选择资源包（B）目录',
+    properties: ['openDirectory'],
+  });
+  if (r.canceled || !r.filePaths.length) return '';
+  return r.filePaths[0];
+});
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -122,10 +167,8 @@ if (!gotLock) {
 } else {
   app.on('second-instance', () => {
     const win = BrowserWindow.getAllWindows()[0];
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
-    }
+    if (win) focusWindow(win);
+    else createWindow();
   });
   app.whenReady().then(() => {
     grantPermissions();

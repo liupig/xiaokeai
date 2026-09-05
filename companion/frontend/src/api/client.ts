@@ -105,6 +105,11 @@ export interface ChatExtra {
   scene_resume?: string;
   variation?: string;
   reroll?: boolean;
+  codewatch_phase?: string;
+  codewatch_title?: string;
+  codewatch_tools?: string;
+  codewatch_project?: string;
+  codewatch_source?: string;
 }
 
 export interface MemoryFact {
@@ -219,6 +224,41 @@ export interface TarotIntentResult {
   session: TarotSession;
 }
 
+export interface CodewatchHooks {
+  installed: boolean;
+  hooks_json?: string;
+  script?: string;
+}
+
+export type CodewatchSourceId = 'cursor' | 'codex' | 'cc' | 'lingma' | 'trae' | 'comate';
+
+export interface CodewatchSource {
+  id: CodewatchSourceId;
+  label: string;
+  short: string;
+  found: boolean;
+  active: boolean;
+  on?: boolean;
+}
+
+export interface CodewatchStatus {
+  watching: boolean;
+  phase: 'idle' | 'started' | 'working' | 'done';
+  source: CodewatchSourceId;
+  title: string;
+  project: string;
+  tool: string;
+  tools?: string[];
+  hint: string;
+  seq: number;
+  changed_at?: number;
+  cursor_found?: boolean;
+  cursor_home?: boolean;
+  sources?: CodewatchSource[];
+  enabled?: CodewatchSourceId[];
+  hooks?: CodewatchHooks;
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(url, init);
   if (!resp.ok) {
@@ -236,6 +276,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 function speechTtsUrl(): string {
   if (import.meta.env.DEV) return 'http://127.0.0.1:8600/api/speech/tts';
   const { protocol, hostname, port } = window.location;
+  if (port === '5211') return `${protocol}//${hostname}:5201/api/speech/tts`;
   if (port === '9615') return `${protocol}//${hostname}:9610/api/speech/tts`;
   return '/api/speech/tts';
 }
@@ -326,6 +367,22 @@ export const api = {
 
   getSettings() {
     return request<Record<string, any>>('/api/settings');
+  },
+  getContent() {
+    return request<{
+      packed: boolean; path: string; ok: boolean;
+      found?: Record<string, boolean>; message?: string; restart?: boolean;
+    }>('/api/settings/content');
+  },
+  setContent(path: string) {
+    return request<{
+      packed: boolean; path: string; ok: boolean; restart?: boolean; message?: string;
+      found?: Record<string, boolean>;
+    }>('/api/settings/content', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
   },
   testLlm(conf: Record<string, any>) {
     return request<{ ok: boolean; message: string }>('/api/settings/test_llm', {
@@ -623,11 +680,38 @@ export const api = {
     return request<TarotSession>(`/api/modules/tarot/session/${characterId}`);
   },
 
+  codewatchStatus() {
+    return request<CodewatchStatus>('/api/modules/codewatch/status');
+  },
+  codewatchStart(sources: string[] = ['cursor']) {
+    return request<CodewatchStatus>('/api/modules/codewatch/watch/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sources }),
+    });
+  },
+  codewatchSources(sources: string[]) {
+    return request<CodewatchStatus>('/api/modules/codewatch/watch/sources', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sources }),
+    });
+  },
+  codewatchStop() {
+    return request<CodewatchStatus>('/api/modules/codewatch/watch/stop', { method: 'POST' });
+  },
+  codewatchInstallHooks() {
+    return request<CodewatchHooks>('/api/modules/codewatch/hooks/install', { method: 'POST' });
+  },
+  codewatchUninstallHooks() {
+    return request<CodewatchHooks>('/api/modules/codewatch/hooks/uninstall', { method: 'POST' });
+  },
+
   /** 流式对话：SSE 事件逐个回调；morphs 为当前模型可用的表情形态键（供 LLM 使用） */
   async streamChat(characterId: number, text: string,
                    onEvent: (ev: ChatEvent) => void, signal?: AbortSignal,
                    morphs: string[] = [],
-                   mode: 'user' | 'continue' | 'proactive' | 'goodbye' | 'welcome' = 'user',
+                   mode: 'user' | 'continue' | 'proactive' | 'goodbye' | 'welcome' | 'codewatch' = 'user',
                    extra: ChatExtra = {}) {
     const body = {
       character_id: characterId, text, morphs, mode,
@@ -644,6 +728,11 @@ export const api = {
       scene_resume: extra.scene_resume || '',
       variation: extra.variation || '',
       reroll: !!extra.reroll,
+      codewatch_phase: extra.codewatch_phase || '',
+      codewatch_title: extra.codewatch_title || '',
+      codewatch_tools: extra.codewatch_tools || '',
+      codewatch_project: extra.codewatch_project || '',
+      codewatch_source: extra.codewatch_source || '',
     };
     const resp = await fetch('/api/chat', {
       method: 'POST',

@@ -10,6 +10,7 @@ dashscope>=1.20.0
 mem0ai>=1.0.0
 qwen-tts==0.1.1
 qwen3-tts-streaming>=0.1.2
+scipy>=1.11
 transformers==4.57.3
 accelerate==1.12.0
 onnxruntime>=1.17.0

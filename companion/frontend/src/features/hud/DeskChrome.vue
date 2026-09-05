@@ -5,7 +5,7 @@ const show = Boolean(window.companionDesktop?.isShell);
 <template>
   <div v-if="show" class="chrome">
     <span class="dot" />
-    <span class="name">Companion Studio</span>
+    <span class="name">xiaoke.ai</span>
   </div>
 </template>
 

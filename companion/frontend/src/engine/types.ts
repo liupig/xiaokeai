@@ -6,7 +6,7 @@ export type BoneKey =
 
 export type ExprKey = 'aa' | 'blink' | 'happy' | 'angry' | 'sad' | 'relaxed';
 export type EmotionKey = 'neutral' | 'happy' | 'angry' | 'sad' | 'relaxed';
-export type ActionKey = 'wave' | 'nod' | 'shake';
+export type ActionKey = 'nod' | 'shake';
 export type Axis = 'x' | 'y' | 'z';
 export type CamPreset = 'close' | 'half' | 'full';
 export type CamShotId =

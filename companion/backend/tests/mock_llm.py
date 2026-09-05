@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 app = FastAPI()
 
 REPLY = (
-    "[emo:happy]小哥哥你来啦～[act:wave]今天想聊点什么呀？"
+    "[emo:happy]小哥哥你来啦～[intent:greet]今天想聊点什么呀？"
     "[emo:relaxed]要不要我给你跳一支舞放松一下？"
 )
 

@@ -5,7 +5,7 @@
  */
 import { api, type AssetItem } from '../../api/client';
 import { stage } from '../../engine/stage';
-import type { EmotionKey } from '../../engine/types';
+import type { CamShotId, EmotionKey } from '../../engine/types';
 import {
   type ExprKind,
   type Intent,
@@ -173,6 +173,54 @@ export class PerformanceCaster {
     const raw = useAssetsStore().motions.find((m) => m.name === item.name);
     if (!raw) return false;
     void playAssetMotion(raw, { once: !item.loop });
+    return true;
+  }
+
+  /** Code 伴侣等旁路节拍：改心情再出动作，不走对话选角。 */
+  playCue(mood: EmotionKey, intent: Intent, intensity = 0.72) {
+    return this.playShow({ mood, intent, intensity });
+  }
+
+  /**
+   * 固定表演组：先钉景别，再出表情 + 内置动作 + 过审动作。
+   * 景别不对时打招呼/鼓掌会被语法挡掉，所以这里不跟当前镜头走。
+   */
+  playShow(opts: {
+    mood: EmotionKey;
+    intent: Intent;
+    intensity?: number;
+    shot?: CamShotId;
+    builtin?: 'nod' | 'shake';
+    holdMs?: number;
+  }) {
+    this.ensureIndex();
+    if (this.danceThisTurn) return false;
+    const intensity = opts.intensity ?? 0.9;
+    const shot = opts.shot ?? 'half';
+    const holdMs = opts.holdMs ?? 11000;
+    shots.forceShot(shot);
+    this.setEmotion(opts.mood, intensity);
+    this.applyExprKinds(exprKindsFor(opts.mood, intensity, [opts.intent]), intensity, holdMs);
+    if (opts.builtin) stage.triggerAction(opts.builtin);
+    const beat = repertoire.pick({
+      intent: opts.intent,
+      size: shot,
+      phrase: false,
+      allowWalk: false,
+      needAction: true,
+      preferSize: shot,
+      preferStand: stage.standSlot,
+    }) ?? repertoire.pick({
+      intent: opts.intent,
+      phrase: false,
+      allowWalk: false,
+      needAction: true,
+    });
+    if (!beat) return !!opts.builtin;
+    this.motionThisTurn = true;
+    if (beat.assetName) this.rememberMotion(beat.assetName);
+    shots.syncFromBeat(beat);
+    void repertoire.perform(beat, { cam: false, stand: false, motion: true });
     return true;
   }
 

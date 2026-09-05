@@ -16,6 +16,7 @@ import { friendlyWhen } from './when';
 import { tarotGameLock, tarotUi } from '../tarot/session';
 
 const TarotDock = defineAsyncComponent(() => import('../tarot/Dock.vue'));
+const CodewatchDock = defineAsyncComponent(() => import('../codewatch/Dock.vue'));
 
 const chat = useChatStore();
 const characters = useCharacterStore();
@@ -61,6 +62,17 @@ function finishLive(status: VoiceStatus) {
 const messagesEl = ref<HTMLDivElement | null>(null);
 const messagesTail = ref<HTMLDivElement | null>(null);
 const recastOpen = ref(false);
+const HIST_KEY = 'xiaoke.chat.hist';
+const histOpen = ref(false);
+try {
+  histOpen.value = localStorage.getItem(HIST_KEY) === '1';
+} catch { /* */ }
+function toggleHist() {
+  histOpen.value = !histOpen.value;
+  try {
+    localStorage.setItem(HIST_KEY, histOpen.value ? '1' : '0');
+  } catch { /* */ }
+}
 const PAGE = 16;
 const shownCount = ref(PAGE);
 const pinnedToLatest = ref(true);
@@ -311,11 +323,14 @@ const recLeft = computed(() =>
       <span class="dot" :class="{ busy: chat.sending }" />
       <span class="title">与 {{ partnerName }} 对话</span>
       <span class="status">{{ chat.sending ? '正在回复…' : `${chat.messages.length} 条` }}</span>
+      <button class="head-btn" :class="{ on: histOpen }" @click="toggleHist">
+        {{ histOpen ? '收起会话' : '会话' }}
+      </button>
       <button v-if="mods.memory" class="head-btn" :class="{ on: memorySession.open }"
               @click="memorySession.open = !memorySession.open">记忆{{ memCount ? ` ${memCount}` : '' }}</button>
     </div>
     <ScenePicker v-if="mods.scenes" class="scene-slot" />
-    <div ref="messagesEl" class="messages" @scroll="onMsgScroll" @wheel="onMsgWheel">
+    <div v-show="histOpen" ref="messagesEl" class="messages" @scroll="onMsgScroll" @wheel="onMsgWheel">
       <button v-if="hasOlder" type="button" class="older" @click="loadOlder(true)">更早的对话</button>
       <div v-if="!chat.messages.length" class="empty">
         {{ mods.scenes ? '选一场今晚的戏，或直接开口。' : '开始聊天吧，她在等你开口～' }}
@@ -363,6 +378,7 @@ const recLeft = computed(() =>
         {{ listening ? '🔴' : '🎤' }}
       </n-button>
       <TarotDock v-if="mods.tarot" />
+      <CodewatchDock v-if="mods.codewatch" />
       <n-button v-if="mods.keepsake" quaternary circle size="small"
                 :disabled="keepsakeSession.saving || keepsakeSession.recording"
                 title="拍一张剧照" @click="snap">📷</n-button>

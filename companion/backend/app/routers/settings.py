@@ -2,13 +2,20 @@
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlmodel import Session
 
 from ..db import get_session
+from ..paths import content_status
+from ..services import content as content_svc
 from ..services import settings_store
 from ..services.llm import test_connection
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+
+class ContentBody(BaseModel):
+    path: str = ""
 
 
 @router.post("/test_llm")
@@ -17,9 +24,21 @@ async def test_llm(conf: Dict[str, Any]) -> Dict[str, Any]:
     return await test_connection(conf)
 
 
+@router.get("/content")
+def get_content() -> Dict[str, Any]:
+    return content_status()
+
+
+@router.put("/content")
+def update_content(body: ContentBody) -> Dict[str, Any]:
+    return content_svc.save(body.path)
+
+
 @router.get("")
 def get_settings(session: Session = Depends(get_session)) -> Dict[str, Any]:
-    return settings_store.public_all(session)
+    out = settings_store.public_all(session)
+    out["content"] = content_status()
+    return out
 
 
 @router.put("")
@@ -30,10 +49,18 @@ def update_settings(patch: Dict[str, Any],
 
     prev = settings_store.get_all(session)
     patch = autotune.lock_user_override(session, patch)
+    patch.pop("content", None)
     settings_store.update(session, patch)
     out = settings_store.public_all(session)
+    out["content"] = content_status()
     runtime = settings_store.get_all(session)
     _sync_speech_workers(runtime)
+    if not bool((runtime.get("modules") or {}).get("codewatch", True)):
+        try:
+            from ..modules.codewatch.router import release as codewatch_release
+            codewatch_release()
+        except Exception:
+            pass
     mem_on = bool((runtime.get("modules") or {}).get("memory", True))
     if not mem_on:
         try:

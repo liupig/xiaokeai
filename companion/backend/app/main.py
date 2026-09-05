@@ -1,25 +1,26 @@
-"""Companion Studio 后端入口。"""
+"""xiaoke.ai 后端入口。"""
 import threading
 import warnings
 
 # Triton 在缺 CUDA Toolkit 时会刷 Failed to find CUDA/cuobjdump；推理仍走已编译的 torch 核。
 warnings.filterwarnings("ignore", message=r"Failed to find .*", module=r"triton(\.|$)")
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.types import Scope
 from sqlmodel import Session
 
 from .db import engine, init_db
 from .models import CamReview, Character, SceneState  # noqa: F401 — register table
-from .paths import ASSETS_DIR, KEEPSAKES_DIR, WEB_DIR
+from .paths import KEEPSAKES_DIR, WEB_DIR, resolve_asset_file
 from .routers import assets, characters, chat, download, review, settings, speech
 from .modules.memory.router import router as memory_router
 from .modules.scenes.router import router as scenes_router
 from .modules.rewrite.router import router as rewrite_router
 from .modules.keepsake.router import router as keepsake_router
 from .modules.tarot.router import router as tarot_router
+from .modules.codewatch.router import router as codewatch_router
 from .services import catalog
 from .services import asr as asr_svc
 from .services import review_store
@@ -28,12 +29,7 @@ from .services import tts_qwen
 from . import proc_reap
 
 
-class _AssetFiles(StaticFiles):
-    async def get_response(self, path: str, scope: Scope):
-        return await super().get_response((path or "").replace("\\", "/"), scope)
-
-
-app = FastAPI(title="Companion Studio API", version="0.1.0")
+app = FastAPI(title="xiaoke.ai", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -55,8 +51,16 @@ app.include_router(scenes_router)
 app.include_router(rewrite_router)
 app.include_router(keepsake_router)
 app.include_router(tarot_router)
+app.include_router(codewatch_router)
 
-app.mount("/assets", _AssetFiles(directory=str(ASSETS_DIR)), name="assets")
+@app.get("/assets/{path:path}", include_in_schema=False)
+def serve_asset(path: str):
+    fp = resolve_asset_file(path)
+    if fp is None:
+        raise HTTPException(status_code=404, detail="asset not found")
+    return FileResponse(fp)
+
+
 app.mount("/keepsakes", StaticFiles(directory=str(KEEPSAKES_DIR)), name="keepsakes")
 
 
@@ -68,7 +72,10 @@ def startup() -> None:
     import atexit
     atexit.register(proc_reap.shutdown_workers)
     init_db()
+    from .paths import ASSETS_DIR, content_status
+    st = content_status()
     print(f"[paths] assets={ASSETS_DIR}")
+    print(f"[content] packed={st['packed']} ok={st['ok']} path={st['path'] or '-'}")
     with Session(engine) as session:
         n = review_store.migrate_if_needed(session)
         if n:
@@ -167,6 +174,11 @@ def _warmup_tts() -> None:
 
 @app.on_event("shutdown")
 def shutdown() -> None:
+    try:
+        from .modules.codewatch.router import release as codewatch_release
+        codewatch_release()
+    except Exception:
+        pass
     proc_reap.shutdown_workers()
     proc_reap.reap_children()
 

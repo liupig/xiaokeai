@@ -133,8 +133,12 @@ companion-3d/public/motions/*
 music-api/downloads/*
 !music-api/downloads/.gitkeep
 
-# 桌面打包产物已改到 games 同级的 xiaoke_ai_*，这里只挡仓库内旧路径
+# 桌面打包产物已改到 games 同级的 xiaoke-ai-*，这里只挡仓库内旧路径
 companion/CompanionStudio-*/
+companion/Xiaoke-*/
+companion/xiaoke-ai-*/
+companion/xiaoke-ai-A-*/
+companion/xiaoke-ai-B*/
 companion/xiaoke_ai_*/
 companion/build/
 companion/dist/

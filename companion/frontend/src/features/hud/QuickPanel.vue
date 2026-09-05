@@ -34,7 +34,6 @@ const emotions: { key: EmotionKey; label: string }[] = [
   { key: 'relaxed', label: '放松' },
 ];
 const actions: { key: ActionKey; label: string }[] = [
-  { key: 'wave', label: '挥手' },
   { key: 'nod', label: '点头' },
   { key: 'shake', label: '摇头' },
 ];

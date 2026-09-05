@@ -1,8 +1,8 @@
 #coding=utf-8
-"""Companion Studio 桌面启动器：同时拉起后端 API、前端页面和内嵌 Chromium 窗口。
+"""xiaoke.ai 桌面启动器：同时拉起后端 API、前端页面和内嵌 Chromium 窗口。
 
 开发环境端口：前端 5175、后端 8600。
-打包环境端口：前端 9615、后端 9610，避免和本机开发抢端口。
+打包环境端口：前端 5211、后端 5201，避免和本机开发抢端口。
 窗口内核是 Electron 自带的 Chromium，不需要本机安装 Chrome。
 """
 from __future__ import annotations
@@ -20,8 +20,8 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 HOST = "127.0.0.1"
-BACKEND_PORT = 9610
-FRONTEND_PORT = 9615
+BACKEND_PORT = 5201
+FRONTEND_PORT = 5211
 HEALTH = f"http://{HOST}:{BACKEND_PORT}/api/health"
 HOME = f"http://{HOST}:{FRONTEND_PORT}/"
 
@@ -134,8 +134,12 @@ def apply_dotenv(root: Path) -> int:
     return n
 
 
-def reap_same_python(python: Path) -> int:
-    want = str(python.resolve()).lower()
+def reap_same_exe(exe_path: Path) -> int:
+    """结束仍占着这个 exe 的进程（上次没退干净的 Python / Chromium）。"""
+    try:
+        want = str(exe_path.resolve()).lower()
+    except OSError:
+        want = str(exe_path).replace("/", "\\").lower()
     me = os.getpid()
     n = 0
     for row in _cim_processes():
@@ -153,6 +157,10 @@ def reap_same_python(python: Path) -> int:
             n += 1
             print(f"已结束残留 pid={pid}")
     return n
+
+
+def reap_same_python(python: Path) -> int:
+    return reap_same_exe(python)
 
 
 def pid_on_port(port: int) -> int:
@@ -281,6 +289,28 @@ def open_shell(
     return proc
 
 
+def open_shell_retry(
+    root: Path, home: str, job: WinJob, path_system: str,
+) -> subprocess.Popen | None:
+    """上次 Chromium 没退干净时会占单实例锁，新窗口立刻退出。先清再拉，失败再试一次。"""
+    exe = root / "electron" / "electron.exe"
+    leftover = reap_same_exe(exe) if exe.is_file() else 0
+    if leftover:
+        print(f"已清理残留 Chromium {leftover} 个")
+        time.sleep(0.6)
+    proc = open_shell(root, home, job, path_system)
+    if proc is None:
+        return None
+    for _ in range(8):
+        time.sleep(0.25)
+        if proc.poll() is None:
+            return proc
+    print(f"窗口进程立刻退出，代码 {proc.returncode}，重试…")
+    reap_same_exe(exe)
+    time.sleep(0.6)
+    return open_shell(root, home, job, path_system)
+
+
 def main() -> int:
     root = root_dir()
     runtime = root / "runtime"
@@ -301,10 +331,8 @@ def main() -> int:
         for p in nvidia.glob("*/lib"):
             path_parts.append(str(p))
     path_system = os.environ.get("PATH", "")
-    os.environ["PATH"] = os.pathsep.join(path_parts + [path_system])
     os.environ["COMPANION_ROOT"] = str(root)
     os.environ["COMPANION_BACKEND"] = f"http://{HOST}:{BACKEND_PORT}"
-    os.environ["PYTHONPATH"] = str(root)
     os.environ["PYTHONUTF8"] = "1"
     os.environ["PYTHONIOENCODING"] = "utf-8"
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
@@ -312,6 +340,36 @@ def main() -> int:
     os.environ.setdefault("MODELSCOPE_OFFLINE", "1")
     os.environ["MEM0_TELEMETRY"] = "False"
     os.environ["PYTHONWARNINGS"] = "ignore:Failed to find:UserWarning"
+    content = (os.environ.get("COMPANION_CONTENT") or "").strip()
+    if not content:
+        marker = root / "content.path"
+        if marker.is_file():
+            try:
+                content = marker.read_text(encoding="utf-8").strip().strip('"').strip("'")
+            except OSError:
+                content = ""
+    if not content:
+        for cand in (root.parent / "xiaoke-ai-B", root / "xiaoke-ai-B"):
+            if (cand / "xiaoke-content.json").is_file():
+                content = str(cand.resolve())
+                break
+    py_paths = [str(root)]
+    if content:
+        os.environ["COMPANION_CONTENT"] = content
+        ml_sp = Path(content) / "runtime" / "Lib" / "site-packages"
+        if (ml_sp / "torch").is_dir():
+            py_paths.append(str(ml_sp))
+            torch_lib_b = ml_sp / "torch" / "lib"
+            if torch_lib_b.is_dir():
+                path_parts.append(str(torch_lib_b))
+            print(f"资源包  {content}  （含本地推理库）")
+        else:
+            print(f"资源包  {content}")
+    else:
+        print("未指定资源包。设置里选 B 包目录后，关掉窗口再开。")
+    os.environ["PYTHONPATH"] = os.pathsep.join(py_paths)
+    os.environ["PATH"] = os.pathsep.join(path_parts + [path_system])
+
     env_n = apply_dotenv(root)
     if env_n:
         model = os.environ.get("COMPANION_LLM_MODEL") or ""
@@ -322,7 +380,7 @@ def main() -> int:
               f"{' · ' + model if model else ''}）")
 
     print("=" * 56)
-    print("  Companion Studio  打包版（窗口 + 前端 + 后端）")
+    print("  xiaoke.ai  打包版（窗口 + 前端 + 后端）")
     print("=" * 56)
     print(f"目录：{root}")
     print(f"后端 API  http://{HOST}:{BACKEND_PORT}   （开发环境是 8600）")
@@ -331,8 +389,9 @@ def main() -> int:
 
     try:
         n = reap_same_python(python)
+        n += reap_same_exe(root / "electron" / "electron.exe")
         if n:
-            print(f"已清理上次残留进程 {n} 个（含 GPU 子进程）")
+            print(f"已清理上次残留进程 {n} 个（含 GPU / Chromium）")
             time.sleep(0.6)
     except Exception as exc:
         print(f"清理残留进程时出错（继续启动）：{exc}")
@@ -385,7 +444,7 @@ def main() -> int:
             return 1
         print(f"前端已就绪  {HOME}")
 
-        desktop = open_shell(root, HOME, job, path_system)
+        desktop = open_shell_retry(root, HOME, job, path_system)
         if desktop is None:
             print("正在打开系统浏览器（未找到内嵌 Chromium）…")
             webbrowser.open(HOME)

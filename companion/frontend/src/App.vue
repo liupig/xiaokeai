@@ -23,10 +23,12 @@ const QuickPanel = defineAsyncComponent(() => import('./features/hud/QuickPanel.
 const AssetCenter = defineAsyncComponent(() => import('./features/assets/AssetCenter.vue'));
 const CharacterPanel = defineAsyncComponent(() => import('./features/character/CharacterPanel.vue'));
 const SettingsPanel = defineAsyncComponent(() => import('./features/settings/SettingsPanel.vue'));
+const ContentSetup = defineAsyncComponent(() => import('./features/settings/ContentSetup.vue'));
 const CamReviewPanel = defineAsyncComponent(() => import('./features/review/CamReviewPanel.vue'));
 const KeepsakeGallery = defineAsyncComponent(() => import('./features/keepsake/KeepsakeGallery.vue'));
 const TranscriptPanel = defineAsyncComponent(() => import('./features/chat/TranscriptPanel.vue'));
 const TarotLayer = defineAsyncComponent(() => import('./features/tarot/Layer.vue'));
+const CodewatchHud = defineAsyncComponent(() => import('./features/codewatch/Hud.vue'));
 
 /** 右侧面板互斥：同一时间只显示一个 */
 type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake' | 'log';
@@ -61,6 +63,19 @@ onMounted(async () => {
     ? characters.switchTo(characters.currentId).catch(() => {})
     : Promise.resolve();
   await Promise.all([sceneP, modelP]);
+  if (settings.modules.codewatch) {
+    const codewatch = await import('./features/codewatch');
+    await codewatch.restoreCodewatch().catch(() => {});
+  }
+  if (settings.modules.tarot && characters.currentId) {
+    const tarot = await import('./features/tarot');
+    await tarot.reconcileTarot(characters.currentId).catch(() => {});
+    const onShow = () => {
+      if (document.visibilityState !== 'visible' || !characters.currentId) return;
+      void tarot.reconcileTarot(characters.currentId).catch(() => {});
+    };
+    document.addEventListener('visibilitychange', onShow);
+  }
   caster.indexFrom(assets.motions, characters.modelInfo?.morphNames ?? []);
   shots.indexFrom(assets.cameras);
   await repertoire.load().catch(() => {});
@@ -89,11 +104,13 @@ onMounted(async () => {
       <div class="layout">
         <StageView />
         <DeskChrome />
+        <ContentSetup />
         <TopBar :active="activePanel" @toggle="togglePanel" />
         <LiveBeatHud v-if="!tarotLayerOn && (!activePanel || activePanel === 'characters')" />
         <MocapOverlay />
         <SpeechCaption />
         <TarotLayer v-if="tarotLayerOn" />
+        <CodewatchHud v-if="settings.modules.codewatch" />
         <QuickPanel :show="activePanel === 'quick'"
                     @update:show="(v: boolean) => setPanel('quick', v)" />
         <ChatBar />

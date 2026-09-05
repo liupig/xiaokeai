@@ -1,5 +1,5 @@
 /**
- * 小冰 Transaction / ChannelPool 的决策层。
+ * Transaction / Pool 的决策层。
  * 后端给每句打 DuplexCmd + SentenceType；这里根据剩余时长决定 queue / interrupt / skip。
  * 不合成音频，只决定播不播、插不插。
  */

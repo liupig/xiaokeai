@@ -10,7 +10,7 @@ from . import settings_store
 from .machine import probe as probe_machine
 
 EDGE_VOICE = "zh-CN-XiaoyiNeural"
-QWEN_VOICE = "Vivian"
+QWEN_VOICE = "Serena"
 
 
 def _has_mod(name: str) -> bool:
@@ -133,7 +133,7 @@ def recommend(spec: Dict[str, Any] | None = None) -> Dict[str, Any]:
     else:
         reasons.append("记忆关闭")
 
-    physics = ram >= 8
+    physics = False
     pixel = 2 if ram >= 8 else 1
     return {
         "tier": tier,

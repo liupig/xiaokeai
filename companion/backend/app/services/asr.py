@@ -89,7 +89,7 @@ def status() -> Dict[str, Any]:
 def _download(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
-    req = urllib.request.Request(url, headers={"User-Agent": "CompanionStudio/0.1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "xiaoke.ai/0.1"})
     with urllib.request.urlopen(req, timeout=120) as resp, open(tmp, "wb") as f:
         total = int(resp.headers.get("Content-Length") or 0)
         done = 0

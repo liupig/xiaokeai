@@ -4,24 +4,16 @@ from __future__ import annotations
 import os
 
 import httpx
-from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.types import Scope
 
+from .paths import KEEPSAKES_DIR, WEB_DIR, resolve_asset_file
 
-class _AssetFiles(StaticFiles):
-    """PMX 贴图路径常带反斜杠；浏览器请求时统一成 /。"""
-
-    async def get_response(self, path: str, scope: Scope):
-        return await super().get_response((path or "").replace("\\", "/"), scope)
-
-from .paths import ASSETS_DIR, KEEPSAKES_DIR, WEB_DIR
-
-BACKEND = os.environ.get("COMPANION_BACKEND", "http://127.0.0.1:9610").rstrip("/")
+BACKEND = os.environ.get("COMPANION_BACKEND", "http://127.0.0.1:5201").rstrip("/")
 _HOP = {"host", "content-length", "transfer-encoding", "connection", "keep-alive"}
 
-app = FastAPI(title="Companion Studio Web", version="0.1.0")
+app = FastAPI(title="xiaoke.ai", version="0.1.0")
 _client = httpx.AsyncClient(
     base_url=BACKEND,
     timeout=httpx.Timeout(600.0, connect=15.0),
@@ -64,8 +56,12 @@ async def proxy_api(request: Request, path: str = ""):
     return await _proxy(request)
 
 
-if ASSETS_DIR.is_dir():
-    app.mount("/assets", _AssetFiles(directory=str(ASSETS_DIR)), name="assets")
+@app.get("/assets/{path:path}", include_in_schema=False)
+def serve_asset(path: str):
+    fp = resolve_asset_file(path)
+    if fp is None:
+        raise HTTPException(status_code=404, detail="asset not found")
+    return FileResponse(fp)
 if KEEPSAKES_DIR.is_dir():
     app.mount("/keepsakes", StaticFiles(directory=str(KEEPSAKES_DIR)), name="keepsakes")
 if (WEB_DIR / "index.html").is_file():

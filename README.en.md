@@ -1,10 +1,10 @@
-# Companion Studio · AI Companion
+# xiaoke.ai
 
-A locally hosted, desktop-class web app: pick or download a 3D character, set persona and voice, then talk in text or speech. The character answers with voice, lip-sync, expression, motion, and dance.
+A locally hosted, desktop-class companion: pick or download a 3D character, set persona and voice, then talk in text or speech. She sits across from you — voice, lip-sync, expression, motion, and dance.
 
 This repo is for learning and personal use, not commercial distribution. Bundled models, motions, and music remain copyright of their original authors. Follow each asset’s own terms.
 
-[中文](./README.md)
+[中文](./README.md) · [xiaoke.ai](https://xiaoke.ai)
 
 ## What’s in this repo
 
@@ -17,6 +17,8 @@ This repo is for learning and personal use, not commercial distribution. Bundled
 Use `companion/` day to day. `companion-3d` is a smaller sandbox for the render and motion pipeline.
 
 This repo ships **demo source** plus scene-card backgrounds / stage textures. 3D models, VMD, music, speech weights, SQLite, and API keys stay local. After `start.bat`, import your own character in the asset hub.
+
+A ready-to-run Windows pack (program A + content B as two 7z files, plus a monolithic all-in-one 7z) is on [Baidu Netdisk](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) (password `xkai`). Extract, then double-click `xiaoke-ai.exe`. For A+B, pick the B folder once under Settings → Content pack (look for `xiaoke-content.json`) and restart. The all-in-one folder needs no extra step. Details in Chinese: [README · 体验包](./README.md#体验包不用自己编译).
 
 ## What it does
 
@@ -87,7 +89,7 @@ We also thank every author who published models, expressions, motions, or camera
 
 ### Ideas and algorithms
 
-- **Xiaoice (小冰)** — full-duplex spoken interaction: listen while speaking, queue or barge-in per sentence, then delayed continue / proactive / goodbye after silence. Our dialogue timing (`DuplexCmd`, sentence types, ChannelPool play-or-skip) follows Xiaoice’s Jarvis Processor / Transaction side, instead of locking a whole reply before playback.
+- **Xiaoice (小冰)** — full-duplex spoken interaction: listen while speaking, queue or barge-in per sentence, then delayed continue / proactive / goodbye after silence. Our dialogue timing (`DuplexCmd`, sentence types, play-or-skip) follows Xiaoice’s Processor / side, instead of locking a whole reply before playback.
 - **[AmyangXYZ](https://github.com/AmyangXYZ) / [Reze MiPo](https://github.com/AmyangXYZ/reze-mipo)** (formerly MiKaPo) — MediaPipe landmarks → MMD parent-local quaternions: rest `parent → child` as the reference, shortest-arc per frame, witness bones for arm/thigh roll. Our solver in `companion/frontend/src/features/mocap/` is adapted from that pipeline.
 - **Géry Casiez, Nicolas Roussel, Daniel Vogel** — [1€ Filter](https://gery.casiez.net/1euro/) (CHI 2012), used to smooth mocap.
 - **Higuchi Yu / MikuMikuDance** — PMX, VMD, morphs, and rigid-body physics.

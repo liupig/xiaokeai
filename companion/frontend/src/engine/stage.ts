@@ -143,7 +143,7 @@ export class Stage {
   private onResize: (() => void) | null = null;
   private onVis: (() => void) | null = null;
 
-  private quality: QualityOptions = { physics: true, pixelRatioCap: 2, lightLevel: 1 };
+  private quality: QualityOptions = { physics: false, pixelRatioCap: 2, lightLevel: 1 };
   // 当前模型类型的灯光基准值，乘以 lightLevel 得到实际强度
   private lightBase = { key: 1.8, rim: 1.0, amb: 0.9 };
   /** 景别白名单：塔罗等玩法期间只许这些身位，空则不限制 */
@@ -823,7 +823,7 @@ export class Stage {
     this._danceLive = false;
     this.bgm.stop();
     this.emit('onAvatarUnload');
-    this.motion.detach();
+    this.motion?.detach();
     this.camRig.stopVmd();
     this.stand.reset();
     this.camRig.resetFocus();

@@ -20,7 +20,11 @@ const SCATTER = 0.9;
 const LEAVE = 1.05;
 const GOLD = 0xd4b06a;
 const INSPECT_SCALE = 1.12;
-const INSPECT_DIST = 0.88;
+const INSPECT_DIST = 1.12;
+const HOVER_LIFT = 0.014;
+const HOVER_GROW = 0.036;
+const HOVER_EASE = 14;
+const HOVER_MISS = 6;
 
 type Phase = 'off' | 'rise' | 'shuffle' | 'cut' | 'fan' | 'deal' | 'table' | 'leave';
 
@@ -54,18 +58,34 @@ function clamp01(t: number) {
 }
 
 function goldMat() {
-  return new THREE.MeshStandardMaterial({
-    color: GOLD, roughness: 0.28, metalness: 0.82,
-    emissive: 0x4a3010, emissiveIntensity: 0.42,
+  return new THREE.MeshBasicMaterial({
+    color: 0x8a7040,
+    toneMapped: false,
   });
 }
 
-function paperMat(map: THREE.Texture, emissive = 0x1a1208, emi = 0.1) {
-  return new THREE.MeshStandardMaterial({
-    map,     roughness: 0.34, metalness: 0.08,
-    emissive, emissiveIntensity: emi,
+function paperMat(map: THREE.Texture) {
+  return new THREE.MeshBasicMaterial({
+    map,
+    color: 0xa69f93,
+    toneMapped: false,
     side: THREE.FrontSide,
   });
+}
+
+function setPaperLook(mesh: THREE.Mesh, k: number) {
+  const mat = mesh.material as THREE.MeshBasicMaterial;
+  if (!mat.isMeshBasicMaterial) return;
+  const overlay = k >= 0.35;
+  mat.color.setHex(k >= 0.22 ? 0x8c867b : 0xa69f93);
+  mat.depthTest = !overlay;
+  mat.depthWrite = true;
+}
+
+function dressRim(mat: THREE.Material, k: number) {
+  const m = mat as THREE.MeshBasicMaterial;
+  if (!m.isMeshBasicMaterial) return;
+  m.color.setHex(k >= 0.22 ? 0x6e5830 : 0x8a7040);
 }
 
 function makeRim(w: number, h: number, t: number) {
@@ -90,21 +110,23 @@ function makeCard(front: THREE.Texture, back: THREE.Texture) {
   flip.name = 'tarot-flip';
   const t = 0.0022;
   const geo = new THREE.PlaneGeometry(CARD_W, CARD_H);
-  const fm = new THREE.Mesh(geo, paperMat(front, 0x221808, 0.14));
+  const fm = new THREE.Mesh(geo, paperMat(front));
   fm.position.z = t / 2;
   fm.userData.tarotFace = 'front';
-  const bm = new THREE.Mesh(geo.clone(), paperMat(back, 0x100818, 0.08));
+  const bm = new THREE.Mesh(geo.clone(), paperMat(back));
   bm.rotation.y = Math.PI;
   bm.position.z = -t / 2;
   bm.userData.tarotFace = 'back';
   flip.add(fm, bm, makeRim(CARD_W, CARD_H, t));
   const hit = new THREE.Mesh(
-    new THREE.PlaneGeometry(CARD_W * 1.5, CARD_H * 1.5),
+    new THREE.PlaneGeometry(CARD_W * 1.16, CARD_H * 1.16),
     new THREE.MeshBasicMaterial({
-      transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+      transparent: true, opacity: 0, depthTest: false, depthWrite: false,
+      colorWrite: false, side: THREE.DoubleSide,
     }),
   );
   hit.name = 'tarot-hit';
+  hit.position.z = 0.012;
   g.add(flip, hit);
   g.userData.flip = flip;
   g.castShadow = false;
@@ -150,6 +172,8 @@ class TarotPlugin {
   private backTex: THREE.Texture | null = null;
   private handler: RitualHandler = {};
   private hover: DrawnView | null = null;
+  private hoverBlend: number[] = [];
+  private hoverMiss = 0;
   private inspectIndex: number | null = null;
   private inspectBlend: number[] = [];
   private press: { x: number; y: number; index: number; kind: 'ring' | 'drawn' } | null = null;
@@ -247,6 +271,9 @@ class TarotPlugin {
     this.inspectIndex = null;
     this.press = null;
     this.fanHover = -1;
+    this.hover = null;
+    this.hoverBlend = [];
+    this.hoverMiss = 0;
     await this.dressRing();
     this.rig.visible = true;
     this.rig.scale.setScalar(1);
@@ -262,6 +289,8 @@ class TarotPlugin {
     this.fanN = Math.max(1, Math.min(RING_N, count));
     this.pickedFan = new Set(picked);
     this.fanHover = -1;
+    this.hoverBlend = [];
+    this.hoverMiss = 0;
     this.hiddenRing.clear();
     for (let i = this.fanN; i < RING_N; i++) this.hiddenRing.add(i);
     for (const i of this.pickedFan) this.hiddenRing.add(i);
@@ -282,6 +311,9 @@ class TarotPlugin {
     this.revealed = new Set(revealed);
     this.flipT = cards.map((_, i) => (this.revealed.has(i) ? 1 : 0));
     this.inspectBlend = cards.map(() => 0);
+    this.hoverBlend = cards.map(() => 0);
+    this.hover = null;
+    this.hoverMiss = 0;
     this.inspectIndex = null;
     this.skinDrawn(cards);
     this.scatterFrom = this.ring.map((g) => g.position.clone());
@@ -328,6 +360,7 @@ class TarotPlugin {
     const i = this.drawn.length;
     this.drawn.push({ mesh, card, slot });
     this.inspectBlend.push(0);
+    this.hoverBlend.push(0);
     this.flipT.push(revealed ? 1 : 0);
     if (revealed) this.revealed.add(i);
     this.phase = 'table';
@@ -430,7 +463,7 @@ class TarotPlugin {
   }
 
   private detach() {
-    this.rig.removeFromParent();
+    this.rig?.removeFromParent();
     this.root = null;
     this.avatar = null;
   }
@@ -507,25 +540,9 @@ class TarotPlugin {
       await this.ensureRing();
       this.rollRingMeta();
       if (!this.backTex) this.backTex = await loadBackTexture('/assets/tarot/back.png');
-      let urls: string[] = [];
-      try {
-        const cat = await api.tarotCatalog();
-        urls = (cat.cards || [])
-          .filter((c) => c.has_art && c.url)
-          .map((c) => String(c.url))
-          .sort(() => Math.random() - 0.5);
-      } catch { /* 没有目录就只用牌背 */ }
-      const fronts = await Promise.all(
-        Array.from({ length: RING_N }, (_, i) => (
-          urls[i] ? loadArtTexture(urls[i]) : Promise.resolve(this.backTex!)
-        )),
-      );
-      for (const g of this.ring) g.removeFromParent();
-      this.ring = [];
-      for (let i = 0; i < RING_N; i++) {
-        const g = makeCard(fronts[i] || this.backTex!, this.backTex!);
-        this.ring.push(g);
-        this.rig.add(g);
+      for (const g of this.ring) {
+        g.visible = true;
+        g.scale.setScalar(1);
       }
     } finally {
       this.dressing = false;
@@ -576,11 +593,10 @@ class TarotPlugin {
     const span = Math.min(1.72, 0.13 * n);
     const u = n === 1 ? 0.5 : i / (n - 1);
     const a = -span / 2 + span * u;
-    const lift = this.fanHover === i ? 0.09 : 0;
     const arc = 0.58;
     out.set(
       Math.sin(a) * arc,
-      this.chestY - 0.18 + Math.cos(a) * 0.04 + lift,
+      this.chestY - 0.18 + Math.cos(a) * 0.04,
       0.52 + Math.cos(a) * 0.22,
     );
   }
@@ -622,6 +638,30 @@ class TarotPlugin {
       this.drawn.push({ mesh, card: cards[i], slot });
       mesh.userData.tarotIndex = i;
     }
+  }
+
+  private applyFlipHover(mesh: THREE.Object3D, k: number) {
+    const flip = (mesh.userData.flip as THREE.Object3D | undefined) || null;
+    if (!flip || flip === mesh) return;
+    const t = clamp01(k);
+    flip.position.y = t * HOVER_LIFT;
+    flip.scale.setScalar(1 + t * HOVER_GROW);
+  }
+
+  private hitPads(roots: THREE.Object3D[]) {
+    const pads: THREE.Object3D[] = [];
+    for (const root of roots) {
+      const hit = root.getObjectByName('tarot-hit');
+      pads.push(hit || root);
+    }
+    return pads;
+  }
+
+  private setHover(view: DrawnView | null) {
+    this.hoverMiss = 0;
+    if (this.hover?.index === (view?.index ?? -1)) return;
+    this.hover = view;
+    this.handler.onFocus?.(view, 'hover');
   }
 
   private writeSlot(item: { mesh: THREE.Group; card: TarotCard; slot: THREE.Vector3 }, n: number) {
@@ -684,6 +724,8 @@ class TarotPlugin {
       g.scale.setScalar(1);
     }
     this.hover = null;
+    this.hoverBlend = [];
+    this.hoverMiss = 0;
     this.inspectIndex = null;
     this.inspectBlend = [];
     this.handler.onFocus?.(null, 'inspect');
@@ -691,7 +733,7 @@ class TarotPlugin {
     this.finishOff();
   }
 
-  private updateRing(_dt: number) {
+  private updateRing(dt: number) {
     const rise = this.phase === 'rise' ? easeOut(clamp01(this.t / RISE)) : 1;
     const y0 = 0.08;
     const y1 = this.chestY;
@@ -721,8 +763,11 @@ class TarotPlugin {
       if (this.phase === 'fan' && i < this.fanN) {
         this.fanPos(i, g.position);
         const mid = (this.fanN - 1) / 2;
-        const hover = this.fanHover === i;
-        g.scale.setScalar(hover ? 1.06 : 0.94);
+        const want = this.fanHover === i ? 1 : 0;
+        const cur = this.hoverBlend[i] ?? 0;
+        this.hoverBlend[i] = cur + (want - cur) * (1 - Math.exp(-dt * HOVER_EASE));
+        g.scale.setScalar(0.94);
+        this.applyFlipHover(g, this.hoverBlend[i]);
         g.rotation.set(
           0.52,
           Math.PI * 0.94,
@@ -731,6 +776,7 @@ class TarotPlugin {
         g.visible = true;
         continue;
       }
+      this.applyFlipHover(g, 0);
       const y = THREE.MathUtils.lerp(y0, y1, rise);
       const rad = RING_R * (0.42 + 0.58 * rise) * (this.phase === 'cut' ? 0.94 : 1);
       const s = 0.18 + 0.82 * rise;
@@ -764,24 +810,26 @@ class TarotPlugin {
       this.inspectBlend[i] = blend + (want - blend) * (1 - Math.exp(-dt * 9));
       const k = easeInOut(clamp01(this.inspectBlend[i]));
       const hoverHere = this.hover?.index === i && this.inspectIndex !== i;
-      const focusBoost = hoverHere ? 1.12 : 1;
+      const wantH = hoverHere ? 1 : 0;
+      const curH = this.hoverBlend[i] ?? 0;
+      this.hoverBlend[i] = curH + (wantH - curH) * (1 - Math.exp(-dt * HOVER_EASE));
       const dim = inspecting && this.inspectIndex !== i ? 0.84 : 1;
       mesh.renderOrder = k > 0.15 ? 40 : 2;
       mesh.traverse((obj) => {
         const face = obj.userData.tarotFace as string | undefined;
         obj.renderOrder = mesh.renderOrder + (face === 'front' ? 1 : 0);
+        if (obj.name === 'tarot-hit') return;
         const m = obj as THREE.Mesh;
         if (!m.isMesh) return;
+        if (face === 'front' || face === 'back') {
+          setPaperLook(m, k);
+          return;
+        }
         const mats = Array.isArray(m.material) ? m.material : [m.material];
         for (const mat of mats) {
           if (!mat) continue;
-          if (face === 'front' || face === 'back') {
-            const overlay = k >= 0.35;
-            mat.depthTest = !overlay;
-            mat.depthWrite = !overlay || face === 'front';
-          } else {
-            mat.depthTest = k < 0.35;
-          }
+          mat.depthTest = k < 0.35;
+          dressRim(mat, k);
         }
       });
 
@@ -808,14 +856,16 @@ class TarotPlugin {
         this.writeSlot(item, n);
         mesh.position.lerpVectors(this.tmp3, item.slot, u);
         mesh.position.y += Math.sin(u * Math.PI) * 0.16;
-        mesh.scale.setScalar(THREE.MathUtils.lerp(0.92, scale0 * focusBoost, u));
+        mesh.scale.setScalar(THREE.MathUtils.lerp(0.92, scale0, u));
+        this.applyFlipHover(mesh, this.hoverBlend[i] * u);
         continue;
       }
 
       this.writeSlot(item, n);
       this.tmp3.copy(item.slot);
-      this.tmp3.y += hoverHere ? 0.03 : Math.sin(this.t * 1.3 + i) * 0.01;
-      const homeScale = scale0 * focusBoost * dim;
+      this.tmp3.y += (this.hoverBlend[i] ?? 0) > 0.08 ? 0 : Math.sin(this.t * 1.3 + i) * 0.01;
+      const homeScale = scale0 * dim;
+      this.applyFlipHover(mesh, k > 0.15 ? 0 : this.hoverBlend[i]);
       if (k < 0.002) {
         mesh.position.copy(this.tmp3);
         mesh.scale.setScalar(homeScale);
@@ -864,20 +914,14 @@ class TarotPlugin {
   }
 
   private updateLamp() {
-    if ((this.phase === 'deal') && this.drawn[Math.max(0, this.dealIndex - 1)]) {
-      this.lamp.position.copy(this.drawn[Math.max(0, this.dealIndex - 1)].mesh.position);
-      this.lamp.intensity = 1.15;
-    } else if (this.inspectIndex !== null && this.drawn[this.inspectIndex]) {
-      this.lamp.position.copy(this.drawn[this.inspectIndex].mesh.position);
-      this.lamp.intensity = 1.05;
-    } else if (this.phase === 'table' && this.drawn[0]) {
-      this.lamp.position.copy(this.drawn[0].mesh.position);
-      this.lamp.intensity = 0.32;
+    if (this.phase === 'table' || this.phase === 'deal' || this.inspectIndex !== null) {
+      this.lamp.intensity = 0;
     } else if (this.phase === 'shuffle' || this.phase === 'cut' || this.phase === 'fan') {
-      this.lamp.position.set(0, this.chestY, 0);
-      this.lamp.intensity = this.phase === 'fan' ? 0.45 : 0.7;
+      this.lamp.position.set(0, this.chestY + 0.46, 0.68);
+      this.lamp.distance = 1.7;
+      this.lamp.intensity = this.phase === 'fan' ? 0.26 : 0.18;
     } else {
-      this.lamp.intensity = this.phase === 'off' ? 0 : 0.25;
+      this.lamp.intensity = this.phase === 'off' ? 0 : 0.16;
     }
   }
 
@@ -887,6 +931,7 @@ class TarotPlugin {
     if (!el) return;
     this.bound = true;
     el.addEventListener('pointermove', this.onMove);
+    el.addEventListener('pointerleave', this.onLeave);
     el.addEventListener('pointerdown', this.onDown);
     window.addEventListener('pointerup', this.onUp);
     window.addEventListener('pointercancel', this.onUp);
@@ -898,6 +943,7 @@ class TarotPlugin {
     if (!this.bound) return;
     this.bound = false;
     el?.removeEventListener('pointermove', this.onMove);
+    el?.removeEventListener('pointerleave', this.onLeave);
     el?.removeEventListener('pointerdown', this.onDown);
     window.removeEventListener('pointerup', this.onUp);
     window.removeEventListener('pointercancel', this.onUp);
@@ -912,23 +958,41 @@ class TarotPlugin {
     this.inspect(null);
   };
 
+  private onLeave = () => {
+    this.hoverMiss = HOVER_MISS;
+    if (this.phase === 'fan') this.fanHover = -1;
+    if (this.phase === 'table' || this.phase === 'deal') this.setHover(null);
+    const el = this.stage.canvas;
+    if (el && this.inspectIndex === null && this.phase !== 'cut') el.style.cursor = '';
+  };
+
   private onMove = (ev: PointerEvent) => {
     const hit = this.hitAny(ev);
     const el = this.stage.canvas;
     if (el) {
       const live = this.phase === 'cut' || this.phase === 'fan' || this.phase === 'table';
-      el.style.cursor = (hit || this.inspectIndex !== null || (live && this.phase === 'cut')) ? 'pointer' : '';
+      const over = !!(hit || this.hover || this.fanHover >= 0);
+      el.style.cursor = (over || this.inspectIndex !== null || (live && this.phase === 'cut')) ? 'pointer' : '';
     }
     if (this.phase === 'fan') {
-      this.fanHover = hit && hit.kind === 'ring' ? hit.index : -1;
+      if (hit && hit.kind === 'ring') {
+        this.fanHover = hit.index;
+        this.hoverMiss = 0;
+      } else if (this.fanHover >= 0) {
+        this.hoverMiss += 1;
+        if (this.hoverMiss >= HOVER_MISS) this.fanHover = -1;
+      }
       return;
     }
-    if (this.phase !== 'table') return;
+    if (this.phase !== 'table' && this.phase !== 'deal') return;
     const view = hit && hit.kind === 'drawn' ? this.viewOf(hit.index) : null;
-    if (this.hover?.index !== (view?.index ?? -1)) {
-      this.hover = view;
-      this.handler.onFocus?.(view, 'hover');
+    if (view) {
+      this.setHover(view);
+      return;
     }
+    if (!this.hover) return;
+    this.hoverMiss += 1;
+    if (this.hoverMiss >= HOVER_MISS) this.setHover(null);
   };
 
   private onDown = (ev: PointerEvent) => {
@@ -977,19 +1041,30 @@ class TarotPlugin {
     this.ray.setFromCamera(this.pointer, cam);
     this.ray.far = 24;
     if (this.phase === 'table' || this.phase === 'deal') {
-      const hits = this.ray.intersectObjects(this.drawn.map((d) => d.mesh), true);
-      let faceUp = -1;
+      const hits = this.ray.intersectObjects(this.hitPads(this.drawn.map((d) => d.mesh)), false);
+      const found: number[] = [];
       for (const h of hits) {
         const idx = this.drawn.findIndex((d) => belongs(h.object, d.mesh));
-        if (idx < 0) continue;
-        if (!this.revealed.has(idx)) return { kind: 'drawn', index: idx };
-        if (faceUp < 0) faceUp = idx;
+        if (idx < 0 || found.includes(idx)) continue;
+        found.push(idx);
       }
-      if (faceUp >= 0) return { kind: 'drawn', index: faceUp };
+      if (this.hover && found.includes(this.hover.index)) {
+        return { kind: 'drawn', index: this.hover.index };
+      }
+      const back = found.find((i) => !this.revealed.has(i));
+      if (back !== undefined) return { kind: 'drawn', index: back };
+      if (found.length) return { kind: 'drawn', index: found[0] };
       return null;
     }
     const visible = this.ring.filter((g, i) => !this.hiddenRing.has(i) && g.visible);
-    const hits = this.ray.intersectObjects(visible, true);
+    const hits = this.ray.intersectObjects(this.hitPads(visible), false);
+    if (this.phase === 'fan' && this.fanHover >= 0) {
+      const keep = hits.find((h) => {
+        const idx = this.ring.findIndex((g) => belongs(h.object, g));
+        return idx === this.fanHover;
+      });
+      if (keep) return { kind: 'ring', index: this.fanHover };
+    }
     if (!hits.length) {
       if (this.phase === 'cut') return { kind: 'ring', index: 0 };
       return null;

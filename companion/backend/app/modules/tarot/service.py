@@ -140,6 +140,8 @@ def _hint(st: Dict[str, Any]) -> str:
     if phase == "synth":
         return "她在收线"
     if phase == "linger":
+        if not st.get("clarifier_used"):
+            return "点一张追问，或说「再翻一张补」「收起来」"
         return "点一张追问，或者说「收起来」"
     return ""
 
@@ -1015,6 +1017,7 @@ def _digest_user_text(character_id: int, mode: str, text: str) -> str:
                 n = int(play["n"])
                 if len(st.get("revealed") or []) >= n:
                     st["want_synth"] = True
+                    st["done"] = False
                     st["phase"] = "synth"
                     st["last_text"] = t
         return "keep"
@@ -1067,6 +1070,10 @@ def _digest_user_text(character_id: int, mode: str, text: str) -> str:
             if st.get("phase") == "linger":
                 st["done"] = False
     return "keep"
+
+
+def peek_exited(character_id: int) -> bool:
+    return bool(_just_exited.get(character_id))
 
 
 def overlay_text(character_id: int, mode: str = "user") -> str:

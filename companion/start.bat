@@ -1,5 +1,5 @@
 @echo off
-rem Companion Studio 一键启动：后端 8600 + 前端 5175
+rem xiaoke.ai 一键启动：后端 8600 + 前端 5175
 setlocal
 cd /d %~dp0
 

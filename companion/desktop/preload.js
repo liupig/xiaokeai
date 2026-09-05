@@ -1,5 +1,8 @@
 'use strict';
 
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('companionDesktop', { isShell: true });
+contextBridge.exposeInMainWorld('companionDesktop', {
+  isShell: true,
+  pickFolder: () => ipcRenderer.invoke('pick-folder'),
+});
