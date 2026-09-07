@@ -16,7 +16,7 @@ export type { DuplexCmd, PlayableUnit, SentenceType };
 export { DEFAULT_DUPLEX_REMAIN_SEC, normalizeDuplexCmd };
 
 /**
- * ChannelPool + 播放器。
+ * Pool + 播放器。
  * pushUnit 按 DuplexCmd 决定插队/排队/丢掉；真正拉 TTS 流只在决定要播之后。
  */
 export type TtsEngine = 'cosy' | 'edge' | 'qwen' | 'browser' | 'off';
@@ -377,7 +377,7 @@ export class SpeechPlayer {
     };
   }
 
-  /** ChannelPool 入口。同轮 A1/A2/A3 只排队；新一轮 QA 才按剩余音频 3 秒决定切不切。 */
+  /** Pool 入口。同轮 A1/A2/A3 只排队；新一轮 QA 才按剩余音频 3 秒决定切不切。 */
   pushUnit(unit: PlayableUnit) {
     const cleaned = (unit.text || '').trim();
     if (!cleaned) return;
