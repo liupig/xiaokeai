@@ -132,7 +132,7 @@ def tick(character_id: int) -> None:
 
 
 def inject_memory(character_id: int, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
-    out = _rpc("inject", (int(character_id), list(messages)), timeout=12)
+    out = _rpc("inject", (int(character_id), list(messages)), timeout=45)
     return out if isinstance(out, list) else messages
 
 
@@ -158,3 +158,23 @@ def delete_fact(character_id: int, fact_id: str) -> bool:
 def scene_hints(character_id: int) -> List[str]:
     out = _rpc("scene_hints", int(character_id))
     return out if isinstance(out, list) else []
+
+
+def reload() -> None:
+    """换 embedding 后丢掉旧向量客户端，后台重建索引。事实文本仍在 SQLite。"""
+    if _in_worker():
+        from sqlmodel import Session
+
+        from ...db import engine
+        from .service import reset_client, warmup
+
+        reset_client()
+        with Session(engine) as session:
+            warmup(session)
+        return
+    if not _alive() or _in_q is None:
+        return
+    try:
+        _in_q.put(("reload", "", None))
+    except Exception as exc:
+        print(f"[memory] reload enqueue failed: {exc}")

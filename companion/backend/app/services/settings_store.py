@@ -28,6 +28,7 @@ DEFAULTS: Dict[str, Any] = {
                 "stage_show": True, "stage_color": "#232342", "stage_glow": "#5b5bd6",
                 "stage_style": "classic", "stage_texture": "", "stage_opacity": 1.0},
     "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "codewatch": True},
+    "memory": {"embedder": "auto"},
     "hardware": {
         "auto": False, "tier": "", "ram_gb": 0, "vram_gb": 0, "cores": 0,
         "reason": "", "fingerprint": "",

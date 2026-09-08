@@ -43,6 +43,7 @@ export const useSettingsStore = defineStore('settings', {
       stage_texture: '', stage_opacity: 1,
     },
     modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, codewatch: true },
+    memory: { embedder: 'auto' as 'auto' | 'local' | 'doubao' | 'qwen' },
     hardware: {
       auto: false, tier: '', ram_gb: 0, vram_gb: 0, cores: 0,
       reason: '', fingerprint: '',
@@ -125,6 +126,11 @@ export const useSettingsStore = defineStore('settings', {
         tarot: mods?.tarot !== false,
         codewatch: mods?.codewatch !== false,
       };
+      const mem = (data as { memory?: { embedder?: string } }).memory;
+      const emb = String(mem?.embedder || 'auto');
+      this.memory = {
+        embedder: (emb === 'local' || emb === 'doubao' || emb === 'qwen' ? emb : 'auto'),
+      };
       const content = (data as { content?: Record<string, unknown> }).content;
       if (content && typeof content === 'object') {
         this.content = {
@@ -154,6 +160,7 @@ export const useSettingsStore = defineStore('settings', {
       const data = await api.updateSettings({
         llm: this.llm, tts: this.tts, stt: this.stt,
         download: this.download, quality: this.quality, modules: this.modules,
+        memory: this.memory,
       });
       const flags = data as { llm_env?: boolean; llm_local?: boolean };
       this.llm_env = !!(flags.llm_env || flags.llm_local);

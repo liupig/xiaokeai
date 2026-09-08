@@ -70,6 +70,19 @@ def main(in_q, out_q) -> None:
                     pending.add(cid)
                 extract_q.put(cid)
                 continue
+            if kind == "reload":
+                from sqlmodel import Session as DbSession
+
+                from app.db import engine
+                from app.modules.memory.service import reset_client, warmup
+
+                try:
+                    reset_client()
+                    with DbSession(engine) as session:
+                        warmup(session)
+                except Exception as exc:
+                    print(f"[memory] reload failed: {exc}")
+                continue
             result = _dispatch(kind, payload)
             out_q.put(("ok", job_id, result))
         except Exception as exc:

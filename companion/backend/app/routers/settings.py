@@ -1,5 +1,6 @@
 """设置接口。"""
 from typing import Any, Dict
+import threading
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -72,6 +73,17 @@ def update_settings(patch: Dict[str, Any],
             memory_worker.clear_boot_failed()
         except Exception:
             pass
+    elif mem_on:
+        prev_emb = str(((prev.get("memory") or {}).get("embedder") or "auto"))
+        now_emb = str(((runtime.get("memory") or {}).get("embedder") or "auto"))
+        prev_llm = prev.get("llm") or {}
+        now_llm = runtime.get("llm") or {}
+        cred_changed = (
+            (prev_llm.get("api_key") or "") != (now_llm.get("api_key") or "")
+            or (prev_llm.get("base_url") or "") != (now_llm.get("base_url") or "")
+        )
+        if prev_emb != now_emb or cred_changed:
+            threading.Thread(target=_reload_memory_index, daemon=True).start()
     return out
 
 
@@ -86,3 +98,11 @@ def _sync_speech_workers(conf: Dict[str, Any]) -> None:
         tts_qwen.release()
     if stt_eng != "sensevoice":
         asr_svc.release()
+
+
+def _reload_memory_index() -> None:
+    try:
+        from ..modules.memory import worker as memory_worker
+        memory_worker.reload()
+    except Exception as exc:
+        print(f"[memory] reload after settings failed: {exc}")

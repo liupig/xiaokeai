@@ -336,6 +336,12 @@ const asrEngineOptions = [
   { label: '在线 · 浏览器 Web Speech（Chrome/Edge）', value: 'browser' },
   { label: '离线 · SenseVoice-Small（本地 CPU）', value: 'sensevoice' },
 ];
+const embedderOptions = [
+  { label: '自动（对话是火山用豆包，百炼用千问，否则本地）', value: 'auto' },
+  { label: '本地 MiniLM（离线，不耗云端额度）', value: 'local' },
+  { label: '在线 · 字节豆包 embedding（火山方舟）', value: 'doubao' },
+  { label: '在线 · 通义千问 embedding（百炼）', value: 'qwen' },
+];
 const hwHint = computed(() => {
   const h = settings.hardware as {
     auto?: boolean; tier?: string; ram_gb?: number; vram_gb?: number; reason?: string;
@@ -431,6 +437,18 @@ function onPhysics(v: boolean) {
   void settings.save().catch(() => {});
 }
 
+async function saveEmbedder(v: string) {
+  const prev = settings.memory.embedder;
+  settings.memory.embedder = (v === 'local' || v === 'doubao' || v === 'qwen' ? v : 'auto');
+  try {
+    await settings.save();
+    message.success('已切换记忆向量，正在后台重建索引（事实文本保留）');
+  } catch (e) {
+    settings.memory.embedder = prev;
+    message.error(String(e));
+  }
+}
+
 async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'codewatch', on: boolean) {
   const prev = settings.modules[key];
   settings.modules[key] = on;
@@ -490,7 +508,17 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
             <span>记忆 · 她会记住你说过的事</span>
             <n-switch :value="settings.modules.memory" @update:value="(v: boolean) => toggleMod('memory', v)" />
           </div>
-          <p class="hint">Mem0 抽取并按语义召回。无 API Key 时不写入，已有记忆仍可看。</p>
+          <p class="hint">长期事实存在本地 SQLite。向量只是索引：换 embedding 会重建 collection，句子不会丢。</p>
+          <template v-if="settings.modules.memory">
+            <label>记忆向量 embedding</label>
+            <n-select :value="settings.memory.embedder" :options="embedderOptions"
+                      @update:value="saveEmbedder" />
+            <p class="hint">
+              豆包走火山方舟 Key（可与对话共用，或环境变量 ARK_API_KEY）。
+              千问走百炼 sk- Key（可与对话共用，或 DASHSCOPE_API_KEY）。
+              对不上时会退回本地 MiniLM。换选项后立刻保存，并在后台按新模型重建向量索引。
+            </p>
+          </template>
           <div class="switch-row">
             <span>情境 · 今晚有一场戏</span>
             <n-switch :value="settings.modules.scenes" @update:value="(v: boolean) => toggleMod('scenes', v)" />

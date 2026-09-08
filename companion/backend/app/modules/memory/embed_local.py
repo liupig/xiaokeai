@@ -74,6 +74,7 @@ class FastEmbedEmbedder:
         self.model = model
         self.dims = _LOCAL_MINILM_DIMS
         self.model_name = "minilm"
+        self.provider = "local"
         self.config = type("Cfg", (), {"embedding_dims": self.dims, "model": "minilm"})()
         self._gate = threading.Lock()
 
@@ -139,6 +140,7 @@ class TorchMiniLMEmbedder:
         self.torch = torch_mod
         self.dims = _LOCAL_MINILM_DIMS
         self.model_name = "minilm"
+        self.provider = "local"
         self.config = type("Cfg", (), {"embedding_dims": self.dims, "model": "minilm"})()
         self._gate = threading.Lock()
 

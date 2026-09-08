@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import threading
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import httpx
 from sqlmodel import Session, select
@@ -16,7 +15,7 @@ from sqlmodel import Session, select
 from ...models import Character, MemoryFact, utc_now
 from ...paths import MEM0_DIR
 from ...services import settings_store
-from .embed_local import probe as probe_local_minilm
+from . import embedder as embed_svc
 from ...services.llm import _parse_json_blob
 
 os.environ["MEM0_TELEMETRY"] = "False"
@@ -55,21 +54,12 @@ _EXTRACT_HINT = (
 _PERF_TAG_RE = re.compile(r"\[(?:emo|act|dance|cam):[^\]]*\]")
 
 _lock = threading.RLock()
-_cache: Dict[str, Any] = {"key": None, "llm_key": None, "mem": None, "migrated": False, "embed_sig": ""}
+_cache: Dict[str, Any] = {
+    "key": None, "llm_key": None, "mem": None, "imported": False, "embed_sig": "",
+}
 _IDENTITY_RE = re.compile(r"(用户的名字是|她的名字是|对方的名字是)")
-_PROBE_MODELS = (
-    "text-embedding-v3",
-    "text-embedding-v4",
-    "text-embedding-v2",
-    "text-embedding-3-small",
-    "embedding-3",
-    "doubao-embedding",
-    "doubao-embedding-large",
-    "doubao-embedding-large-text-240915",
-    "doubao-embedding-text-240515",
-)
-_embed_cache: Dict[str, Any] = {"key": None, "emb": None}
 _MARKER = MEM0_DIR / "embedder.txt"
+_IMPORTED = MEM0_DIR / "facts_imported.txt"
 
 
 def _uid(character_id: int) -> str:
@@ -93,135 +83,13 @@ def _results(raw: Any) -> List[Dict[str, Any]]:
     return []
 
 
-class RemoteEmbedder:
-    """走当前 LLM 网关的 /embeddings，不进 sentence-transformers，免得和 TTS 抢包。"""
-
-    @classmethod
-    def probe(cls, llm_conf: Dict[str, Any]) -> Optional["RemoteEmbedder"]:
-        api_key = (llm_conf.get("api_key") or "").strip()
-        base_url = (llm_conf.get("base_url") or "").rstrip("/")
-        cache_key = (api_key, base_url)
-        if _embed_cache["key"] == cache_key:
-            return _embed_cache["emb"]
-        found: Optional["RemoteEmbedder"] = None
-        if api_key and base_url:
-            found = cls._probe_compat(api_key, base_url)
-            if found is None and "dashscope" in base_url:
-                found = cls._probe_dashscope_native(api_key)
-        _embed_cache["key"] = cache_key
-        _embed_cache["emb"] = found
-        return found
-
-    @classmethod
-    def _probe_compat(cls, api_key: str, base_url: str) -> Optional["RemoteEmbedder"]:
-        last = ""
-        with httpx.Client(timeout=httpx.Timeout(12, connect=6), trust_env=False) as client:
-            for model in _PROBE_MODELS:
-                for payload in (
-                    {"model": model, "input": "记忆召回探测"},
-                    {"model": model, "input": ["记忆召回探测"]},
-                ):
-                    try:
-                        resp = client.post(
-                            f"{base_url}/embeddings",
-                            headers={"Authorization": f"Bearer {api_key}"},
-                            json=payload,
-                        )
-                    except httpx.HTTPError as exc:
-                        last = str(exc)
-                        continue
-                    if resp.status_code != 200:
-                        last = f"{model} HTTP {resp.status_code}"
-                        continue
-                    try:
-                        vec = resp.json()["data"][0]["embedding"]
-                    except (KeyError, IndexError, TypeError, ValueError) as exc:
-                        last = f"{model} parse {exc}"
-                        continue
-                    if isinstance(vec, list) and len(vec) >= 32:
-                        print(f"[memory] embedder {model} dim={len(vec)}")
-                        emb = cls(api_key, base_url, model, len(vec))
-                        emb._input_list = isinstance(payload["input"], list)
-                        return emb
-        print(f"[memory] compatible embeddings failed: {last}")
-        return None
-
-    @classmethod
-    def _probe_dashscope_native(cls, api_key: str) -> Optional["RemoteEmbedder"]:
-        url = "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding"
-        with httpx.Client(timeout=httpx.Timeout(12, connect=6), trust_env=False) as client:
-            for model in ("text-embedding-v3", "text-embedding-v2", "text-embedding-v1"):
-                try:
-                    resp = client.post(
-                        url,
-                        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                        json={"model": model, "input": {"texts": ["记忆召回探测"]}, "parameters": {"text_type": "query"}},
-                    )
-                except httpx.HTTPError:
-                    continue
-                if resp.status_code != 200:
-                    continue
-                try:
-                    vec = resp.json()["output"]["embeddings"][0]["embedding"]
-                except (KeyError, IndexError, TypeError, ValueError):
-                    continue
-                if isinstance(vec, list) and len(vec) >= 32:
-                    print(f"[memory] dashscope native embedder {model} dim={len(vec)}")
-                    emb = cls(api_key, url, model, len(vec))
-                    emb._native = True
-                    return emb
-        return None
-
-    def __init__(self, api_key: str, base_url: str, model: str, dims: int):
-        self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
-        self.model = model
-        self.dims = dims
-        self._input_list = False
-        self._native = False
-        self.config = type("Cfg", (), {"embedding_dims": dims, "model": model})()
-
-    def _post(self, texts: List[str]) -> List[List[float]]:
-        blob = [(t or "").strip() or " " for t in texts]
-        with httpx.Client(timeout=httpx.Timeout(30, connect=8), trust_env=False) as client:
-            if self._native:
-                resp = client.post(
-                    self.base_url,
-                    headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                    json={"model": self.model, "input": {"texts": blob}, "parameters": {"text_type": "query"}},
-                )
-                resp.raise_for_status()
-                rows = resp.json()["output"]["embeddings"]
-                rows = sorted(rows, key=lambda x: x.get("text_index", 0))
-                return [row["embedding"] for row in rows]
-            payload: Dict[str, Any] = {"model": self.model, "input": blob if self._input_list else blob[0]}
-            if len(blob) > 1:
-                payload["input"] = blob
-            resp = client.post(
-                f"{self.base_url}/embeddings",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = sorted(resp.json()["data"], key=lambda x: x.get("index", 0))
-        out = [row["embedding"] for row in data]
-        if len(out) != len(blob):
-            raise RuntimeError("embed batch size mismatch")
-        return out
-
-    def embed(self, text, memory_action=None):
-        return self._post([(text or "").strip() or " "])[0]
-
-    def embed_batch(self, texts, memory_action="add"):
-        blob = [(t or "").strip() or " " for t in texts]
-        return self._post(blob) if blob else []
-
-
 class _HashingEmbedder:
-    """只用来把旧的 hashing 库读出来，再迁到真向量。"""
+    """只用来把旧的 hashing 库读出来，再迁到 SQLite。"""
 
     def __init__(self, dims: int = 384):
         self.dims = dims
+        self.provider = "hashing"
+        self.model_name = "hashing-ngram"
         self.config = type("Cfg", (), {"embedding_dims": dims, "model": "hashing-ngram"})()
 
     def embed(self, text, memory_action=None):
@@ -449,105 +317,262 @@ def _restore_dump(mem, rows: List[Dict[str, Any]]) -> None:
             print(f"[memory] reindex skip: {exc}")
 
 
-def _dump_hashing_store(session: Session, llm_conf: Dict[str, Any]) -> List[Dict[str, Any]]:
-    ids = [c.id for c in session.exec(select(Character)).all() if c.id]
+def _character_ids(session: Session) -> List[int]:
+    return [c.id for c in session.exec(select(Character)).all() if c.id]
+
+
+def _read_marker() -> str:
     try:
-        legacy = _mem0_from_config(_mem0_config(llm_conf, dims=384, collection="companion_384"))
-        legacy.embedding_model = _HashingEmbedder(384)
-        dump = _dump_collection(legacy, ids)
-        _close_mem(legacy)
-        print(f"[memory] dumped hashing store n={len(dump)}")
-        return dump
-    except Exception as exc:
-        print(f"[memory] hashing dump skip: {exc}")
-        return []
+        return _MARKER.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
-def _rebuild_index(mem, llm_conf: Dict[str, Any], dump: List[Dict[str, Any]], ids: Sequence[int]) -> None:
-    kept = _cull_facts(llm_conf, dump)
-    for cid in ids:
+def _write_marker(sig: str) -> None:
+    try:
+        MEM0_DIR.mkdir(parents=True, exist_ok=True)
+        _MARKER.write_text(sig, encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _legacy_collections(sig: str) -> List[Tuple[str, int]]:
+    """旧 collection 名 + 维度，只为把文本倒进 SQLite。"""
+    out: List[Tuple[str, int]] = [("companion_384", 384)]
+    seen = {out[0][0]}
+    if not sig:
+        return out
+    coll = embed_svc.collection_name(sig)
+    dims = 384
+    if ":" in sig:
+        tail = sig.rsplit(":", 1)[-1]
+        if tail.isdigit():
+            dims = int(tail)
+    if coll not in seen:
+        out.append((coll, dims))
+        seen.add(coll)
+    old_style = f"companion_{sig.replace(':', '_')}"
+    if old_style not in seen:
+        out.append((old_style, dims))
+    return out
+
+
+def _open_dump_mem(llm_conf: Dict[str, Any], collection: str, dims: int):
+    cfg = _mem0_config(llm_conf, dims=dims, collection=collection)
+    mem = _mem0_from_config(cfg)
+    mem.embedding_model = _HashingEmbedder(dims)
+    return mem
+
+
+def _kind_from_meta(meta: Dict[str, Any], fallback: str = "event") -> str:
+    kind = str(meta.get("kind") or "").strip()
+    if kind in VALID_KINDS:
+        return kind
+    cats = meta.get("categories") or []
+    if isinstance(cats, str):
+        cats = [cats]
+    if isinstance(cats, list):
+        for c in cats:
+            mapped = _CAT_TO_KIND.get(str(c).strip().lower())
+            if mapped:
+                return mapped
+    return fallback if fallback in VALID_KINDS else "event"
+
+
+def _import_dump_to_sqlite(session: Session, dump: List[Dict[str, Any]]) -> int:
+    existing = {
+        (int(r.character_id), (r.content or "").strip())
+        for r in session.exec(select(MemoryFact)).all()
+    }
+    now = _now()
+    n = 0
+    for row in dump:
+        text = (row.get("text") or "").strip()
+        cid = int(row.get("character_id") or 0)
+        if not text or not cid or (cid, text) in existing:
+            continue
+        meta = dict(row.get("meta") or {})
+        kind = _kind_from_meta(meta)
+        pinned = bool(meta.get("pinned")) or _is_identity_fact(text)
+        try:
+            importance = float(meta.get("importance") if meta.get("importance") is not None else 0.5)
+        except (TypeError, ValueError):
+            importance = 0.5
+        session.add(MemoryFact(
+            character_id=cid,
+            kind=kind,
+            content=text,
+            importance=max(0.0, min(1.0, importance)),
+            pinned=pinned,
+            created_at=now,
+            updated_at=now,
+        ))
+        existing.add((cid, text))
+        n += 1
+    if n:
+        session.commit()
+        print(f"[memory] imported {n} facts into sqlite")
+    return n
+
+
+def _import_legacy_into_sqlite(session: Session, llm_conf: Dict[str, Any]) -> None:
+    if _cache.get("imported"):
+        return
+    try:
+        if _IMPORTED.is_file():
+            _cache["imported"] = True
+            return
+    except OSError:
+        pass
+    ids = _character_ids(session)
+    if not ids:
+        _cache["imported"] = True
+        try:
+            MEM0_DIR.mkdir(parents=True, exist_ok=True)
+            _IMPORTED.write_text("ok", encoding="utf-8")
+        except OSError:
+            pass
+        return
+    dumped = 0
+    for coll, dims in _legacy_collections(_read_marker()):
+        mem = None
+        try:
+            mem = _open_dump_mem(llm_conf, coll, dims)
+            dump = _dump_collection(mem, ids)
+            dumped += _import_dump_to_sqlite(session, dump)
+        except Exception as exc:
+            print(f"[memory] import {coll} skip: {exc}")
+        finally:
+            _close_mem(mem)
+    _cache["imported"] = True
+    try:
+        MEM0_DIR.mkdir(parents=True, exist_ok=True)
+        _IMPORTED.write_text("ok", encoding="utf-8")
+    except OSError:
+        pass
+    if dumped:
+        print(f"[memory] sqlite is now the fact store, imported={dumped}")
+
+
+def _sqlite_rows(session: Session, character_id: Optional[int] = None) -> List[MemoryFact]:
+    stmt = select(MemoryFact)
+    if character_id:
+        stmt = stmt.where(MemoryFact.character_id == character_id)
+    return list(session.exec(
+        stmt.order_by(MemoryFact.pinned.desc(), MemoryFact.importance.desc(),
+                      MemoryFact.updated_at.desc())
+    ).all())
+
+
+def _wipe_user_vectors(mem, character_ids: Sequence[int]) -> None:
+    for cid in character_ids:
         if not cid:
             continue
-        for item in _get_all(mem, _uid(cid), top_k=200):
+        for item in _get_all(mem, _uid(cid), top_k=500):
             rid = item.get("id")
-            if rid:
-                try:
-                    mem.delete(str(rid))
-                except Exception:
-                    pass
-    _restore_dump(mem, kept)
-    print(f"[memory] reindexed n={len(kept)}")
+            if not rid:
+                continue
+            try:
+                mem.delete(str(rid))
+            except Exception:
+                pass
+
+
+def _index_fact(mem, row: MemoryFact) -> None:
+    text = (row.content or "").strip()
+    if not text or not row.id or not row.character_id:
+        return
+    mem.add(
+        text,
+        user_id=_uid(row.character_id),
+        infer=False,
+        metadata={
+            "kind": row.kind if row.kind in VALID_KINDS else "event",
+            "pinned": bool(row.pinned),
+            "importance": float(row.importance or 0.5),
+            "sqlite_id": int(row.id),
+            "source": "sqlite",
+        },
+    )
+
+
+def _rebuild_from_sqlite(session: Session, mem) -> None:
+    ids = _character_ids(session)
+    _wipe_user_vectors(mem, ids)
+    n = 0
+    for row in session.exec(select(MemoryFact)).all():
+        try:
+            _index_fact(mem, row)
+            n += 1
+        except Exception as exc:
+            print(f"[memory] index skip id={row.id}: {exc}")
+    print(f"[memory] rebuilt index from sqlite n={n}")
+
+
+def _drop_indexed_fact(mem, character_id: int, sqlite_id: int, content: str = "") -> None:
+    uid = _uid(character_id)
+    for item in _get_all(mem, uid, top_k=200):
+        md = _item_meta(item)
+        rid = item.get("id")
+        if not rid:
+            continue
+        same_id = str(md.get("sqlite_id") or "") == str(sqlite_id)
+        same_text = bool(content) and _item_text(item) == content
+        if same_id or same_text:
+            try:
+                mem.delete(str(rid))
+            except Exception:
+                pass
+
+
+def _embedder_choice(session: Session) -> str:
+    raw = settings_store.get_all(session).get("memory") or {}
+    return embed_svc.normalize_provider(raw.get("embedder"))
 
 
 def _client(session: Session):
-    conf = settings_store.get_all(session).get("llm") or {}
+    all_conf = settings_store.get_all(session)
+    conf = all_conf.get("llm") or {}
     api_key = (conf.get("api_key") or "").strip()
-    if not api_key:
-        return None
-    llm_key = (api_key, conf.get("base_url") or "", conf.get("model") or "")
+    choice = _embedder_choice(session)
+    llm_key = (api_key, conf.get("base_url") or "", conf.get("model") or "", choice)
     with _lock:
         if _cache["mem"] is not None and _cache.get("llm_key") == llm_key:
             return _cache["mem"]
-    embedder = RemoteEmbedder.probe(conf)
+    _import_legacy_into_sqlite(session, conf)
+    embedder, note = embed_svc.resolve(conf, choice)
+    if note:
+        print(f"[memory] {note}")
     if embedder is None:
-        embedder = probe_local_minilm()
-    sig = f"{getattr(embedder, 'model_name', getattr(embedder, 'model', 'none'))}:{getattr(embedder, 'dims', 0)}"
-    key = (api_key, conf.get("base_url") or "", conf.get("model") or "", sig)
+        embedder = _HashingEmbedder(384)
+        semantic = False
+        print("[memory] no embedding API and no local MiniLM; facts stay in sqlite, recall uses LLM")
+    else:
+        semantic = getattr(embedder, "provider", "") != "hashing"
+    sig = embed_svc.embed_sig(embedder)
+    key = (api_key, conf.get("base_url") or "", conf.get("model") or "", choice, sig)
     with _lock:
         if _cache["mem"] is not None and _cache["key"] == key:
             _cache["llm_key"] = llm_key
             return _cache["mem"]
         os.environ["MEM0_TELEMETRY"] = "False"
-        os.environ["OPENAI_API_KEY"] = api_key
+        os.environ["OPENAI_API_KEY"] = api_key or "local"
         base_url = (conf.get("base_url") or "").rstrip("/")
         if base_url:
             os.environ["OPENAI_BASE_URL"] = base_url
         _close_mem(_cache.get("mem"))
         _cache["mem"] = None
         try:
-            if embedder is None:
-                print("[memory] no embedding API and no local MiniLM; facts still stored, recall uses LLM")
-                cfg = _mem0_config(conf, dims=384, collection="companion_384")
-                mem = _mem0_from_config(cfg)
-                mem.embedding_model = _HashingEmbedder(384)
-                ids = [c.id for c in session.exec(select(Character)).all() if c.id]
-                old = ""
-                try:
-                    old = _MARKER.read_text(encoding="utf-8").strip()
-                except OSError:
-                    old = ""
-                if old != "hashing-llm":
-                    dump = _dump_collection(mem, ids)
-                    _rebuild_index(mem, conf, dump, ids)
-                    try:
-                        _MARKER.write_text("hashing-llm", encoding="utf-8")
-                    except OSError:
-                        pass
-                _cache["semantic"] = False
-            else:
-                coll = f"companion_{sig.replace(':', '_')}"
-                old = ""
-                try:
-                    old = _MARKER.read_text(encoding="utf-8").strip()
-                except OSError:
-                    old = ""
-                dump: Optional[List[Dict[str, Any]]] = None
-                if old != sig:
-                    dump = _dump_hashing_store(session, conf)
-                cfg = _mem0_config(conf, dims=int(embedder.dims), collection=coll)
-                mem = _mem0_from_config(cfg)
-                mem.embedding_model = embedder
-                ids = [c.id for c in session.exec(select(Character)).all() if c.id]
-                if old != sig:
-                    if not dump:
-                        dump = _dump_collection(mem, ids)
-                    _rebuild_index(mem, conf, dump, ids)
-                    try:
-                        _MARKER.write_text(sig, encoding="utf-8")
-                    except OSError:
-                        pass
-                    print(f"[memory] index {old or 'empty'} -> {sig}")
-                _cache["semantic"] = True
+            coll = embed_svc.collection_name(sig)
+            cfg = _mem0_config(conf, dims=int(embedder.dims), collection=coll)
+            mem = _mem0_from_config(cfg)
+            mem.embedding_model = embedder
+            old = _read_marker()
+            if old != sig:
+                _rebuild_from_sqlite(session, mem)
+                _write_marker(sig)
+                print(f"[memory] index {old or 'empty'} -> {sig} collection={coll}")
+            _cache["semantic"] = semantic
         except Exception as exc:
             print(f"[memory] mem0 init failed: {exc}")
             return None
@@ -556,6 +581,16 @@ def _client(session: Session):
         _cache["mem"] = mem
         _cache["embed_sig"] = sig
         return mem
+
+
+def reset_client() -> None:
+    """设置里换了 embedding / Key 之后，丢掉进程内的旧向量客户端。"""
+    with _lock:
+        _close_mem(_cache.get("mem"))
+        _cache["mem"] = None
+        _cache["key"] = None
+        _cache["llm_key"] = None
+        _cache["embed_sig"] = ""
 
 
 def warmup(session: Session) -> None:
@@ -646,74 +681,8 @@ def _search(mem, query: str, uid: str, top_k: int = 12) -> List[Dict[str, Any]]:
     return _results(raw)
 
 
-def _migrate_sqlite(session: Session, mem) -> None:
-    if _cache.get("migrated"):
-        return
-    rows = list(session.exec(select(MemoryFact)).all())
-    if not rows:
-        _cache["migrated"] = True
-        return
-    for row in rows:
-        content = (row.content or "").strip()
-        if not content:
-            session.delete(row)
-            continue
-        try:
-            mem.add(
-                content,
-                user_id=_uid(row.character_id),
-                infer=False,
-                metadata={
-                    "kind": row.kind if row.kind in VALID_KINDS else "event",
-                    "pinned": bool(row.pinned),
-                    "importance": float(row.importance or 0.5),
-                    "migrated": True,
-                },
-            )
-            session.delete(row)
-        except Exception as exc:
-            print(f"[memory] migrate skip id={row.id}: {exc}")
-    session.commit()
-    leftover = session.exec(select(MemoryFact).limit(1)).first()
-    _cache["migrated"] = True
-    if leftover is None:
-        print("[memory] sqlite facts migrated into mem0")
-    else:
-        print("[memory] sqlite facts remain; panel will show both until they migrate")
-
-
 def list_facts(session: Session, character_id: int) -> List[Dict[str, Any]]:
-    mem = _client(session)
-    if mem is not None:
-        with _lock:
-            _migrate_sqlite(session, mem)
-            try:
-                items = _get_all(mem, _uid(character_id), top_k=120)
-            except Exception as exc:
-                print(f"[memory] get_all failed: {exc}")
-                items = []
-        pinned = [x for x in items if _item_meta(x).get("pinned") and _item_text(x)]
-        rest = [x for x in items if not _item_meta(x).get("pinned") and _item_text(x)]
-        rest.sort(key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""), reverse=True)
-        out = [fact_to_dict(x, character_id) for x in pinned + rest]
-        rows = list(session.exec(
-            select(MemoryFact)
-            .where(MemoryFact.character_id == character_id)
-            .order_by(MemoryFact.pinned.desc(), MemoryFact.importance.desc(),
-                      MemoryFact.updated_at.desc())
-        ).all())
-        legacy = [_legacy_to_dict(r) for r in rows]
-        if not legacy:
-            return out
-        seen = {r.get("content") for r in out}
-        return out + [r for r in legacy if r.get("content") not in seen]
-    rows = list(session.exec(
-        select(MemoryFact)
-        .where(MemoryFact.character_id == character_id)
-        .order_by(MemoryFact.pinned.desc(), MemoryFact.importance.desc(),
-                  MemoryFact.updated_at.desc())
-    ).all())
-    return [_legacy_to_dict(r) for r in rows]
+    return [_legacy_to_dict(r) for r in _sqlite_rows(session, character_id)]
 
 
 def inject_memory(
@@ -772,7 +741,9 @@ def _llm_pick(
 ) -> List[Dict[str, Any]]:
     if not items:
         return []
-    numbered = "\n".join(f"{i + 1}. {_item_text(x)[:80]}" for i, x in enumerate(items[:40]))
+    def _line(x: Dict[str, Any]) -> str:
+        return (x.get("content") or _item_text(x) or "")[:80]
+    numbered = "\n".join(f"{i + 1}. {_line(x)}" for i, x in enumerate(items[:40]))
     api_key = (llm_conf.get("api_key") or "").strip()
     base_url = (llm_conf.get("base_url") or "").rstrip("/")
     if not api_key or not base_url:
@@ -815,53 +786,79 @@ def _llm_pick(
     return out or items[:top_k]
 
 
+def _hydrate_hits(session: Session, character_id: int, items: List[Dict[str, Any]]) -> List[MemoryFact]:
+    rows = _sqlite_rows(session, character_id)
+    by_id = {int(r.id): r for r in rows if r.id}
+    by_text = {(r.content or "").strip(): r for r in rows}
+    out: List[MemoryFact] = []
+    seen = set()
+    for item in items:
+        md = _item_meta(item)
+        row = None
+        sid = md.get("sqlite_id")
+        if str(sid).isdigit():
+            row = by_id.get(int(sid))
+        if row is None:
+            row = by_text.get(_item_text(item))
+        if row is None or row.id in seen:
+            continue
+        seen.add(row.id)
+        out.append(row)
+    return out
+
+
 def _retrieve(session: Session, character_id: int, query: str) -> List[Dict[str, Any]]:
+    facts = [_legacy_to_dict(r) for r in _sqlite_rows(session, character_id)]
+    if not facts:
+        return []
+    pinned = [r for r in facts if r.get("pinned")]
     mem = _client(session)
     if mem is None:
-        rows = list_facts(session, character_id)
-        return [r for r in rows if r.get("pinned")][:MAX_INJECT]
-    uid = _uid(character_id)
+        return pinned[:MAX_INJECT]
     q = (query or "").strip() or "对方是谁，有什么偏好、约定和还没做完的事"
     conf = settings_store.get_all(session).get("llm") or {}
+    searched: List[Dict[str, Any]] = []
     try:
         with _lock:
-            _migrate_sqlite(session, mem)
-            all_items = _get_all(mem, uid, top_k=80)
-            if not all_items:
-                searched: List[Dict[str, Any]] = []
-            elif _cache.get("semantic"):
-                searched = _search(mem, q, uid, top_k=MAX_INJECT)
+            if _cache.get("semantic"):
+                hits = _search(mem, q, _uid(character_id), top_k=MAX_INJECT)
+                searched = [_legacy_to_dict(r) for r in _hydrate_hits(session, character_id, hits)]
             else:
-                searched = _llm_pick(conf, q, all_items, MAX_INJECT)
-        pinned = [x for x in all_items if _item_meta(x).get("pinned") and _item_text(x)]
-        picked: List[Dict[str, Any]] = []
-        seen = set()
-        for item in pinned + searched:
-            rid = str(item.get("id") or "")
-            text = _item_text(item)
-            if not rid or not text or rid in seen:
-                continue
-            picked.append(fact_to_dict(item, character_id))
-            seen.add(rid)
-            if len(picked) >= MAX_INJECT:
-                break
-        return picked
+                searched = _llm_pick(conf, q, facts, MAX_INJECT)
     except Exception as exc:
         print(f"[memory] retrieve failed: {exc}")
-        return []
+        return pinned[:MAX_INJECT]
+    picked: List[Dict[str, Any]] = []
+    seen = set()
+    for item in pinned + searched:
+        rid = str(item.get("id") or "")
+        text = (item.get("content") or "").strip()
+        if not rid or not text or rid in seen:
+            continue
+        picked.append(item)
+        seen.add(rid)
+        if len(picked) >= MAX_INJECT:
+            break
+    return picked
 
 
 def scene_hints(session: Session, character_id: int) -> List[str]:
     mem = _client(session)
-    if mem is None:
-        return []
-    try:
-        with _lock:
-            items = _search(mem, "未完的约定、下次要做的事、最近发生的事", _uid(character_id), top_k=4)
-    except Exception as exc:
-        print(f"[memory] scene search failed: {exc}")
-        return []
-    return [t for t in (_item_text(x) for x in items) if t][:4]
+    if mem is not None:
+        try:
+            with _lock:
+                items = _search(mem, "未完的约定、下次要做的事、最近发生的事", _uid(character_id), top_k=4)
+            rows = _hydrate_hits(session, character_id, items)
+            texts = [(r.content or "").strip() for r in rows if (r.content or "").strip()]
+            if texts:
+                return texts[:4]
+        except Exception as exc:
+            print(f"[memory] scene search failed: {exc}")
+    return [
+        (r.content or "").strip()
+        for r in _sqlite_rows(session, character_id)
+        if r.kind == "open_loop" and (r.content or "").strip()
+    ][:4]
 
 
 def retrieve_facts(session: Session, character_id: int, query: str) -> List[Dict[str, Any]]:
@@ -931,49 +928,48 @@ def llm_extract_facts(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]) 
         return []
 
 
-def store_extracted_facts(session: Session, character_id: int, facts: List[str]) -> int:
-    mem = _client(session)
+def _sync_index(session: Session, row: MemoryFact, *, old_content: str = "") -> None:
+    if not row.id or not row.character_id:
+        return
+    try:
+        mem = _client(session)
+    except Exception:
+        return
     if mem is None:
-        n = 0
-        for fact in facts:
-            _legacy_upsert(session, character_id, fact_id=None, kind="event",
-                           content=fact, importance=0.5, pinned=None)
-            n += 1
-        return n
-    added: List[Dict[str, Any]] = []
+        return
+    try:
+        _drop_indexed_fact(mem, int(row.character_id), int(row.id), old_content)
+        _index_fact(mem, row)
+    except Exception as exc:
+        print(f"[memory] index sync skip id={row.id}: {exc}")
+
+
+def store_extracted_facts(session: Session, character_id: int, facts: List[str]) -> int:
+    n = 0
     with _lock:
-        _migrate_sqlite(session, mem)
+        have = {
+            (r.content or "").strip()
+            for r in session.exec(
+                select(MemoryFact).where(MemoryFact.character_id == character_id)
+            ).all()
+        }
         for fact in facts:
-            raw = mem.add(
-                fact,
-                user_id=_uid(character_id),
-                infer=False,
-                metadata={"source": "chat", "kind": "event"},
+            text = (fact or "").strip()
+            if len(text) < 4 or text in have:
+                continue
+            identity = _is_identity_fact(text)
+            out = _write_fact(
+                session, character_id, fact_id=None,
+                kind="person" if identity else "event",
+                content=text, importance=0.5,
+                pinned=True if identity else False,
             )
-            added.extend(_results(raw))
-        _pin_extracted(mem, added)
-    return len(added)
-
-
-def _pin_extracted(mem, added: List[Dict[str, Any]]) -> None:
-    for item in added:
-        rid = item.get("id")
-        if not rid:
-            continue
-        cats = item.get("categories") or _item_meta(item).get("categories") or []
-        if isinstance(cats, str):
-            cats = [cats]
-        cat_l = {str(c).strip().lower() for c in cats if c}
-        kind = "person" if (cat_l & _PERSONAL_CATS) else _item_kind(item)
-        pinned = bool(cat_l & _PERSONAL_CATS) or kind == "person"
-        if not pinned:
-            continue
-        md = dict(_item_meta(item))
-        md.update({"kind": kind, "pinned": True, "source": "chat"})
-        try:
-            mem.update(str(rid), metadata=md)
-        except Exception:
-            pass
+            have.add(text)
+            n += 1
+            row = session.get(MemoryFact, int(out["id"])) if out.get("id") else None
+            if row is not None:
+                _sync_index(session, row)
+    return n
 
 
 def upsert_fact(session: Session, character_id: int, *,
@@ -989,81 +985,37 @@ def upsert_fact(session: Session, character_id: int, *,
         importance = max(0.0, min(1.0, float(importance)))
     except (TypeError, ValueError):
         importance = 0.5
-    mem = _client(session)
-    if mem is None:
-        return _legacy_upsert(session, character_id, fact_id=fact_id, kind=kind,
-                              content=content, importance=importance, pinned=pinned)
-    uid = _uid(character_id)
-    md: Dict[str, Any] = {"kind": kind, "importance": importance, "source": "manual"}
-    if pinned is not None:
-        md["pinned"] = bool(pinned)
     with _lock:
-        _migrate_sqlite(session, mem)
-        if fact_id:
-            existing = None
-            for item in _get_all(mem, uid, top_k=120):
-                if str(item.get("id")) == str(fact_id):
-                    existing = item
-                    break
-            if existing is None:
+        old_content = ""
+        if fact_id and str(fact_id).isdigit():
+            prev = session.get(MemoryFact, int(fact_id))
+            if prev and prev.character_id == character_id:
+                old_content = prev.content or ""
+            elif prev is None:
                 raise KeyError("fact not found")
-            old_md = dict(_item_meta(existing))
-            old_md.update(md)
-            kwargs: Dict[str, Any] = {"metadata": old_md}
-            if content:
-                kwargs["text"] = content
-            try:
-                mem.update(str(fact_id), **kwargs)
-            except TypeError:
-                mem.update(str(fact_id), data=content or _item_text(existing))
-            for item in _get_all(mem, uid, top_k=120):
-                if str(item.get("id")) == str(fact_id):
-                    return fact_to_dict(item, character_id)
-            return {
-                "id": str(fact_id),
-                "character_id": character_id,
-                "kind": kind,
-                "kind_cn": KIND_CN.get(kind, kind),
-                "content": content or _item_text(existing),
-                "importance": importance,
-                "pinned": bool(old_md.get("pinned")),
-                "created_at": "",
-                "updated_at": "",
-            }
-        raw = mem.add(
-            content,
-            user_id=uid,
-            infer=False,
-            metadata=md if pinned is not None else {**md, "pinned": False},
+        elif fact_id:
+            raise KeyError("fact not found")
+        out = _write_fact(
+            session, character_id, fact_id=fact_id, kind=kind,
+            content=content, importance=importance, pinned=pinned,
         )
-    added = _results(raw)
-    if added:
-        item = added[0]
-        if not item.get("memory"):
-            item = {**item, "memory": content, "metadata": md}
-        return fact_to_dict(item, character_id)
-    return {
-        "id": "",
-        "character_id": character_id,
-        "kind": kind,
-        "kind_cn": KIND_CN.get(kind, kind),
-        "content": content,
-        "importance": importance,
-        "pinned": bool(pinned),
-        "created_at": "",
-        "updated_at": "",
-    }
+        row = session.get(MemoryFact, int(out["id"])) if out.get("id") else None
+        if row is not None:
+            _sync_index(session, row, old_content=old_content)
+        return out
 
 
-def _legacy_upsert(session: Session, character_id: int, *,
-                   fact_id: Optional[str], kind: str, content: str,
-                   importance: float, pinned: Optional[bool]) -> Dict[str, Any]:
+def _write_fact(session: Session, character_id: int, *,
+                fact_id: Optional[str], kind: str, content: str,
+                importance: float, pinned: Optional[bool]) -> Dict[str, Any]:
     now = _now()
     row: Optional[MemoryFact] = None
     if fact_id and str(fact_id).isdigit():
         row = session.get(MemoryFact, int(fact_id))
         if row and row.character_id != character_id:
             row = None
+        if fact_id and row is None:
+            raise KeyError("fact not found")
     if row is None:
         if not content:
             raise ValueError("content required")
@@ -1082,22 +1034,40 @@ def _legacy_upsert(session: Session, character_id: int, *,
 
 
 def delete_fact(session: Session, character_id: int, fact_id: str) -> bool:
-    mem = _client(session)
-    if mem is not None:
-        with _lock:
+    with _lock:
+        if str(fact_id).isdigit():
+            row = session.get(MemoryFact, int(fact_id))
+            if not row or row.character_id != character_id:
+                return False
+            content = row.content or ""
+            sid = int(row.id)
+            session.delete(row)
+            session.commit()
+            mem = _cache.get("mem")
+            if mem is None:
+                try:
+                    mem = _client(session)
+                except Exception:
+                    mem = None
+            if mem is not None:
+                try:
+                    _drop_indexed_fact(mem, character_id, sid, content)
+                except Exception as exc:
+                    print(f"[memory] index delete skip: {exc}")
+            return True
+        mem = _cache.get("mem")
+        if mem is None:
             try:
-                mem.delete(str(fact_id))
-                return True
+                mem = _client(session)
             except Exception:
-                pass
-    if str(fact_id).isdigit():
-        row = session.get(MemoryFact, int(fact_id))
-        if not row or row.character_id != character_id:
+                mem = None
+        if mem is None:
             return False
-        session.delete(row)
-        session.commit()
-        return True
-    return False
+        try:
+            mem.delete(str(fact_id))
+            return True
+        except Exception:
+            return False
 
 
 def add_event_note(session: Session, character_id: int, content: str) -> Dict[str, Any]:
