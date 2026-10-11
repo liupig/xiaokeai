@@ -475,12 +475,26 @@ def synthesize(text: str, voice: str = "Vivian", size: str = DEFAULT_SIZE, instr
     return _to_wav_bytes(np.concatenate(parts), SAMPLE_RATE)
 
 
+def qwen_language(reply: str | None) -> str:
+    """对话语言 -> Qwen 的 language 参数。和音色是两件事，女声也可以念英语。"""
+    low = (reply or "").strip().replace("_", "-").lower()
+    if low == "en" or low.startswith("en-"):
+        return "English"
+    if low.startswith("ja"):
+        return "Japanese"
+    if low.startswith("ko"):
+        return "Korean"
+    if low == "zh" or low.startswith("zh-"):
+        return "Chinese"
+    return ""
+
+
 def synthesize_pcm_sync(
     text: str, voice: str = "Vivian", size: str = DEFAULT_SIZE, instruct: str = "",
-    cancel: Optional[threading.Event] = None,
+    cancel: Optional[threading.Event] = None, language: str = "",
 ):
     speaker = resolve_speaker(voice)
-    language = _VOICE_LANG.get(speaker, "Chinese")
+    language = (language or "").strip() or _VOICE_LANG.get(speaker, "Chinese")
     size = normalize_size(size)
     t0 = time.perf_counter()
     # 插话 abort 时，排队等锁的请求必须能退出，否则 GPU 锁会排到几十秒
@@ -643,19 +657,19 @@ def warmup(size: str = DEFAULT_SIZE, *, download: bool = False) -> Dict[str, Any
 
 async def synthesize_pcm(
     text: str, voice: str, size: str = DEFAULT_SIZE, instruct: str = "",
-    cancel: Optional[threading.Event] = None,
+    cancel: Optional[threading.Event] = None, language: str = "",
 ) -> AsyncIterator[bytes]:
     """边生成边产出 PCM。合成在独立 GPU 进程；客户端断开只杀这一段。"""
     if _is_tts_worker():
         # 子进程里不会走这条；留给误用时的兜底
-        for pcm in synthesize_pcm_sync(text, voice, size, instruct, cancel):
+        for pcm in synthesize_pcm_sync(text, voice, size, instruct, cancel, language):
             yield pcm
         return
     _ensure_worker()
     job = uuid.uuid4().hex
     stop = cancel if cancel is not None else threading.Event()
     box = _waiter(job)
-    _in_q.put(("synth", job, text, voice, size, instruct))
+    _in_q.put(("synth", job, text, voice, size, instruct, language))
     first_limit = 40.0
     chunk_limit = 25.0
     t_wait = time.perf_counter()

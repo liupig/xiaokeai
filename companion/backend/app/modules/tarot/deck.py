@@ -171,21 +171,133 @@ def back_exists() -> bool:
     return has_art("back.png")
 
 
-def angle_for(card: Card, reversed: bool) -> str:
-    """给 overlay 用的解读底：画面 + 这一面的味道。不是百科，也不让她照着念。"""
+def angle_for(card: Card, reversed: bool, lang: str | None = None) -> str:
+    """给 overlay 用的解读底。中文走牌面文学稿；其它语言只用该语言的牌名，不把玉币竹杖送进提示。"""
+    from ...locale_pack import current_reply, normalize
+    lang = normalize(lang or current_reply())
+    if lang == "zh-CN":
+        cid = str(card.get("id") or "")
+        text = lore.angle(cid, reversed)
+        if text:
+            return text
+        if str(card.get("arcana") or "") == "major":
+            return str(card.get("hint_rev") if reversed else card.get("hint_up") or "")
+        suit = str(card.get("suit") or "")
+        theme_up, theme_rev = _SUIT_THEME.get(suit, ("这件事的实处", "这件事拧着"))
+        pip = str(card.get("hint_rev") if reversed else card.get("hint_up") or "")
+        theme = theme_rev if reversed else theme_up
+        if pip:
+            return f"{theme}；这一张偏「{pip}」"
+        return theme
+    name = display_name(card, lang)
+    if lang == "ja":
+        face = "逆位置" if reversed else "正位置"
+    elif lang == "ko":
+        face = "역방향" if reversed else "정방향"
+    else:
+        face = "reversed" if reversed else "upright"
+    hint = display_hint(card, reversed, lang)
+    if lang == "ja":
+        return f"牌名：{name}（{face}）。\n画面の手がかり：{hint}\nこの絵から話す。牌の名前を変えない。"
+    if lang == "ko":
+        return f"카드 이름: {name} ({face}).\n그림의 단서: {hint}\n이 그림으로 말한다. 카드 이름을 바꾸지 않는다."
+    return (
+        f"Card name: {name} ({face}).\n"
+        f"Picture cue: {hint}\n"
+        "Speak from this picture. Use this card name. Do not say Wands as staves, Cups as chalices in another language, "
+        "or Pentacles as coins in Chinese."
+    )
+
+
+_EN_MAJOR = [
+    "The Fool", "The Magician", "The High Priestess", "The Empress", "The Emperor",
+    "The Hierophant", "The Lovers", "The Chariot", "Strength", "The Hermit",
+    "Wheel of Fortune", "Justice", "The Hanged Man", "Death", "Temperance",
+    "The Devil", "The Tower", "The Star", "The Moon", "The Sun", "Judgement", "The World",
+]
+_JA_MAJOR = [
+    "愚者", "魔術師", "女教皇", "女帝", "皇帝", "教皇", "恋人", "戦車", "力", "隠者",
+    "運命の輪", "正義", "吊るされた男", "死神", "節制", "悪魔", "塔", "星", "月", "太陽", "審判", "世界",
+]
+_KO_MAJOR = [
+    "바보", "마법사", "여사제", "여황제", "황제", "교황", "연인", "전차", "힘", "은둔자",
+    "운명의 수레바퀴", "정의", "매달린 사람", "죽음", "절제", "악마", "탑", "별", "달", "태양", "심판", "세계",
+]
+_SUIT_NAME = {
+    "en": {"wands": "Wands", "cups": "Cups", "swords": "Swords", "coins": "Pentacles"},
+    "ja": {"wands": "ワンド", "cups": "カップ", "swords": "ソード", "coins": "ペンタクル"},
+    "ko": {"wands": "완드", "cups": "컵", "swords": "소드", "coins": "펜타클"},
+}
+_PIP_NAME = {
+    "en": {"01": "Ace", "02": "Two", "03": "Three", "04": "Four", "05": "Five",
+           "06": "Six", "07": "Seven", "08": "Eight", "09": "Nine", "10": "Ten",
+           "page": "Page", "knight": "Knight", "queen": "Queen", "king": "King"},
+    "ja": {"01": "エース", "02": "2", "03": "3", "04": "4", "05": "5",
+           "06": "6", "07": "7", "08": "8", "09": "9", "10": "10",
+           "page": "ペイジ", "knight": "ナイト", "queen": "クイーン", "king": "キング"},
+    "ko": {"01": "에이스", "02": "2", "03": "3", "04": "4", "05": "5",
+           "06": "6", "07": "7", "08": "8", "09": "9", "10": "10",
+           "page": "페이지", "knight": "나이트", "queen": "퀸", "king": "킹"},
+}
+_PIP_HINT_EN = {
+    "01": ("a start, the spark just up", "still at the door"),
+    "02": ("two sides, not chosen yet", "wanting both"),
+    "03": ("something is taking shape", "the small gathering loosened"),
+    "04": ("a place to rest and hold", "so steady it needs a window"),
+    "05": ("a tangle, a little fight", "the fight is still stuck"),
+    "06": ("a breath, a hand offered", "old comfort held too long"),
+    "07": ("still weighing it", "lots of thought, one small step"),
+    "08": ("time to move, not only think", "one knot undone is enough"),
+    "09": ("close, and heavier", "worry at the last stretch"),
+    "10": ("this stretch is done", "the load is heavy, set one thing down"),
+    "page": ("just learning the suit", "the news is not all in yet"),
+    "knight": ("already moving", "moving a bit too hard"),
+    "queen": ("she knows what she feels", "feeling is full"),
+    "king": ("someone has to carry it", "the weight can be shared"),
+}
+
+
+def _rank_id(card: Card) -> str:
     cid = str(card.get("id") or "")
-    text = lore.angle(cid, reversed)
-    if text:
-        return text
+    return cid.split("/", 1)[-1].split("-", 1)[0] if "/" in cid else ""
+
+
+def display_name(card: Card, lang: str) -> str:
+    from ...locale_pack import normalize
+    lang = normalize(lang)
+    if lang == "zh-CN":
+        return str(card.get("name") or "")
+    cid = str(card.get("id") or "")
+    if cid.startswith("major/"):
+        try:
+            idx = int(cid.split("/")[1].split("-")[0])
+        except ValueError:
+            idx = -1
+        table = {"ja": _JA_MAJOR, "ko": _KO_MAJOR}.get(lang, _EN_MAJOR)
+        if 0 <= idx < len(table):
+            return table[idx]
+        return str(card.get("name") or "")
+    suit_key = str(card.get("suit") or "")
+    suits = _SUIT_NAME.get(lang, _SUIT_NAME["en"])
+    pips = _PIP_NAME.get(lang, _PIP_NAME["en"])
+    rank = _rank_id(card)
+    suit = suits.get(suit_key, suit_key)
+    pip = pips.get(rank, rank)
+    if lang == "ja":
+        return f"{suit}の{pip}"
+    if lang == "ko":
+        return f"{suit}의 {pip}"
+    return f"{pip} of {suit}"
+
+
+def display_hint(card: Card, reversed: bool, lang: str) -> str:
+    rank = _rank_id(card)
+    pair = _PIP_HINT_EN.get(rank)
+    if pair:
+        return pair[1] if reversed else pair[0]
     if str(card.get("arcana") or "") == "major":
-        return str(card.get("hint_rev") if reversed else card.get("hint_up") or "")
-    suit = str(card.get("suit") or "")
-    theme_up, theme_rev = _SUIT_THEME.get(suit, ("这件事的实处", "这件事拧着"))
-    pip = str(card.get("hint_rev") if reversed else card.get("hint_up") or "")
-    theme = theme_rev if reversed else theme_up
-    if pip:
-        return f"{theme}；这一张偏「{pip}」"
-    return theme
+        return "the picture on this major arcana card"
+    return "the picture of this card"
 
 
 def enrich(card: Card) -> Card:

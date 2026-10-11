@@ -4,20 +4,30 @@ import { NButton, NInput, NSelect } from 'naive-ui';
 import { api } from '../../api/client';
 import { useCharacterStore } from '../../stores/character';
 import { memorySession, refreshMemory } from './session';
+import { t } from '../../i18n';
+import { useSettingsStore } from '../../stores/settings';
 
 const characters = useCharacterStore();
+const settings = useSettingsStore();
 const draft = ref('');
 const kind = ref('event');
 const editingId = ref<string | null>(null);
 const editText = ref('');
 const busyId = ref<string | null>(null);
-const kinds = [
-  { label: '偏好', value: 'preference' },
-  { label: '人物', value: 'person' },
-  { label: '事件', value: 'event' },
-  { label: '未完', value: 'open_loop' },
-  { label: '性格', value: 'trait' },
-];
+const kinds = computed(() => {
+  settings.locale.ui;
+  return ['preference', 'person', 'event', 'open_loop', 'trait'].map((value) => ({
+    value,
+    label: t(`mem.${value}`),
+  }));
+});
+
+function kindText(kind: string) {
+  settings.locale.ui;
+  const key = `mem.${kind}`;
+  const hit = t(key);
+  return hit === key ? kind : hit;
+}
 
 const facts = computed(() => memorySession.facts);
 
@@ -93,20 +103,20 @@ async function add() {
 <template>
   <div v-if="memorySession.open" class="mem">
     <div class="mem-head">
-      <span>她记得的{{ facts.length ? ` · ${facts.length}` : '' }}</span>
-      <button class="x" @click="memorySession.open = false">关闭</button>
+      <span>{{ t('mem.title') }}{{ facts.length ? ` · ${facts.length}` : '' }}</span>
+      <button class="x" @click="memorySession.open = false">{{ t('mem.close') }}</button>
     </div>
     <div class="mem-list">
-      <div v-if="memorySession.loading && !facts.length" class="empty">正在读取记忆…</div>
-      <div v-else-if="!facts.length" class="empty">还没有记忆。聊几句后会慢慢长出来，也可以自己写一条。</div>
+      <div v-if="memorySession.loading && !facts.length" class="empty">{{ t('mem.loading') }}</div>
+      <div v-else-if="!facts.length" class="empty">{{ t('mem.empty') }}</div>
       <div v-for="f in facts" :key="f.id" class="fact" :class="{ busy: busyId === f.id }">
         <div class="fact-top">
-          <span class="tag">{{ f.kind_cn }}</span>
-          <span v-if="f.pinned" class="pin">置顶</span>
+          <span class="tag">{{ kindText(f.kind) }}</span>
+          <span v-if="f.pinned" class="pin">{{ t('mem.pin') }}</span>
           <span class="grow" />
-          <button @click="startEdit(f.id, f.content)">编辑</button>
-          <button @click="pin(f.id, !f.pinned)">{{ f.pinned ? '取消置顶' : '置顶' }}</button>
-          <button @click="forget(f.id)">遗忘</button>
+          <button @click="startEdit(f.id, f.content)">{{ t('mem.edit') }}</button>
+          <button @click="pin(f.id, !f.pinned)">{{ f.pinned ? t('mem.unpin') : t('mem.pin') }}</button>
+          <button @click="forget(f.id)">{{ t('mem.forget') }}</button>
         </div>
         <n-input v-if="editingId === f.id" v-model:value="editText" type="textarea" size="tiny"
                  :autosize="{ minRows: 2, maxRows: 4 }"
@@ -117,9 +127,9 @@ async function add() {
     </div>
     <div class="mem-add">
       <n-select v-model:value="kind" :options="kinds" size="tiny" style="width:88px" />
-      <n-input v-model:value="draft" size="tiny" placeholder="写一条她该记住的…"
+      <n-input v-model:value="draft" size="tiny" :placeholder="t('mem.placeholder')"
                @keydown.enter.prevent="add" />
-      <n-button size="tiny" type="primary" :disabled="!draft.trim()" @click="add">记下</n-button>
+      <n-button size="tiny" type="primary" :disabled="!draft.trim()" @click="add">{{ t('mem.add') }}</n-button>
     </div>
   </div>
 </template>

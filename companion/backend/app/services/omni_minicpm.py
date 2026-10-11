@@ -29,6 +29,20 @@ ORAL_SYSTEM = (
 )
 
 
+def oral_system() -> str:
+    from ..locale_pack import current_reply
+    if current_reply() == "zh-CN":
+        return ORAL_SYSTEM
+    if current_reply() == "ja":
+        return "あなたは仮想の相手です。短い話し言葉の日本語で返す。markdown、箇条書き、括弧のト書きは使わない。"
+    if current_reply() == "ko":
+        return "당신은 가상 상대다. 짧은 한국어 구어로 답한다. markdown, 목록, 괄호 지문은 쓰지 않는다."
+    return (
+        "You are a virtual companion. Answer in short spoken English, like a person. "
+        "No markdown, no lists, no parenthetical stage directions."
+    )
+
+
 def conf_from(raw: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
     from . import settings_store
 
@@ -109,7 +123,7 @@ async def stream_chat(
         yield {"type": "error", "message": "未填写 MiniCPM-o API Key（platform.modelbest.cn）"}
         return
     messages: List[Dict[str, Any]] = [
-        {"role": "system", "content": (system or ORAL_SYSTEM).strip()},
+        {"role": "system", "content": (system or oral_system()).strip()},
         {"role": "user", "content": _user_content(text, image_b64)},
     ]
     payload = {
@@ -193,7 +207,8 @@ async def stream_speech(
             {"type": "image", "data": raw},
         ]
     else:
-        user_content = (text or "").strip() or "用中文介绍你自己，两句话。"
+        from ..locale_pack import prompts
+        user_content = (text or "").strip() or str((prompts().get("omni_default") or "用中文介绍你自己，两句话。"))
 
     full = ""
     audio_bytes = 0
@@ -218,7 +233,7 @@ async def stream_speech(
                 if kind in ("session.queue_done", "queue_done") and not inited:
                     await ws.send(json.dumps({
                         "type": "session.init",
-                        "payload": {"system_prompt": (system or ORAL_SYSTEM).strip()},
+                        "payload": {"system_prompt": (system or oral_system()).strip()},
                     }))
                     inited = True
                     continue
@@ -227,7 +242,7 @@ async def stream_speech(
                         "type": "input.append",
                         "input": {
                             "messages": [
-                                {"role": "system", "content": (system or ORAL_SYSTEM).strip()},
+                                {"role": "system", "content": (system or oral_system()).strip()},
                                 {"role": "user", "content": user_content},
                             ],
                             "streaming": True,

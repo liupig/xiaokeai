@@ -2,14 +2,18 @@
 import { computed } from 'vue';
 import { codewatchLive } from './live';
 import { mergeSources } from './sources';
+import { t } from '../../i18n';
+import { useSettingsStore } from '../../stores/settings';
 
+const settings = useSettingsStore();
 const show = computed(() => codewatchLive.open);
 const phase = computed(() => codewatchLive.hudPhase || codewatchLive.phase || 'idle');
 const label = computed(() => {
-  if (phase.value === 'started') return '开工';
-  if (phase.value === 'working') return '进行中';
-  if (phase.value === 'done') return '完成';
-  return '空闲';
+  settings.locale.ui;
+  if (phase.value === 'started') return t('code.started');
+  if (phase.value === 'working') return t('code.working');
+  if (phase.value === 'done') return t('code.donePhase');
+  return t('code.idle');
 });
 const waiting = computed(() => codewatchLive.waiting && (phase.value === 'started' || phase.value === 'done'));
 const picked = computed(() => (
@@ -31,8 +35,9 @@ const title = computed(() => {
   return (codewatchLive.line || codewatchLive.title || '').trim();
 });
 const line = computed(() => {
+  settings.locale.ui;
   if (title.value) return title.value;
-  if (phase.value === 'idle') return '看着，有活再开口';
+  if (phase.value === 'idle') return t('code.watchIdle');
   return '';
 });
 </script>
@@ -42,7 +47,7 @@ const line = computed(() => {
     <div class="top">
       <div class="brand">
         <span class="lamp" />
-        <span class="name">码伴</span>
+        <span class="name">{{ t('code.hud') }}</span>
       </div>
       <span class="pill">{{ label }}</span>
     </div>

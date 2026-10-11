@@ -79,6 +79,7 @@ export default defineConfig({
   },
   server: {
     port: 5175,
+    fs: { allow: [root, resolve(root, '..')] },
     proxy: {
       '/api': { target: BACKEND, changeOrigin: true, timeout: 600000 },
       '/assets': { target: BACKEND, changeOrigin: true },

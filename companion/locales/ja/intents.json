@@ -1,0 +1,65 @@
+{
+  "roleplay": {
+    "exit": "ロールプレイ(?:を)?(?:やめて|終わり|停止)|素に戻って|自分に戻って|演じて(?:るの)?やめて|stop roleplay|stop playing|drop the act|be yourself|back to yourself|end(?: the)? roleplay|quit roleplay|enough roleplay",
+    "enter": "(?:(?:として|って)演じ(?:て)?|(?:の)?ふりをして|今から(?:あなたは|君は))\\s*([^\\s、。！？]{1,20})|(?:be (?:a|an|my)|act as(?: a| an)?|pretend (?:to be|you(?:'| a)re)|roleplay as|you are now|play(?: a| the)?)\\s+([A-Za-z][A-Za-z' \\-]{0,40})",
+    "inject": "(?:ルール|制限|設定|指示)(?:を)?(?:無視|忘れ)|脱獄|ignore (?:all |your )?(?:rules|instructions|limits)|jailbreak|system\\s*prompt|you have no (?:limits|rules)",
+    "block_role": "大統領|首相|警察|裁判官|検察|薬を出す医者|president|prime minister|police officer|police|judge|prosecutor|doctor who (?:prescribes|gives) (?:me )?pills",
+    "role_stop": [
+      "誰",
+      "何",
+      "あなた",
+      "君",
+      "私",
+      "僕",
+      "who",
+      "what",
+      "you",
+      "me",
+      "i"
+    ],
+    "role_bad_head": "",
+    "role_tail": "(?:who|that|and)\\b",
+    "enter_flags": "i"
+  },
+  "classify": {
+    "dance": "踊って|ダンス|もう一曲|別のダンス|\\bdance\\b|another dance|dance again|a different dance",
+    "knowledge": "とは|なぜ|どうして|どうやって|説明して|違いは|どういう意味|\\b(?:what is|what's|why|how do|how does|explain|difference between)\\b"
+  },
+  "ingress": {
+    "cut": "止まって|やめて|黙って|別のダンス|こっち来て|座って|立って|左へ|右へ|聞いて|\\b(?:stop|wait)\\b|shut up|be quiet|stop talking|stop dancing|another dance|dance again|come here|sit down|stand up|go left|go right|listen to me",
+    "ask": "[?？]|なぜ|どうして|どういう意味|どれ|何時|\\b(?:why|how|what do you mean|which (?:dance|song)|what time)\\b",
+    "drop": "きれい|すごい|上手|大好き|最高|\\b(?:beautiful|gorgeous|amazing|so good|love (?:it|this)|nice one|bravo)\\b",
+    "backchannel": "^(?:うん+|ええ+|ああ+|へえ+|そう|はい|なるほど|mm+|uh+|oh+|ah+|hey+|wow+|ok|okay|yeah|yes|yep|right|go on)[!.,…~ ]*$",
+    "hold_tail": "(?:あの|それで|それから|あと|like|and then|also|wait)$",
+    "hold_head": "^(?:あの|それで|それから|あと|like|so|and then|also|wait)"
+  },
+  "tarot": {
+    "celtic": "ケルティック|ケルト十字|十字陣|十枚|celtic|celtic cross|ten cards|the cross",
+    "choice": "二択|どっちにする|選べない|二つの道|two options|either or|which (?:way|one)|can(?:'|no)t choose",
+    "bond": "関係のスプレッド|恋愛|私とあの人|relationship spread|love spread|me and (?:him|her|them)",
+    "work": "仕事のスプレッド|仕事運|転職|career spread|work spread|the job|my job",
+    "body": "心身|心と体|body and mind|how am i doing",
+    "yesno": "はいいかいいえ|イエスかノー|一枚で可否|yes or no|a yes.no card",
+    "advice": "助言|どうしたらいい|三枚の助言|advice spread|what should i do",
+    "three": "三枚|過去.{0,8}現在.{0,8}未来|タイムライン|three cards|past present future|timeline",
+    "one": "一枚|今日のカード|draw (?:a|one) card|one card|daily card|card of the day",
+    "any": "タロット|カードを引|占って|リーディング|\\btarot\\b|read (?:my |the )?cards|draw cards|a reading",
+    "her_draw": "あなたが引|任せる|適当に|you pick|you choose|you draw|dealer(?:'|s)? choice|^random$|^ランダム$",
+    "cut": "カットして|デッキを切|\\bcut\\b|cut the deck",
+    "soft_ok": "^(?:いいよ|できた|準備できた|うんいい|ok|okay|done|ready|go ahead|that(?:'| i)?s (?:fine|enough)|alright)$",
+    "thanks": "ありがとう|どうも|感謝|thank you|thanks",
+    "linger": "もういい|わかった|十分|that(?:'| i)?s enough|i get it|i understand|okay good",
+    "clar": "もう一枚|詳しく|はっきり|one more card|clarify|clarifier|look closer",
+    "exit": "カードをしまって|もういい|占い終わり|put the cards away|close the cards|stop the reading|i(?:'| a)m done|enough cards|leave the cards",
+    "synth": "まとめて|全体を|一つに|sum it up|the whole spread|tie it together|overall",
+    "ask": "どういう意味|説明して|このカード|what does (?:it|this|that) mean|explain|tell me about this",
+    "redeal": "引き直|別のカード|最初から|新しいスプレッド|draw again|another card|not this one|start over|new spread",
+    "stop": "止まって|待って|黙って|\\bstop\\b|stop talking|hold on",
+    "flip": "めくって|裏返して|開いて|\\bflip\\b|turn (?:it|this|that) over|open (?:it|this|the card)",
+    "fan_left": "左の|\\bleft\\b|the left one",
+    "fan_right": "右の|\\bright\\b|the right one",
+    "fan_mid": "真ん中|中央|\\bmiddle\\b|the center one|in the middle",
+    "hint": "タロット|カードを引|一枚引|三枚|今日のカード|draw (?:a |one |three )?cards?|one card|three cards|daily card|yes or no|tarot|read my cards|celtic|a reading",
+    "ritual": "カット|あなたが引|めくって|もう一枚|しまって|どういう意味|左|右|真ん中|過去|現在|未来|\\bcut\\b|you pick|you choose|flip|turn it over|another card|put the cards away|what does it mean|the left|the right|the middle|past|present|future"
+  }
+}

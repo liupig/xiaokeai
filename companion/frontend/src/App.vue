@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { defineAsyncComponent, onMounted, ref } from 'vue';
-import { NConfigProvider, NMessageProvider, darkTheme, zhCN, dateZhCN } from 'naive-ui';
+import { defineAsyncComponent, onMounted, ref, computed } from 'vue';
+import { NConfigProvider, NMessageProvider, darkTheme, zhCN, dateZhCN, enUS, dateEnUS, jaJP, dateJaJP, koKR, dateKoKR } from 'naive-ui';
+import { i18n } from './i18n';
 import StageView from './features/stage/StageView.vue';
 import TopBar from './features/hud/TopBar.vue';
 import DeskChrome from './features/hud/DeskChrome.vue';
@@ -18,6 +19,7 @@ import { useCharacterStore } from './stores/character';
 import { useChatStore } from './stores/chat';
 import { useSettingsStore } from './stores/settings';
 import { tarotLayerOn } from './features/tarot/gate';
+import { featureOn } from './i18n';
 
 const QuickPanel = defineAsyncComponent(() => import('./features/hud/QuickPanel.vue'));
 const AssetCenter = defineAsyncComponent(() => import('./features/assets/AssetCenter.vue'));
@@ -33,6 +35,21 @@ const CodewatchHud = defineAsyncComponent(() => import('./features/codewatch/Hud
 /** 右侧面板互斥：同一时间只显示一个 */
 type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake' | 'log';
 const activePanel = ref<PanelKey | null>(null);
+
+const naiveLocale = computed(() => {
+  const ui = String((i18n.global.locale as { value?: string }).value || 'zh-CN');
+  if (ui === 'en') return enUS;
+  if (ui === 'ja') return jaJP;
+  if (ui === 'ko') return koKR;
+  return zhCN;
+});
+const naiveDate = computed(() => {
+  const ui = String((i18n.global.locale as { value?: string }).value || 'zh-CN');
+  if (ui === 'en') return dateEnUS;
+  if (ui === 'ja') return dateJaJP;
+  if (ui === 'ko') return dateKoKR;
+  return dateZhCN;
+});
 
 function togglePanel(p: PanelKey) {
   activePanel.value = activePanel.value === p ? null : p;
@@ -67,7 +84,7 @@ onMounted(async () => {
     const codewatch = await import('./features/codewatch');
     await codewatch.restoreCodewatch().catch(() => {});
   }
-  if (settings.modules.tarot && characters.currentId) {
+  if (settings.modules.tarot && featureOn('tarot', settings.locale.reply) && characters.currentId) {
     const tarot = await import('./features/tarot');
     await tarot.reconcileTarot(characters.currentId).catch(() => {});
     const onShow = () => {
@@ -99,7 +116,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <n-config-provider :theme="darkTheme" :locale="zhCN" :date-locale="dateZhCN">
+  <n-config-provider :theme="darkTheme" :locale="naiveLocale" :date-locale="naiveDate">
     <n-message-provider placement="top">
       <div class="layout">
         <StageView />

@@ -2,10 +2,13 @@
 import { computed, ref } from 'vue';
 import { NButton, NPopover } from 'naive-ui';
 import { useCharacterStore } from '../../stores/character';
+import { useSettingsStore } from '../../stores/settings';
+import { t } from '../../i18n';
+import XkIcon from '../icons/XkIcon.vue';
 import { tarotLive } from './gate';
 import { tarotUi } from './session';
 
-const PLAYS = [
+const ZH_PLAYS = [
   { group: '普通', items: [
     { id: 'daily', title: '日抽一张', sub: '今日主题' },
     { id: 'yesno', title: '是否一张', sub: '这件事的倾向' },
@@ -21,7 +24,63 @@ const PLAYS = [
   ]},
 ];
 
+const EN_PLAYS = [
+  { group: 'Quick', items: [
+    { id: 'daily', title: 'Daily card', sub: 'Today' },
+    { id: 'yesno', title: 'Yes or no', sub: 'Which way it leans' },
+    { id: 'three', title: 'Three cards', sub: 'Past / present / future' },
+    { id: 'advice', title: 'Advice', sub: 'Now / block / next' },
+    { id: 'body', title: 'Heart and body', sub: 'Heart / body / breath' },
+  ]},
+  { group: 'Further', items: [
+    { id: 'choice', title: 'Two paths', sub: 'A and B, then advice' },
+    { id: 'bond', title: 'The bond', sub: 'Five cards' },
+    { id: 'work', title: 'Work', sub: 'Five cards' },
+    { id: 'celtic', title: 'Celtic cross', sub: 'Ten cards' },
+  ]},
+];
+
+const JA_PLAYS = [
+  { group: 'ふつう', items: [
+    { id: 'daily', title: '今日の一枚', sub: '今日' },
+    { id: 'yesno', title: 'はい・いいえ', sub: '傾き' },
+    { id: 'three', title: '三枚', sub: '過去 / 現在 / 未来' },
+    { id: 'advice', title: '助言', sub: '現状 / 妨げ / 次' },
+    { id: 'body', title: '心と体', sub: '心 / 体 / 息' },
+  ]},
+  { group: 'さらに', items: [
+    { id: 'choice', title: '二つに一つ', sub: 'A と B' },
+    { id: 'bond', title: '関係', sub: '五枚' },
+    { id: 'work', title: '仕事', sub: '五枚' },
+    { id: 'celtic', title: 'ケルト十字', sub: '十枚' },
+  ]},
+];
+
+const KO_PLAYS = [
+  { group: '보통', items: [
+    { id: 'daily', title: '오늘의 한 장', sub: '오늘' },
+    { id: 'yesno', title: '예 또는 아니오', sub: '기울기' },
+    { id: 'three', title: '세 장', sub: '과거 / 현재 / 미래' },
+    { id: 'advice', title: '조언', sub: '지금 / 막힘 / 다음' },
+    { id: 'body', title: '마음과 몸', sub: '마음 / 몸 / 숨' },
+  ]},
+  { group: '더', items: [
+    { id: 'choice', title: '둘 중 하나', sub: 'A 와 B' },
+    { id: 'bond', title: '관계', sub: '다섯 장' },
+    { id: 'work', title: '일', sub: '다섯 장' },
+    { id: 'celtic', title: '켈틱 크로스', sub: '열 장' },
+  ]},
+];
+
 const characters = useCharacterStore();
+const settings = useSettingsStore();
+const plays = computed(() => {
+  const ui = settings.locale.ui;
+  if (ui === 'ja') return JA_PLAYS;
+  if (ui === 'ko') return KO_PLAYS;
+  if (ui === 'en') return EN_PLAYS;
+  return ZH_PLAYS;
+});
 const open = ref(false);
 const busy = ref(false);
 const question = ref('');
@@ -103,25 +162,25 @@ async function redeal() {
       <n-button quaternary circle size="small"
                 :type="live ? 'primary' : 'default'"
                 :disabled="busy"
-                title="看牌">
-        牌
+                :title="t('tarot.mark')">
+        <XkIcon name="tarot" :size="18" />
       </n-button>
     </template>
     <div class="pop">
-      <p class="lead">{{ live ? (tarotUi.title || '牌还摊着') : '选一种玩法' }}</p>
-      <p class="hint">{{ live ? (tarotUi.hint || '仅供娱乐，不构成建议') : '仅供娱乐，不构成建议' }}</p>
+      <p class="lead">{{ live ? (tarotUi.title || t('tarot.still')) : t('tarot.pick') }}</p>
+      <p class="hint">{{ live ? (tarotUi.hint || t('tarot.note')) : t('tarot.note') }}</p>
       <label v-if="!live" class="ask">
-        <span>想问的事（可空）</span>
-        <input v-model="question" maxlength="80" placeholder="没有就按眼下讲" />
+        <span>{{ t('tarot.ask') }}</span>
+        <input v-model="question" maxlength="80" :placeholder="t('tarot.askPh')" />
       </label>
       <div v-if="live" class="ops ritual">
-        <button v-if="tarotUi.canCut || tarotUi.phase === 'shuffle'" type="button" :disabled="busy" @click="cut">切牌</button>
-        <button v-if="tarotUi.canHerDraw" type="button" :disabled="busy" @click="herDraw">你来抽</button>
-        <button v-if="tarotUi.canClarifier" type="button" :disabled="busy" @click="clarifier">再翻一张补</button>
-        <button type="button" :disabled="busy" @click="redeal">再抽 / 换牌</button>
-        <button type="button" class="ghost" :disabled="busy" @click="pack">收起来</button>
+        <button v-if="tarotUi.canCut || tarotUi.phase === 'shuffle'" type="button" :disabled="busy" @click="cut">{{ t('tarot.cut') }}</button>
+        <button v-if="tarotUi.canHerDraw" type="button" :disabled="busy" @click="herDraw">{{ t('tarot.her') }}</button>
+        <button v-if="tarotUi.canClarifier" type="button" :disabled="busy" @click="clarifier">{{ t('tarot.extra') }}</button>
+        <button type="button" :disabled="busy" @click="redeal">{{ t('tarot.redeal') }}</button>
+        <button type="button" class="ghost" :disabled="busy" @click="pack">{{ t('tarot.pack') }}</button>
       </div>
-      <div v-for="g in PLAYS" :key="g.group" class="group">
+      <div v-for="g in plays" :key="g.group" class="group">
         <p class="g">{{ g.group }}</p>
         <div class="ops">
           <button

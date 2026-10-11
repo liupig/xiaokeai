@@ -12,12 +12,15 @@ import {
   MOTION_CATS, parseMotionCat, playAssetMotion, stripCatPrefix, type MotionCat,
 } from '../assets/motionMeta';
 import { api } from '../../api/client';
+import { motionTitle, t } from '../../i18n';
+import { useSettingsStore } from '../../stores/settings';
 
 defineProps<{ show: boolean }>();
 const emit = defineEmits<{ (e: 'update:show', v: boolean): void }>();
 
 const assets = useAssetsStore();
 const characters = useCharacterStore();
+const settings = useSettingsStore();
 
 const sizeShots = computed(() => CAM_SHOTS.filter((c) =>
   ['close', 'bust', 'half', 'threeQ', 'full', 'long'].includes(c.id)));
@@ -26,22 +29,19 @@ const moveShots = computed(() => CAM_SHOTS.filter((c) =>
 const libraryCams = computed(() => assets.cameras.filter((c) => !isFramingCam(c)));
 const currentShot = ref<CamShotId>('full');
 const currentCamera = ref('');
-const emotions: { key: EmotionKey; label: string }[] = [
-  { key: 'neutral', label: '自然' },
-  { key: 'happy', label: '开心' },
-  { key: 'angry', label: '生气' },
-  { key: 'sad', label: '伤心' },
-  { key: 'relaxed', label: '放松' },
-];
-const actions: { key: ActionKey; label: string }[] = [
-  { key: 'nod', label: '点头' },
-  { key: 'shake', label: '摇头' },
-];
-const stands: { key: StandSlot; label: string }[] = [
-  { key: 'left', label: '左 ¼' },
-  { key: 'center', label: '中 ½' },
-  { key: 'right', label: '右 ¾' },
-];
+const emotions = computed(() => {
+  settings.locale.ui;
+  return (['neutral', 'happy', 'angry', 'sad', 'relaxed'] as EmotionKey[])
+    .map((key) => ({ key, label: t(`emo.${key}`) }));
+});
+const actions = computed(() => {
+  settings.locale.ui;
+  return (['nod', 'shake'] as ActionKey[]).map((key) => ({ key, label: t(`act.${key}`) }));
+});
+const stands = computed(() => {
+  settings.locale.ui;
+  return (['left', 'center', 'right'] as StandSlot[]).map((key) => ({ key, label: t(`stand.${key}`) }));
+});
 
 const currentEmotion = ref<EmotionKey>('neutral');
 const standSlot = ref<StandSlot>(stage.standSlot);
@@ -132,74 +132,74 @@ function stopMotion() {
   <transition name="slide">
     <div v-if="show" class="panel glass">
       <div class="head">
-        <span class="title">表情 / 动作 / 运镜</span>
-        <n-button size="tiny" quaternary @click="emit('update:show', false)">收起 ›</n-button>
+        <span class="title">{{ t('top.quick') }}</span>
+        <n-button size="tiny" quaternary @click="emit('update:show', false)">{{ t('common.close') }} ›</n-button>
       </div>
       <div class="rows">
         <div class="row">
-          <span class="row-label">景别</span>
+          <span class="row-label">{{ t('quick.shot') }}</span>
           <n-button v-for="c in sizeShots" :key="c.id" size="small" quaternary
                     :type="currentShot === c.id && !currentCamera ? 'primary' : 'default'"
-                    @click="setCam(c.id)">{{ c.label }}</n-button>
+                    @click="setCam(c.id)">{{ t('cam.' + c.id) }}</n-button>
         </div>
         <div class="row">
-          <span class="row-label">运镜</span>
+          <span class="row-label">{{ t('quick.move') }}</span>
           <n-button v-for="c in moveShots" :key="c.id" size="small" quaternary
                     :type="currentShot === c.id && !currentCamera ? 'primary' : 'default'"
-                    @click="setCam(c.id)">{{ c.label }}</n-button>
+                    @click="setCam(c.id)">{{ t('cam.' + c.id) }}</n-button>
         </div>
         <div class="row">
-          <span class="row-label">情绪</span>
+          <span class="row-label">{{ t('quick.face') }}</span>
           <n-button v-for="e in emotions" :key="e.key" size="small"
                     :type="currentEmotion === e.key ? 'primary' : 'default'"
                     :quaternary="currentEmotion !== e.key"
                     @click="setEmotion(e.key)">{{ e.label }}</n-button>
         </div>
         <div class="row">
-          <span class="row-label">站位</span>
+          <span class="row-label">{{ t('quick.stand') }}</span>
           <n-button v-for="s in stands" :key="s.key" size="small"
                     :type="standSlot === s.key ? 'primary' : 'default'"
                     :quaternary="standSlot !== s.key"
                     @click="goStand(s.key)">{{ s.label }}</n-button>
         </div>
         <div class="row">
-          <span class="row-label">动作</span>
+          <span class="row-label">{{ t('quick.act') }}</span>
           <n-button v-for="a in actions" :key="a.key" size="small" quaternary
                     @click="stage.triggerAction(a.key)">{{ a.label }}</n-button>
         </div>
       </div>
 
       <n-tabs type="segment" size="small" class="tabs" default-value="motions">
-        <n-tab-pane name="motions" :tab="`动作库 (${assets.motions.length})`" :disabled="!supportsVmd">
-          <div v-if="!supportsVmd" class="empty">当前模型不支持 VMD 动作（仅 MMD/PMX 模型可用）</div>
+        <n-tab-pane name="motions" :tab="`${t('quick.motions')} (${assets.motions.length})`" :disabled="!supportsVmd">
+          <div v-if="!supportsVmd" class="empty">{{ t('quick.noVmd') }}</div>
           <template v-else>
             <div class="cat-row">
               <n-button v-for="c in MOTION_CATS" :key="c.key" size="tiny"
                         :type="motionCat === c.key ? 'primary' : 'default'"
                         :quaternary="motionCat !== c.key"
                         @click="motionCat = c.key">
-                {{ c.label }} {{ catCounts[c.key] }}
+                {{ t('cat.' + c.key) }} {{ catCounts[c.key] }}
               </n-button>
             </div>
             <div class="morph-tools">
-              <n-input v-model:value="motionSearch" size="small" placeholder="搜索动作…" clearable />
-              <n-button size="small" type="warning" secondary @click="stopMotion">停止</n-button>
+              <n-input v-model:value="motionSearch" size="small" :placeholder="t('quick.searchMotion')" clearable />
+              <n-button size="small" type="warning" secondary @click="stopMotion">{{ t('quick.stop') }}</n-button>
             </div>
-            <div v-if="!groupedMotions.length" class="empty">这一类还没有动作</div>
+            <div v-if="!groupedMotions.length" class="empty">{{ t('quick.emptyMotion') }}</div>
             <div v-else class="grid">
               <n-button v-for="m in groupedMotions" :key="m.id" size="small"
                         :type="currentMotion === m.name ? 'primary' : 'default'"
                         :quaternary="currentMotion !== m.name"
-                        @click="playMotion(m.name)">{{ stripCatPrefix(m.label) }}</n-button>
+                        @click="playMotion(m.name)">{{ settings.locale.reply === 'zh-CN' ? stripCatPrefix(m.label) : motionTitle(m.name, m.label) }}</n-button>
             </div>
           </template>
         </n-tab-pane>
-        <n-tab-pane name="cameras" :tab="`运镜库 (${libraryCams.length})`">
+        <n-tab-pane name="cameras" :tab="`${t('quick.cameras')} (${libraryCams.length})`">
           <div class="morph-tools">
             <span class="hint-inline">内置运镜点上面「镜头」；这里是镜头 VMD</span>
             <n-button size="small" type="warning" secondary @click="stopCamera">复位</n-button>
           </div>
-          <div v-if="!libraryCams.length" class="empty">还没有镜头文件，可到资产中心搜「镜头」下载</div>
+          <div v-if="!libraryCams.length" class="empty">{{ t('quick.emptyCam') }}</div>
           <div v-else class="grid">
             <n-button v-for="c in libraryCams" :key="c.id" size="small"
                       :type="currentCamera === c.name ? 'primary' : 'default'"
@@ -207,10 +207,10 @@ function stopMotion() {
                       @click="playCamera(c.name)">{{ stripCatPrefix(c.label) }}</n-button>
           </div>
         </n-tab-pane>
-        <n-tab-pane name="morphs" :tab="`表情库 (${morphNames.length})`">
+        <n-tab-pane name="morphs" :tab="`${t('quick.morphs')} (${morphNames.length})`">
           <div class="morph-tools">
-            <n-input v-model:value="morphSearch" size="small" placeholder="搜索表情…" clearable />
-            <n-button size="small" quaternary @click="resetMorphs">重置</n-button>
+            <n-input v-model:value="morphSearch" size="small" :placeholder="t('quick.searchMorph')" clearable />
+            <n-button size="small" quaternary @click="resetMorphs">{{ t('quick.reset') }}</n-button>
           </div>
           <div class="grid morphs">
             <n-button v-for="name in filteredMorphs" :key="name" size="tiny"

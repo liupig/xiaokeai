@@ -8,8 +8,9 @@ import { useAssetsStore } from '../../stores/assets';
 import { useCharacterStore } from '../../stores/character';
 import { useChatStore } from '../../stores/chat';
 import { useSettingsStore } from '../../stores/settings';
-import { catLabel, parseMotionCat, stripCatPrefix } from '../assets/motionMeta';
-import { PERSONA_TEMPLATE_OPTIONS, personaTemplate } from './personas';
+import { parseMotionCat, stripCatPrefix } from '../assets/motionMeta';
+import { t } from '../../i18n';
+import { personaOptions, personaTemplate } from './personas';
 
 const props = defineProps<{ show: boolean }>();
 const emit = defineEmits<{ (e: 'update:show', v: boolean): void }>();
@@ -23,12 +24,7 @@ const message = useMessage();
 const editing = ref<CharacterItem | null>(null);
 
 // 情绪映射编辑：每种情绪可叠加模型自带的形态键
-const EMO_LABELS: { key: string; label: string }[] = [
-  { key: 'happy', label: '开心' },
-  { key: 'angry', label: '生气' },
-  { key: 'sad', label: '伤心' },
-  { key: 'relaxed', label: '放松' },
-];
+const EMO_KEYS = ['happy', 'angry', 'sad', 'relaxed'] as const;
 const emotionMap = ref<Record<string, string[]>>({});
 
 const morphOptions = computed(() =>
@@ -52,13 +48,16 @@ const voiceOptions = computed(() =>
     .filter((v) => !v.engine || v.engine === settings.tts.engine)
     .map((v) => ({ label: v.label, value: v.id }))
 );
-const motionOptions = computed(() => [
-  { label: '（无）', value: '' },
-  ...assets.motions.map((m) => ({
-    label: `${catLabel(parseMotionCat(m))} · ${stripCatPrefix(m.label)}`,
-    value: m.name,
-  })),
-]);
+const motionOptions = computed(() => {
+  settings.locale.ui;
+  return [
+    { label: t('char.noIdle'), value: '' },
+    ...assets.motions.map((m) => ({
+      label: `${t(`cat.${parseMotionCat(m)}`)} · ${stripCatPrefix(m.label)}`,
+      value: m.name,
+    })),
+  ];
+});
 
 watch(() => props.show, (v) => {
   if (v && characters.current) {
@@ -82,32 +81,32 @@ async function switchTo(id: number) {
 }
 
 // 红线层管暧昧的上限；露骨违法在任何档都挡。角色平时的口吻由人设卡决定
-const boundaryOptions = [
-  { label: '清爽：全年龄向，暧昧也不接茬', value: 'strict' },
-  { label: '心动：接得住暧昧、若即若离，不主动撩', value: 'warm' },
-  { label: '可撩：撩骚擦边可聊可回撩，露骨仍挡', value: 'flirt' },
-  { label: '恋人：亲密称呼撒娇吃醋都行，露骨仍挡', value: 'lover' },
-  { label: '自由：不设上限，分寸由人设和对话把握', value: 'free' },
-];
+const boundaryOptions = computed(() => {
+  settings.locale.ui;
+  return ['strict', 'warm', 'flirt', 'lover', 'free'].map((value) => ({
+    value,
+    label: t(`bound.${value}`),
+  }));
+});
 
 function applyTemplate(id: string | null) {
   if (!id || !editing.value) return;
-  editing.value.persona = personaTemplate(id, editing.value.name || '新角色');
-  message.info('已套用模板，记得保存');
+  editing.value.persona = personaTemplate(id, editing.value.name || t('char.untitled'));
+  message.info(t('char.applied'));
 }
 
 async function save() {
   if (!editing.value) return;
   editing.value.emotion_map = JSON.stringify(emotionMap.value);
   await characters.save(editing.value);
-  message.success('已保存');
+  message.success(t('char.saved'));
 }
 
 async function createNew() {
   const created = await characters.create({
-    name: '新角色',
+    name: t('char.untitled'),
     model_asset_id: assets.models[0]?.id ?? 0,
-    persona: personaTemplate('puppygf', '新角色'),
+    persona: personaTemplate(settings.locale.reply === 'zh-CN' ? 'puppygf' : 'generic', t('char.untitled')),
     boundary: 'free',
     voice: '',
   });
@@ -124,7 +123,7 @@ async function removeCurrent() {
 <template>
   <n-drawer :show="show" @update:show="(v: boolean) => emit('update:show', v)"
             :width="480" placement="right" show-mask="transparent" to="body">
-    <n-drawer-content title="角色管理" closable :native-scrollbar="false">
+    <n-drawer-content :title="t('char.title')" closable :native-scrollbar="false">
     <div class="body">
       <div class="list">
         <div v-for="c in characters.list" :key="c.id"
@@ -133,47 +132,47 @@ async function removeCurrent() {
           <span class="item-avatar">{{ c.name.slice(0, 1) }}</span>
           <span>{{ c.name }}</span>
         </div>
-        <n-button dashed size="small" @click="createNew">+ 新建角色</n-button>
+        <n-button dashed size="small" @click="createNew">+ {{ t('char.new') }}</n-button>
       </div>
 
       <div v-if="editing" class="form">
-        <label>名字</label>
+        <label>{{ t('char.name') }}</label>
         <n-input v-model:value="editing.name" />
-        <label>绑定模型</label>
+        <label>{{ t('char.model') }}</label>
         <n-select v-model:value="editing.model_asset_id" :options="modelOptions" />
-        <label>声音（跟随设置里的 TTS 引擎）</label>
+        <label>{{ t('char.voice') }}</label>
         <n-select v-model:value="editing.voice" :options="voiceOptions" filterable
-                  :fallback-option="false" placeholder="空=用设置里的默认音色"
+                  :fallback-option="false" :placeholder="t('char.voicePh')"
                   :disabled="settings.tts.engine !== 'edge' && settings.tts.engine !== 'qwen' && settings.tts.engine !== 'cosy'" />
-        <label>聊天尺度（越界请求的挡法由后端红线层控制）</label>
+        <label>{{ t('char.boundary') }}</label>
         <n-select :value="editing.boundary || 'free'" :options="boundaryOptions"
                   @update:value="(v: string) => { if (editing) editing.boundary = v; }" />
-        <label>人设（System Prompt）</label>
-        <n-select :value="null" :options="PERSONA_TEMPLATE_OPTIONS" size="small"
-                  placeholder="套用人设模板（会覆盖下方人设，按角色名代入）"
+        <label>{{ t('char.persona') }}</label>
+        <n-select :value="null" :options="personaOptions()" size="small"
+                  :placeholder="t('char.personaPh')"
                   @update:value="applyTemplate" />
         <n-input v-model:value="editing.persona" type="textarea" :rows="14"
-                 placeholder="身份、怎么接下一句、临时扮演进出、对白样例。见 docs/persona-guide.md" />
-        <label>打招呼语</label>
+                 :placeholder="t('char.personaBody')" />
+        <label>{{ t('char.greeting') }}</label>
         <n-input v-model:value="editing.greeting" />
-        <label>闲时动作偏好（进入闲时池轮换，不再单条死循环）</label>
+        <label>{{ t('char.idle') }}</label>
         <n-select v-model:value="editing.idle_motion" :options="motionOptions" />
-        <label>情绪映射（在内置表情之上，叠加模型自带形态键）</label>
-        <div v-for="e in EMO_LABELS" :key="e.key" class="emo-row">
-          <span class="emo-label">{{ e.label }}</span>
-          <n-select v-model:value="emotionMap[e.key]" multiple filterable clearable
+        <label>{{ t('char.morph') }}</label>
+        <div v-for="key in EMO_KEYS" :key="key" class="emo-row">
+          <span class="emo-label">{{ t('emo.' + key) }}</span>
+          <n-select v-model:value="emotionMap[key]" multiple filterable clearable
                     size="small" :options="morphOptions"
-                    :placeholder="`选择「${e.label}」时叠加的形态键`" />
+                    :placeholder="t('char.morphPh', { name: t('emo.' + key) })" />
         </div>
         <div class="form-actions">
-          <n-button type="primary" @click="save">保存</n-button>
+          <n-button type="primary" @click="save">{{ t('settings.save') }}</n-button>
           <n-popconfirm @positive-click="removeCurrent">
             <template #trigger>
               <n-button quaternary type="error" :disabled="characters.list.length <= 1">
-                删除角色
+                {{ t('char.delete') }}
               </n-button>
             </template>
-            确定删除该角色？聊天记录也会失效。
+            {{ t('char.deleteAsk') }}
           </n-popconfirm>
         </div>
       </div>

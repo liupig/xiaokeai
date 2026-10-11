@@ -13,7 +13,9 @@ import { captureClip, captureStill } from '../keepsake/capture';
 import { keepsakeSession, refreshKeepsakes, setClipSec } from '../keepsake/session';
 import { api } from '../../api/client';
 import { friendlyWhen } from './when';
+import XkIcon from '../icons/XkIcon.vue';
 import { tarotGameLock, tarotUi } from '../tarot/session';
+import { featureOn, t } from '../../i18n';
 
 const TarotDock = defineAsyncComponent(() => import('../tarot/Dock.vue'));
 const CodewatchDock = defineAsyncComponent(() => import('../codewatch/Dock.vue'));
@@ -30,16 +32,19 @@ let liveMark = -1;
 type VoiceStatus = 'hearing' | 'recognizing' | 'sending' | 'sent' | 'hold' | 'drop' | 'echo' | 'fail';
 type VoiceMark = { id: number; text: string; status: VoiceStatus };
 const voiceMarks = ref<VoiceMark[]>([]);
-const statusLabel: Record<VoiceStatus, string> = {
-  hearing: '正在听',
-  recognizing: '识别中',
-  sending: '识别到 · 发送中',
-  sent: '已发送',
-  hold: '记下了 · 等她说完',
-  drop: '附和 · 没打断',
-  echo: '像回声 · 没发送',
-  fail: '没发出去',
-};
+const statusLabel = computed<Record<VoiceStatus, string>>(() => {
+  settings.locale.ui;
+  return {
+    hearing: t('voice.hearing'),
+    recognizing: t('voice.recognizing'),
+    sending: t('voice.sending'),
+    sent: t('voice.sent'),
+    hold: t('voice.hold'),
+    drop: t('voice.drop'),
+    echo: t('voice.echo'),
+    fail: t('voice.fail'),
+  };
+});
 
 function upsertLive(text: string, status: VoiceStatus) {
   const shown = (text || '').trim() || '…';
@@ -96,6 +101,8 @@ function scrollToLatest() {
 
 const partnerName = computed(() => characters.current?.name ?? '她');
 const mods = computed(() => settings.modules);
+const scenesOn = computed(() => settings.modules.scenes && featureOn('scenes', settings.locale.reply));
+const tarotOn = computed(() => settings.modules.tarot && featureOn('tarot', settings.locale.reply));
 const canRewrite = computed(() =>
   mods.value.rewrite && !!chat.lastQaAssistant()?.content && !chat.sending);
 
@@ -281,7 +288,7 @@ async function snap() {
       kind: 'still', filename: 'still.jpg', quote: lastQuote.value,
     });
     await afterKeepsake();
-    message.success('剧照已收下');
+    message.success(t('keep.saved'));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -302,7 +309,7 @@ async function record() {
       kind: 'clip', filename: `clip.${ext}`, quote: lastQuote.value,
     });
     await afterKeepsake();
-    message.success(`${sec} 秒短片已收下`);
+    message.success(t('keep.clip', { n: sec }));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -321,19 +328,19 @@ const recLeft = computed(() =>
     <MemoryPanel v-if="mods.memory" />
     <div class="chat-head">
       <span class="dot" :class="{ busy: chat.sending }" />
-      <span class="title">与 {{ partnerName }} 对话</span>
-      <span class="status">{{ chat.sending ? '正在回复…' : `${chat.messages.length} 条` }}</span>
+      <span class="title">{{ t('chat.with', { name: partnerName }) }}</span>
+      <span class="status">{{ chat.sending ? t('chat.replying') : t('chat.count', { n: chat.messages.length }) }}</span>
       <button class="head-btn" :class="{ on: histOpen }" @click="toggleHist">
-        {{ histOpen ? '收起会话' : '会话' }}
+        {{ histOpen ? t('chat.sessionHide') : t('chat.session') }}
       </button>
       <button v-if="mods.memory" class="head-btn" :class="{ on: memorySession.open }"
-              @click="memorySession.open = !memorySession.open">记忆{{ memCount ? ` ${memCount}` : '' }}</button>
+              @click="memorySession.open = !memorySession.open">{{ t('chat.memory') }}{{ memCount ? ` ${memCount}` : '' }}</button>
     </div>
-    <ScenePicker v-if="mods.scenes" class="scene-slot" />
+    <ScenePicker v-if="scenesOn" class="scene-slot" />
     <div v-show="histOpen" ref="messagesEl" class="messages" @scroll="onMsgScroll" @wheel="onMsgWheel">
-      <button v-if="hasOlder" type="button" class="older" @click="loadOlder(true)">更早的对话</button>
+      <button v-if="hasOlder" type="button" class="older" @click="loadOlder(true)">{{ t('chat.older') }}</button>
       <div v-if="!chat.messages.length" class="empty">
-        {{ mods.scenes ? '选一场今晚的戏，或直接开口。' : '开始聊天吧，她在等你开口～' }}
+        {{ scenesOn ? t('chat.emptyScene') : t('chat.empty') }}
       </div>
       <div v-for="(m, i) in visible" :key="m.id ?? i"
            class="bubble" :class="[m.role, m.kind && m.kind !== 'qa' ? m.kind : '']">
@@ -341,27 +348,27 @@ const recLeft = computed(() =>
         <p>{{ m.content || '…' }}</p>
         <div v-if="mods.rewrite && !chat.sending && (m.id || (isQaAssistant(m) && m === chat.lastQaAssistant() && m.content))" class="rw">
           <button v-if="isQaAssistant(m) && m === chat.lastQaAssistant() && m.content"
-                  @click="chat.rerollLast()">重说</button>
+                  @click="chat.rerollLast()">{{ t('chat.reroll') }}</button>
           <template v-if="m.id">
             <span v-if="rewindId === m.id" class="rw-ask">
-              回到这句？
-              <button @click="confirmRewind(m.id!)">确定</button>
-              <button @click="rewindId = null">取消</button>
+              {{ t('chat.rewindAsk') }}
+              <button @click="confirmRewind(m.id!)">{{ t('chat.ok') }}</button>
+              <button @click="rewindId = null">{{ t('chat.cancel') }}</button>
             </span>
-            <button v-else @click="rewindId = m.id!">回溯</button>
+            <button v-else @click="rewindId = m.id!">{{ t('chat.rewind') }}</button>
           </template>
           <button v-if="isQaAssistant(m) && m === chat.lastQaAssistant() && m.content"
-                  @click="recastOpen = !recastOpen">再演</button>
-          <button v-if="m.alts?.length" @click="chat.showAlt(m, -1)">上一版</button>
+                  @click="recastOpen = !recastOpen">{{ t('chat.recast') }}</button>
+          <button v-if="m.alts?.length" @click="chat.showAlt(m, -1)">{{ t('chat.prev') }}</button>
         </div>
       </div>
       <div ref="messagesTail" class="msg-tail" />
     </div>
     <div v-if="mods.rewrite && recastOpen && canRewrite" class="recast">
-      <span>再演一遍</span>
+      <span>{{ t('chat.recast') }}</span>
       <button v-for="e in (['happy','angry','sad','relaxed','neutral'] as const)" :key="e"
               @click="chat.recastLast(e); recastOpen = false">
-        {{ { happy: '开心', angry: '生气', sad: '伤心', relaxed: '放松', neutral: '自然' }[e] }}
+        {{ t('emo.' + e) }}
       </button>
     </div>
     <div v-if="voiceMarks.length" class="voice-marks">
@@ -375,13 +382,15 @@ const recLeft = computed(() =>
                 quaternary circle size="small"
                 :type="listening ? 'error' : 'default'"
                 class="mic" @click="toggleMic" @pointerenter="warmupMic">
-        {{ listening ? '🔴' : '🎤' }}
+        <XkIcon name="mic" :size="18" />
       </n-button>
-      <TarotDock v-if="mods.tarot" />
+      <TarotDock v-if="tarotOn" />
       <CodewatchDock v-if="mods.codewatch" />
       <n-button v-if="mods.keepsake" quaternary circle size="small"
                 :disabled="keepsakeSession.saving || keepsakeSession.recording"
-                title="拍一张剧照" @click="snap">📷</n-button>
+                title="拍一张剧照" @click="snap">
+        <XkIcon name="snap" :size="18" />
+      </n-button>
       <span v-if="mods.keepsake" class="rec-pair">
         <n-popover trigger="click" placement="top"
                    :disabled="keepsakeSession.recording || keepsakeSession.saving">
@@ -412,7 +421,8 @@ const recLeft = computed(() =>
                     ? `录制中 ${keepsakeSession.recSec.toFixed(0)}s`
                     : `录 ${keepsakeSession.clipSec} 秒`"
                   @click="record">
-          {{ keepsakeSession.recording ? recLeft : '⏺' }}
+          <span v-if="keepsakeSession.recording">{{ recLeft }}</span>
+          <XkIcon v-else name="rec" :size="18" />
         </n-button>
       </span>
       <n-input
@@ -430,13 +440,16 @@ const recLeft = computed(() =>
               ? '可以说「翻转」「收起来」，或等自动翻'
               : '牌还摊着 · 可以说「这张什么意思」「收起来」'))
           : listening
-          ? '持续在听，说完一句就发出；再点红点收麦'
-          : '说点什么…（回车发送，点麦克风可持续对话）'"
+          ? t('chat.listening')
+          : t('chat.placeholderLong')"
         @keydown.enter="onChatEnter"
       />
       <n-button type="primary" size="small" round
                 :loading="chat.sending" :disabled="!input.trim()"
-                @click="() => send()">发送</n-button>
+                class="send" @click="() => send()">
+        <XkIcon name="send" :size="15" />
+        <span>{{ t('chat.send') }}</span>
+      </n-button>
     </div>
   </div>
 </template>
@@ -671,8 +684,13 @@ const recLeft = computed(() =>
 }
 
 .mic {
-  font-size: 14px;
   flex-shrink: 0;
+}
+
+.send :deep(.n-button__content) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .rec-pair {

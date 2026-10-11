@@ -331,11 +331,130 @@ def match_play_id(text: str) -> Optional[str]:
     for pid, words in aliases:
         if any(w and w in n for w in words):
             return pid
+    from ...locale_pack import current_reply, normalize
+    if normalize(current_reply()) != "zh-CN":
+        extra = (
+            ("celtic", ("celticcross", "celtic", "tencards")),
+            ("choice", ("twooptions", "eitheror")),
+            ("bond", ("relationshipspread", "lovespread")),
+            ("work", ("careerspread", "workspread")),
+            ("body", ("bodyandmind",)),
+            ("advice", ("advicespread", "whatshouldido")),
+            ("yesno", ("yesorno",)),
+            ("three", ("threecards", "pastpresentfuture")),
+            ("daily", ("dailycard", "drawacard", "onecard", "cardoftheday")),
+        )
+        for pid, words in extra:
+            if any(w and w in n for w in words):
+                return pid
     return None
 
 
 def normalize_spread(spread: str) -> str:
     return get_play(spread)["id"]
+
+
+_TITLE_EN = {
+    "daily": "Daily card",
+    "yesno": "Yes or no",
+    "three": "Three cards",
+    "advice": "Advice",
+    "body": "Heart and body",
+    "bond": "The bond",
+    "work": "Work",
+    "choice": "Two paths",
+    "celtic": "Celtic cross",
+}
+_TITLE_JA = {
+    "daily": "今日の一枚",
+    "yesno": "はい・いいえ",
+    "three": "三枚",
+    "advice": "助言",
+    "body": "心と体",
+    "bond": "関係",
+    "work": "仕事",
+    "choice": "二つに一つ",
+    "celtic": "ケルト十字",
+}
+_TITLE_KO = {
+    "daily": "오늘의 한 장",
+    "yesno": "예 또는 아니오",
+    "three": "세 장",
+    "advice": "조언",
+    "body": "마음과 몸",
+    "bond": "관계",
+    "work": "일",
+    "choice": "둘 중 하나",
+    "celtic": "켈틱 크로스",
+}
+_POS_EN = {
+    "daily": ("Today",),
+    "yesno": ("Lean",),
+    "three": ("Past", "Present", "Future"),
+    "advice": ("Now", "Block", "Advice"),
+    "body": ("Heart", "Body", "Breath"),
+    "bond": ("Me", "Them", "Bond", "Stuck", "Potential"),
+    "work": ("Now", "Strength", "Challenge", "Chance", "Move"),
+    "choice": ("A now", "A block", "A way", "B now", "B block", "B way", "Advice"),
+    "celtic": (
+        "Now", "Challenge", "Root", "Recent past", "Aim",
+        "Near future", "Self", "Outside", "Hope and fear", "Way out",
+    ),
+}
+_POS_JA = {
+    "daily": ("今日",),
+    "yesno": ("傾き",),
+    "three": ("過去", "現在", "未来"),
+    "advice": ("現状", "妨げ", "助言"),
+    "body": ("心", "体", "息"),
+    "bond": ("私", "相手", "つながり", "詰まり", "可能性"),
+    "work": ("現状", "強み", "挑戦", "機会", "行動"),
+    "choice": ("Aの今", "Aの妨げ", "Aの向き", "Bの今", "Bの妨げ", "Bの向き", "助言"),
+    "celtic": (
+        "現状", "挑戦", "根", "近い過去", "目標",
+        "近い未来", "自分", "外側", "希望と恐れ", "出口",
+    ),
+}
+_POS_KO = {
+    "daily": ("오늘",),
+    "yesno": ("기울기",),
+    "three": ("과거", "현재", "미래"),
+    "advice": ("지금", "막힘", "조언"),
+    "body": ("마음", "몸", "숨"),
+    "bond": ("나", "상대", "연결", "막힘", "가능성"),
+    "work": ("지금", "강점", "도전", "기회", "행동"),
+    "choice": ("A의 지금", "A의 막힘", "A의 방향", "B의 지금", "B의 막힘", "B의 방향", "조언"),
+    "celtic": (
+        "지금", "도전", "뿌리", "가까운 과거", "목표",
+        "가까운 미래", "자신", "바깥", "희망과 두려움", "출구",
+    ),
+}
+
+
+def spread_title(play: Play) -> str:
+    from ...locale_pack import current_reply
+    lang = current_reply()
+    pid = str(play.get("id") or "")
+    if lang == "ja":
+        return _TITLE_JA.get(pid) or _TITLE_EN.get(pid) or str(play.get("title") or pid)
+    if lang == "ko":
+        return _TITLE_KO.get(pid) or _TITLE_EN.get(pid) or str(play.get("title") or pid)
+    if lang != "zh-CN":
+        return _TITLE_EN.get(pid) or str(play.get("id") or play.get("title") or "")
+    return str(play.get("title") or "")
+
+
+def spread_positions(play: Play) -> List[str]:
+    from ...locale_pack import current_reply
+    lang = current_reply()
+    pid = str(play.get("id") or "")
+    if lang == "ja" and pid in _POS_JA:
+        return list(_POS_JA[pid])
+    if lang == "ko" and pid in _POS_KO:
+        return list(_POS_KO[pid])
+    if lang != "zh-CN" and pid in _POS_EN:
+        return list(_POS_EN[pid])
+    return list(play.get("positions") or [])
 
 
 def list_plays() -> List[Dict[str, Any]]:
@@ -344,10 +463,10 @@ def list_plays() -> List[Dict[str, Any]]:
         out.append({
             "id": p["id"],
             "group": p["group"],
-            "title": p["title"],
+            "title": spread_title(p),
             "n": p["n"],
             "layout": p["layout"],
-            "positions": list(p["positions"]),
+            "positions": spread_positions(p),
             "index": i + 1,
         })
     return out

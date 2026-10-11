@@ -6,17 +6,22 @@ import {
   codewatchLive, closeCodewatch, installHooks, openCodewatch, setPicked, uninstallHooks,
 } from './session';
 import { mergeSources } from './sources';
+import XkIcon from '../icons/XkIcon.vue';
+import { t } from '../../i18n';
+import { useSettingsStore } from '../../stores/settings';
 
 const open = ref(false);
 const hookBusy = ref(false);
 const hookHint = ref('');
+const settings = useSettingsStore();
 
 const phaseLabel = computed(() => {
-  if (!codewatchLive.open) return '还没开';
-  if (codewatchLive.phase === 'started') return '开工';
-  if (codewatchLive.phase === 'working') return '进行中';
-  if (codewatchLive.phase === 'done') return '完成';
-  return '空闲';
+  settings.locale.ui;
+  if (!codewatchLive.open) return t('code.closed');
+  if (codewatchLive.phase === 'started') return t('code.started');
+  if (codewatchLive.phase === 'working') return t('code.working');
+  if (codewatchLive.phase === 'done') return t('code.donePhase');
+  return t('code.idle');
 });
 
 const live = computed(() => codewatchLive.open);
@@ -44,7 +49,7 @@ async function hookOn() {
   hookHint.value = '';
   try {
     await installHooks();
-    hookHint.value = '已写入 Cursor 用户钩子。新开一轮对话后生效。';
+    hookHint.value = t('code.hookInstalled');
   } catch (e) {
     hookHint.value = String(e);
   } finally {
@@ -58,7 +63,7 @@ async function hookOff() {
   hookHint.value = '';
   try {
     await uninstallHooks();
-    hookHint.value = '钩子已卸掉，仍可用本机痕迹盯梢。';
+    hookHint.value = t('code.hookRemoved');
   } catch (e) {
     hookHint.value = String(e);
   } finally {
@@ -73,14 +78,14 @@ async function hookOff() {
       <n-button quaternary circle size="small"
                 :type="live ? 'primary' : 'default'"
                 :disabled="codewatchLive.busy"
-                title="Code 伴侣">
-        码
+                :title="t('code.title')">
+        <XkIcon name="code" :size="18" />
       </n-button>
     </template>
     <div class="pop">
-      <p class="lead">Code 伴侣</p>
+      <p class="lead">{{ t('code.title') }}</p>
       <p class="hint">
-        {{ live ? `正在看 ${pickedNames} · ${phaseLabel}` : '勾选要盯的助手。安静时她开口，忙着就只亮牌子。' }}
+        {{ live ? t('code.hintOn', { names: pickedNames, phase: phaseLabel }) : t('code.hintOff') }}
       </p>
       <div class="desks">
         <button
@@ -94,22 +99,22 @@ async function hookOff() {
         </button>
       </div>
       <p v-if="live && codewatchLive.title" class="title">{{ codewatchLive.title }}</p>
-      <p v-if="live && foundN === 0" class="hint warn">勾选的这几家，这台机器还没认出目录。</p>
+      <p v-if="live && foundN === 0" class="hint warn">{{ t('code.missing') }}</p>
       <div class="ops">
         <button type="button" :disabled="codewatchLive.busy" @click="toggle">
-          <strong>{{ live ? '先收起来' : '打开 Code 伴侣' }}</strong>
-          <span>{{ live ? '不再跟着演' : `盯 ${pickedNames}` }}</span>
+          <strong>{{ live ? t('code.close') : t('code.open') }}</strong>
+          <span>{{ live ? t('code.stopFollow') : t('code.follow', { names: pickedNames }) }}</span>
         </button>
       </div>
-      <p class="g">Cursor 钩子（可选，更准）</p>
-      <p class="hint">默认看各家本机痕迹。Cursor 装钩子后开工和收工会更快。</p>
+      <p class="g">{{ t('code.hooks') }}</p>
+      <p class="hint">{{ t('code.hooksHint') }}</p>
       <div class="ops">
         <button v-if="!codewatchLive.hooksInstalled" type="button" :disabled="hookBusy" @click="hookOn">
-          <strong>安装 Cursor 钩子</strong>
-          <span>写入 ~/.cursor/hooks.json，不挡对话</span>
+          <strong>{{ t('code.hookOn') }}</strong>
+          <span>{{ t('code.hookOnSub') }}</span>
         </button>
         <button v-else type="button" class="ghost" :disabled="hookBusy" @click="hookOff">
-          卸掉钩子
+          {{ t('code.hookOff') }}
         </button>
       </div>
       <p v-if="hookHint" class="hint">{{ hookHint }}</p>

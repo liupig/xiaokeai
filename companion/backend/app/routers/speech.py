@@ -46,6 +46,10 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
         raise HTTPException(400, "当前引擎不走后端合成")
     try:
         voice = tts.resolve_voice(engine, req.voice, conf.get("voice") or "")
+        from ..locale_pack import align_voice, reply_of
+        all_conf = settings_store.get_all(session)
+        voice = align_voice(engine, voice, reply_of(all_conf))
+        voice = tts.resolve_voice(engine, voice, voice)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     rate = req.rate or conf.get("rate") or "+0%"
@@ -90,8 +94,15 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
             req.qwen_style or conf.get("qwen_style") or "",
             req.instruct or conf.get("qwen_instruct") or "",
         )
+        from ..locale_pack import normalize, reply_of
+        reply = normalize(reply_of(settings_store.get_all(session)))
+        if reply != "zh-CN":
+            if any("\u4e00" <= ch <= "\u9fff" for ch in instruct):
+                instruct = ""
         cancel = threading.Event()
-        agen = tts_qwen.synthesize_pcm(req.text, voice, qwen_size, instruct, cancel)
+        agen = tts_qwen.synthesize_pcm(
+            req.text, voice, qwen_size, instruct, cancel, tts_qwen.qwen_language(reply),
+        )
         try:
             first = await anext(agen)
         except StopAsyncIteration:

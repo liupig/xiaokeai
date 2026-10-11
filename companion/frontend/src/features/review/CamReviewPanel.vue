@@ -6,12 +6,14 @@ import { stripCatPrefix } from '../assets/motionMeta';
 import { caster } from '../performance/caster';
 import { shots } from '../performance/shotConductor';
 import { useAssetsStore } from '../../stores/assets';
+import { useSettingsStore } from '../../stores/settings';
+import { t } from '../../i18n';
 import { distanceOfShot } from '../performance/grammar';
 import {
   MOVES, SIZES, STANDS,
   type ActFilter, type ActionPick, type CamPick, type ComboSel, type Verdict,
   actionKey, actionMatchesFilter, allActions, allCamPicks, camKey,
-  comboAt, comboCount, comboId, comboLabel, expandCompatOk, filterOfAction, formatReport,
+  comboAt, comboCount, comboId, expandCompatOk, filterOfAction, formatReport,
   hydrateVerdicts, indexOfCombo, intentFilters, labelFromId,
   loadLocalVerdicts, persistVerdicts, saveLocalVerdicts,
 } from './camReview';
@@ -20,9 +22,10 @@ const props = defineProps<{ show: boolean }>();
 const emit = defineEmits<{ (e: 'update:show', v: boolean): void }>();
 
 const assets = useAssetsStore();
+const settings = useSettingsStore();
 const message = useMessage();
 const verdicts = ref<Record<string, Verdict>>(loadLocalVerdicts());
-const persistHint = ref('审查标记会写入后端磁盘');
+const persistHint = ref('');
 const persistOk = ref(false);
 let saveTimer = 0;
 const size = ref(SIZES[0].id);
@@ -47,6 +50,39 @@ const vmdCams = computed(() =>
 );
 const holdCam: CamPick = { kind: 'hold', label: '定镜' };
 const noneAct: ActionPick = { kind: 'none', label: '无动作' };
+
+function camText(cam: CamPick) {
+  settings.locale.ui;
+  if (cam.kind === 'hold') return t('beat.hold');
+  if (cam.kind === 'move') return t(`cam.${cam.id}`);
+  const id = cam.name.replace(/\.vmd$/i, '');
+  const key = `camlib.${id}`;
+  const hit = t(key);
+  return hit === key ? cam.label : hit;
+}
+
+function showCombo(s: ComboSel) {
+  settings.locale.ui;
+  const act = s.action.kind === 'none'
+    ? t('beat.none')
+    : s.action.kind === 'builtin'
+      ? t(s.action.id === 'nod' ? 'review.nodProg' : 'review.shakeProg')
+      : `${s.action.tags[0] ? t(`intent.${s.action.tags[0]}`) : t('review.other')} · ${s.action.label}`;
+  return `${t(`cam.${s.size}`)} × ${camText(s.cam)} × ${t(`stand.${s.stand}`)} × ${act}`;
+}
+
+function filterText(id: ActFilter) {
+  settings.locale.ui;
+  if (id === 'all') return t('review.all');
+  if (id === 'none') return t('beat.none');
+  return t(`intent.${id}`);
+}
+
+function actButton(a: ActionPick) {
+  settings.locale.ui;
+  if (a.kind === 'builtin') return t(a.id === 'nod' ? 'review.nodProg' : 'review.shakeProg');
+  return a.label;
+}
 const actionPick = computed(() =>
   actions.value.find((a) => actionKey(a) === actKey.value) ?? noneAct,
 );
@@ -86,15 +122,15 @@ async function hydrate() {
     verdicts.value = r.map;
     persistOk.value = true;
     const bits = [];
-    if (r.migrated) bits.push('已把浏览器旧标记迁到数据库');
-    if (r.inherited) bits.push(`按兼容规则补标 ${r.inherited} 条`);
+    if (r.migrated) bits.push(t('review.migrated'));
+    if (r.inherited) bits.push(t('review.inherited', { n: r.inherited }));
     persistHint.value = bits.length
-      ? `${bits.join('；')}（表 cam_review）`
-      : '已长久保存在数据库表 cam_review，JSON 只做备份';
+      ? `${bits.join('；')}（cam_review）`
+      : t('review.saved');
     jumpToFirstUnset();
   } catch {
     persistOk.value = false;
-    persistHint.value = '后端暂未连上，先写在本机浏览器；连上后会自动迁过去';
+    persistHint.value = t('review.offline');
   }
 }
 
@@ -147,7 +183,7 @@ async function playCurrent(target: ComboSel = sel.value) {
     return;
   }
   const ok = caster.playAssetForReview(act.name);
-  if (!ok) message.warning(`动作库没有「${act.label}」`);
+  if (!ok) message.warning(t('review.missingMotion', { name: act.label }));
 }
 
 function wait(ms: number, seq: number) {
@@ -162,18 +198,18 @@ function mark(v: Verdict) {
   verdicts.value = next;
   saveLocalVerdicts(next);
   persistHint.value = v === 'ok'
-    ? '可用：更远景别、更右站位已一并标可用'
+    ? t('review.okInherit')
     : v === 'bad'
-      ? '不可用：还没标的更远景别、更右站位已一并标不可用'
-      : '正在写入数据库…';
+      ? t('review.badInherit')
+      : t('review.writing');
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
     void persistVerdicts(next).then(() => {
       persistOk.value = true;
-      persistHint.value = '已写入数据库表 cam_review（可用/不可用均已继承）';
+      persistHint.value = t('review.wrote');
     }).catch(() => {
       persistOk.value = false;
-      persistHint.value = '数据库写入失败，本机浏览器里还有一份备份';
+      persistHint.value = t('review.writeFail');
     });
   }, 280);
 }
@@ -207,7 +243,7 @@ function step(dir: 1 | -1, onlyUnset = false) {
       return;
     }
   }
-  message.info('没有未审的组合了');
+  message.info(t('review.noUnset'));
 }
 
 async function copyReport() {
@@ -219,23 +255,23 @@ async function copyReport() {
   );
   try {
     await navigator.clipboard.writeText(text);
-    message.success('审查报告已复制，贴回对话即可');
+    message.success(t('review.copied'));
   } catch {
-    message.error('复制失败');
+    message.error(t('review.copyFail'));
   }
 }
 
 function resetVerdicts() {
   verdicts.value = {};
   saveLocalVerdicts({});
-  persistHint.value = '正在清空数据库标记…';
+  persistHint.value = t('review.clearing');
   void persistVerdicts({}).then(() => {
     persistOk.value = true;
-    persistHint.value = '数据库标记已清空';
-    message.info('已清空标记');
+    persistHint.value = t('review.clearedDb');
+    message.info(t('review.cleared'));
   }).catch(() => {
     persistOk.value = false;
-    message.error('清空数据库失败');
+    message.error(t('review.clearFail'));
   });
 }
 </script>
@@ -244,88 +280,84 @@ function resetVerdicts() {
   <transition name="slide">
     <div v-if="show" class="panel glass">
       <div class="head">
-        <span class="title">镜头审查</span>
-        <n-button size="tiny" quaternary @click="emit('update:show', false)">收起 ›</n-button>
+        <span class="title">{{ t('review.title') }}</span>
+        <n-button size="tiny" quaternary @click="emit('update:show', false)">{{ t('common.close') }} ›</n-button>
       </div>
-      <p class="lead">
-        每个组合按 <b>运镜 × 站位 × 动作</b> 走，从左站位、特写开始。
-        三种状态：没标 / 可用 / 不可用（没标不是不可用）。
-        景别近→远、站位左→右：可用和不可用都会继承到还没标的格子。
-      </p>
+      <p class="lead">{{ t('review.lead') }}</p>
       <div class="now" :class="currentVerdict">
-        {{ comboLabel(sel) }}
+        {{ showCombo(sel) }}
       </div>
       <div class="stats">
-        第 {{ idx + 1 }} / {{ total }} 条 · 动作 {{ actions.length }} · 已标 {{ stats.marked }}（可用 {{ stats.ok }} / 不可用 {{ stats.bad }}）
+        {{ t('review.pos', { n: idx + 1, total, acts: actions.length, marked: stats.marked, ok: stats.ok, bad: stats.bad }) }}
       </div>
       <div class="persist" :class="{ ok: persistOk }">{{ persistHint }}</div>
 
       <div class="row">
-        <span class="lab">景别</span>
+        <span class="lab">{{ t('beat.size') }}</span>
         <n-button v-for="s in SIZES" :key="s.id" size="tiny"
                   :type="size === s.id ? 'primary' : 'default'"
                   :quaternary="size !== s.id"
-                  @click="applySel({ ...sel, size: s.id })">{{ s.label }}</n-button>
+                  @click="applySel({ ...sel, size: s.id })">{{ t('cam.' + s.id) }}</n-button>
       </div>
       <div class="row">
-        <span class="lab">运镜</span>
+        <span class="lab">{{ t('beat.cam') }}</span>
         <n-button size="tiny"
                   :type="camKeySel === 'hold' ? 'primary' : 'default'"
                   :quaternary="camKeySel !== 'hold'"
-                  @click="applySel({ ...sel, cam: holdCam })">定镜</n-button>
+                  @click="applySel({ ...sel, cam: holdCam })">{{ t('beat.hold') }}</n-button>
         <n-button v-for="m in MOVES" :key="m.id" size="tiny"
                   :type="camKeySel === `move:${m.id}` ? 'primary' : 'default'"
                   :quaternary="camKeySel !== `move:${m.id}`"
-                  @click="applySel({ ...sel, cam: { kind: 'move', id: m.id, label: m.label } })">{{ m.label }}</n-button>
+                  @click="applySel({ ...sel, cam: { kind: 'move', id: m.id, label: m.label } })">{{ t('cam.' + m.id) }}</n-button>
       </div>
       <div class="row vmd">
-        <span class="lab">镜头库</span>
+        <span class="lab">{{ t('review.library') }}</span>
         <n-button v-for="c in vmdCams" :key="c.name" size="tiny"
                   :type="camKeySel === `vmd:${c.name}` ? 'primary' : 'default'"
                   :quaternary="camKeySel !== `vmd:${c.name}`"
-                  @click="applySel({ ...sel, cam: c })">{{ c.label }}</n-button>
+                  @click="applySel({ ...sel, cam: c })">{{ camText(c) }}</n-button>
       </div>
       <div class="row">
-        <span class="lab">站位</span>
+        <span class="lab">{{ t('beat.stand') }}</span>
         <n-button v-for="s in STANDS" :key="s.id" size="tiny"
                   :type="stand === s.id ? 'primary' : 'default'"
                   :quaternary="stand !== s.id"
-                  @click="applySel({ ...sel, stand: s.id })">{{ s.label }}</n-button>
+                  @click="applySel({ ...sel, stand: s.id })">{{ t('stand.' + s.id) }}</n-button>
       </div>
       <div class="row">
-        <span class="lab">分类</span>
+        <span class="lab">{{ t('review.filter') }}</span>
         <n-button v-for="f in filters" :key="f.id" size="tiny"
                   :type="actFilter === f.id ? 'primary' : 'default'"
                   :quaternary="actFilter !== f.id"
-                  @click="setFilter(f.id)">{{ f.label }} {{ f.id === 'none' ? '' : f.n }}</n-button>
+                  @click="setFilter(f.id)">{{ filterText(f.id) }} {{ f.id === 'none' ? '' : f.n }}</n-button>
       </div>
       <div class="row acts">
-        <span class="lab">具体</span>
-        <div v-if="actFilter === 'none'" class="hint">当前不播动作，只看景别 / 运镜 / 站位。</div>
+        <span class="lab">{{ t('review.concrete') }}</span>
+        <div v-if="actFilter === 'none'" class="hint">{{ t('review.noneHint') }}</div>
         <template v-else>
           <n-button v-for="a in visibleActs" :key="actionKey(a)" size="tiny"
                     :type="actKey === actionKey(a) ? 'primary' : 'default'"
                     :quaternary="actKey !== actionKey(a)"
-                    @click="applySel({ ...sel, action: a })">{{ a.label }}</n-button>
+                    @click="applySel({ ...sel, action: a })">{{ actButton(a) }}</n-button>
         </template>
       </div>
 
       <div class="tools">
-        <n-button size="small" type="primary" @click="playCurrent()">再播一次</n-button>
-        <n-button size="small" secondary @click="step(-1)">上一条</n-button>
-        <n-button size="small" secondary @click="step(1)">下一条</n-button>
-        <n-button size="small" type="info" secondary @click="step(1, true)">下一条未审</n-button>
+        <n-button size="small" type="primary" @click="playCurrent()">{{ t('review.replay') }}</n-button>
+        <n-button size="small" secondary @click="step(-1)">{{ t('review.prev') }}</n-button>
+        <n-button size="small" secondary @click="step(1)">{{ t('review.next') }}</n-button>
+        <n-button size="small" type="info" secondary @click="step(1, true)">{{ t('review.nextUnset') }}</n-button>
       </div>
       <div class="tools">
-        <n-button size="small" type="success" @click="markAndNext('ok')">可用跳下一条</n-button>
-        <n-button size="small" type="error" @click="markAndNext('bad')">不可用跳下一条</n-button>
+        <n-button size="small" type="success" @click="markAndNext('ok')">{{ t('review.okNext') }}</n-button>
+        <n-button size="small" type="error" @click="markAndNext('bad')">{{ t('review.badNext') }}</n-button>
         <n-button size="small" class="ok" :type="currentVerdict === 'ok' ? 'success' : 'default'"
-                  @click="mark('ok')">可用</n-button>
+                  @click="mark('ok')">{{ t('review.ok') }}</n-button>
         <n-button size="small" :type="currentVerdict === 'bad' ? 'error' : 'default'"
-                  @click="mark('bad')">不可用</n-button>
-        <n-button size="small" type="primary" secondary @click="copyReport">复制报告</n-button>
-        <n-button size="small" quaternary @click="resetVerdicts">清空标记</n-button>
-        <n-button size="small" type="warning" secondary @click="stage.stopCamera(); stage.stopMotion()">停止</n-button>
+                  @click="mark('bad')">{{ t('review.bad') }}</n-button>
+        <n-button size="small" type="primary" secondary @click="copyReport">{{ t('review.copy') }}</n-button>
+        <n-button size="small" quaternary @click="resetVerdicts">{{ t('review.clear') }}</n-button>
+        <n-button size="small" type="warning" secondary @click="stage.stopCamera(); stage.stopMotion()">{{ t('review.stop') }}</n-button>
       </div>
     </div>
   </transition>
@@ -375,7 +407,7 @@ function resetVerdicts() {
 .lab {
   font-size: 12px;
   opacity: 0.55;
-  width: 40px;
+  width: 72px;
   flex-shrink: 0;
   padding-top: 4px;
 }

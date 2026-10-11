@@ -9,61 +9,34 @@ import time
 from typing import Any, Dict, List, Optional
 
 from . import deck, plays, reader
+from ...locale_pack import LangRe, current_reply
 
-# 口头入口
-_DRAW_CELTIC_RE = re.compile(r"凯尔特|十字阵|大十字|十张|深度看")
-_DRAW_CHOICE_RE = re.compile(r"二选一|两个选择|选A还是|左右为难|两条路")
-_DRAW_BOND_RE = re.compile(r"关系阵|感情阵|两个人|我和他|我和她")
-_DRAW_WORK_RE = re.compile(r"事业阵|工作阵|职场|换工作")
-_DRAW_BODY_RE = re.compile(r"身心|心身体|状态三张")
-# 不要裸匹配「是不是 / 行不行」：日常「你是不是…」不是在抽是否牌。
-_DRAW_YESNO_RE = re.compile(r"是否一张|抽一张看是否|看是否")
-_DRAW_ADVICE_RE = re.compile(
-    r"现状.{0,8}阻碍.{0,8}建议|阻碍.{0,8}建议|"
-    r"建议阵|行动阵|怎么做阵|三张建议",
-)
-_DRAW_THREE_RE = re.compile(
-    r"抽三张|三张牌|三张阵|来三张|三张塔罗|"
-    r"时间线|过去.{0,8}现在.{0,8}未来|过去现在未来",
-)
-_DRAW_ONE_RE = re.compile(
-    r"抽一张|抽张牌|抽个牌|来一张|日抽|今日牌|"
-    r"帮我看看这张牌|给我看看这张牌|看看这张牌",
-)
-_DRAW_ANY_RE = re.compile(
-    r"抽牌|看看牌|帮我抽|给我抽|看塔罗|塔罗牌|来副牌|算一卦|"
-    r"给我看牌|帮我看牌|看个牌|来看牌|玩塔罗|来都牌|塔罗|"
-    r"看牌|来局牌|玩牌"
-)
-_HER_DRAW_RE = re.compile(
-    r"你来抽|你抽|帮我选|给我选|随便抽|你定|你帮我抽|你挑|"
-    r"抽吧|剩下你来|选牌|给我抽|^随便$"
-)
-_CUT_RE = re.compile(r"切牌|我切|切一下|切了|好了切|可以切|切吧|给我切|帮我切")
-_SOFT_OK_RE = re.compile(r"^(好了|好了哦|好啦|可以了|行了|行啦|嗯好|好的|好)$")
-_THANKS_RE = re.compile(r"谢谢|多谢|感谢")
-_LINGER_DONE_RE = re.compile(r"够了|明白了|知道了|了解了|嗯好的")
-_CLAR_RE = re.compile(r"再翻一张|补一张|clarifier|看清楚点|再抽一张补")
-_EXIT_RE = re.compile(
-    r"收起来|不看了|收牌|把牌收|牌收起来|不看牌了|"
-    r"看完了|不玩了|不完了|不玩啦|关掉牌|可以收了|好了收|收了吧|"
-    r"收吧|收掉|收摊|结束看牌|不想看了|关掉|"
-    r"退出|不想玩|不玩游戏|结束游戏|退出游戏"
-)
-_SYNTH_RE = re.compile(r"综合|总结|串起来|收线|整体|总的来说|收一收")
-_ASK_RE = re.compile(
-    r"解释|什么意思|怎么解|怎么看|讲讲|说说这|这牌|展开|细[说说讲]|再讲|"
-    r"为什么|啥意思|啥含义|读[一]下|解一下",
-)
-_REDEAL_RE = re.compile(
-    r"再抽|换牌|重新抽|再来一轮|换三张|换一张|再抽一|"
-    r"换一张牌|不要这张|重新来|再来一局"
-)
-_STOP_RE = re.compile(r"停下|别说了|不要讲了|停一下")
-_FLIP_RE = re.compile(r"翻开|翻转|翻牌|翻面|翻这|翻第|翻掉|翻一下|打开这|翻正面|打开牌")
-_FAN_LEFT_RE = re.compile(r"左边|左手|最左")
-_FAN_RIGHT_RE = re.compile(r"右边|右手|最右")
-_FAN_MID_RE = re.compile(r"中间|当中|正中")
+# 口头入口。正则在 locales/*/intents.json。
+_DRAW_CELTIC_RE = LangRe("tarot.celtic")
+_DRAW_CHOICE_RE = LangRe("tarot.choice")
+_DRAW_BOND_RE = LangRe("tarot.bond")
+_DRAW_WORK_RE = LangRe("tarot.work")
+_DRAW_BODY_RE = LangRe("tarot.body")
+_DRAW_YESNO_RE = LangRe("tarot.yesno")
+_DRAW_ADVICE_RE = LangRe("tarot.advice")
+_DRAW_THREE_RE = LangRe("tarot.three")
+_DRAW_ONE_RE = LangRe("tarot.one")
+_DRAW_ANY_RE = LangRe("tarot.any")
+_HER_DRAW_RE = LangRe("tarot.her_draw")
+_CUT_RE = LangRe("tarot.cut")
+_SOFT_OK_RE = LangRe("tarot.soft_ok")
+_THANKS_RE = LangRe("tarot.thanks")
+_LINGER_DONE_RE = LangRe("tarot.linger")
+_CLAR_RE = LangRe("tarot.clar")
+_EXIT_RE = LangRe("tarot.exit")
+_SYNTH_RE = LangRe("tarot.synth")
+_ASK_RE = LangRe("tarot.ask")
+_REDEAL_RE = LangRe("tarot.redeal")
+_STOP_RE = LangRe("tarot.stop")
+_FLIP_RE = LangRe("tarot.flip")
+_FAN_LEFT_RE = LangRe("tarot.fan_left")
+_FAN_RIGHT_RE = LangRe("tarot.fan_right")
+_FAN_MID_RE = LangRe("tarot.fan_mid")
 _CN_ORD = {
     "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
     "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
@@ -118,6 +91,9 @@ def _empty_session() -> Dict[str, Any]:
 
 
 def _hint(st: Dict[str, Any]) -> str:
+    from ...locale_pack import current_reply
+    if current_reply() != "zh-CN":
+        return _hint_i18n(st)
     phase = st.get("phase") or ""
     if phase == "intent":
         return "说第几个或玩法名，也可以点；「随便」默认时间线"
@@ -146,6 +122,77 @@ def _hint(st: Dict[str, Any]) -> str:
     return ""
 
 
+def _hint_i18n(st: Dict[str, Any]) -> str:
+    from ...locale_pack import current_reply
+    lang = current_reply()
+    ja = lang == "ja"
+    ko = lang == "ko"
+    phase = st.get("phase") or ""
+    if phase == "intent":
+        if ja:
+            return "番号か遊び方を言って。タップでもいい"
+        if ko:
+            return "번호나 놀이 방식을 말해. 눌러도 돼"
+        return "Say a number or a spread, or tap one"
+    play = plays.get_play(str(st.get("spread") or "daily"))
+    n = int(play["n"])
+    picked = len(st.get("picked") or [])
+    pos = plays.spread_positions(play)
+    title = plays.spread_title(play)
+    if phase == "shuffle":
+        if ja:
+            return f"「{title}」を切ってる"
+        if ko:
+            return f"「{title}」 섞는 중"
+        return f"Shuffling {title}"
+    if phase == "cut":
+        if ja:
+            return "一度切って"
+        if ko:
+            return "한 번 잘라"
+        return "Cut once"
+    if phase == "pick":
+        slot = pos[picked] if picked < n else ""
+        base = f"{picked + 1}/{n}"
+        if ja:
+            return f"裏をタップ · {base}" + (f"「{slot}」" if slot else "")
+        if ko:
+            return f"뒷면을 눌러 · {base}" + (f"「{slot}」" if slot else "")
+        return f"Tap a card back · {base}" + (f" · {slot}" if slot else "")
+    if phase in ("placed", "open"):
+        left = n - len(st.get("revealed") or [])
+        if left > 0:
+            if ja:
+                return f"「めくって」かタップ · 残り {left}"
+            if ko:
+                return f"「뒤집어」 또는 눌러 · 남은 {left}"
+            return f"Say flip, or tap · {left} left"
+        if ja:
+            return "まとめていい"
+        if ko:
+            return "이제 모아도 돼"
+        return "Ready to close"
+    if phase == "synth":
+        if ja:
+            return "まとめている"
+        if ko:
+            return "모으는 중"
+        return "Closing the reading"
+    if phase == "linger":
+        if not st.get("clarifier_used"):
+            if ja:
+                return "一枚聞いて、または「もう一枚」「しまって」"
+            if ko:
+                return "한 장 묻거나, 「한 장 더」「집어넣어」"
+            return "Ask one card, or say another card, or put them away"
+        if ja:
+            return "一枚聞くか、「しまって」"
+        if ko:
+            return "한 장 묻거나 「집어넣어」"
+        return "Ask one card, or put them away"
+    return ""
+
+
 def snapshot(character_id: int) -> Dict[str, Any]:
     with _lock:
         st = _sessions.get(character_id)
@@ -156,7 +203,12 @@ def snapshot(character_id: int) -> Dict[str, Any]:
             return {
                 "active": True,
                 "spread": "",
-                "title": "选玩法",
+                "title": (
+                    "选玩法" if current_reply() == "zh-CN"
+                    else "遊び方" if current_reply() == "ja"
+                    else "놀이" if current_reply() == "ko"
+                    else "Choose a spread"
+                ),
                 "layout": "row",
                 "question": st.get("question") or "",
                 "phase": "intent",
@@ -194,7 +246,7 @@ def snapshot(character_id: int) -> Dict[str, Any]:
         return {
             "active": True,
             "spread": play["id"],
-            "title": play["title"],
+            "title": plays.spread_title(play),
             "layout": play["layout"],
             "question": st.get("question") or "",
             "phase": phase,
@@ -365,14 +417,14 @@ def _orient(card: Dict[str, object], reversed: bool) -> Dict[str, Any]:
     hint = str(item["hint_rev"] if reversed else item["hint_up"])
     return {
         "id": item["id"],
-        "name": item["name"],
+        "name": deck.display_name(item, current_reply()),
         "file": item["file"],
         "url": item["url"],
         "has_art": item["has_art"],
         "arcana": item["arcana"],
         "suit": item["suit"],
         "reversed": reversed,
-        "hint": hint,
+        "hint": deck.display_hint(item, reversed, current_reply()) if current_reply() != "zh-CN" else hint,
         "back_url": item["back_url"],
         "back_ready": item["back_ready"],
         "clarifier": False,
@@ -498,7 +550,7 @@ def cut(character_id: int, entropy: str = "") -> Dict[str, Any]:
 
 def _place_locked(st: Dict[str, Any]) -> None:
     play = plays.get_play(str(st["spread"]))
-    positions = list(play["positions"])
+    positions = plays.spread_positions(play)
     n = int(play["n"])
     fan: List[Dict[str, Any]] = list(st.get("fan") or [])
     picked: List[int] = list(st.get("picked") or [])
@@ -809,11 +861,21 @@ def _is_draw(text: str) -> bool:
     )
 
 
+_EN_ORD = {
+    "first": 0, "second": 1, "third": 2, "fourth": 3, "fifth": 4,
+    "sixth": 5, "seventh": 6, "eighth": 7, "ninth": 8, "tenth": 9,
+    "1st": 0, "2nd": 1, "3rd": 2,
+}
+
+
 def _ordinal_to_index(raw: str) -> Optional[int]:
     if raw in _CN_ORD:
         return _CN_ORD[raw] - 1
     if raw.isdigit():
         return int(raw) - 1
+    low = (raw or "").strip().lower()
+    if low in _EN_ORD:
+        return _EN_ORD[low]
     return None
 
 
@@ -829,6 +891,11 @@ def _named_card_index(st: Dict[str, Any], text: str) -> Optional[int]:
                 if c.get("position") == label:
                     return i
     m = re.search(r"第\s*([一二三四五六七八九十0-9]+)\s*张?", t)
+    if not m and current_reply() != "zh-CN":
+        m = re.search(
+            r"\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|\d+)\b",
+            t, re.IGNORECASE,
+        )
     if not m:
         return None
     idx = _ordinal_to_index(m.group(1))

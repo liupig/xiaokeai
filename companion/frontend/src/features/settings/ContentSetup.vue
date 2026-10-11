@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { NButton, NInput } from 'naive-ui';
 import { useSettingsStore } from '../../stores/settings';
+import { t } from '../../i18n';
 
 const settings = useSettingsStore();
 const path = ref(settings.content.path || '');
@@ -20,7 +21,7 @@ async function save() {
   hint.value = '';
   try {
     const r = await settings.applyContent(path.value.trim());
-    hint.value = r.message || (r.ok ? '已保存' : '设置失败');
+    hint.value = r.message || (r.ok ? t('set.pack.saved') : t('set.pack.fail'));
   } catch (e) {
     hint.value = String(e);
   } finally {
@@ -44,17 +45,17 @@ onMounted(async () => {
   <div v-if="settings.content.packed && !settings.content.ok && !skipped" class="gate">
     <div class="card">
       <p class="title">xiaoke.ai</p>
-      <p class="lead">选 B 那个文件夹（例如 xiaoke-ai-B），不要点里面的 xiaoke-content.json。那个文件只是标记，选中文件夹即可。</p>
+      <p class="lead">{{ t('set.gate.lead') }}</p>
       <div class="row">
-        <n-input v-model:value="path" placeholder="例如 E:\xiaoke-ai-B" />
-        <n-button v-if="canPick" @click="pick">浏览</n-button>
+        <n-input v-model:value="path" :placeholder="t('set.pack.ph')" />
+        <n-button v-if="canPick" @click="pick">{{ t('set.pack.browse') }}</n-button>
       </div>
       <p v-if="hint" class="hint">{{ hint }}</p>
       <div class="actions">
-        <n-button type="primary" :loading="busy" :disabled="!path.trim()" @click="save">使用这个目录</n-button>
-        <n-button quaternary @click="skip">稍后再说</n-button>
+        <n-button type="primary" :loading="busy" :disabled="!path.trim()" @click="save">{{ t('set.gate.use') }}</n-button>
+        <n-button quaternary @click="skip">{{ t('set.gate.later') }}</n-button>
       </div>
-      <p class="note">保存后请关掉窗口再打开。程序包（A）改代码时不用动 B。</p>
+      <p class="note">{{ t('set.gate.note') }}</p>
     </div>
   </div>
 </template>

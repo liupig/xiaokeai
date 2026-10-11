@@ -12,9 +12,12 @@ EDGE_VOICES = [
     {"id": "zh-CN-YunxiNeural", "label": "云希（少年）"},
     {"id": "zh-CN-YunjianNeural", "label": "云健（青年男声）"},
     {"id": "zh-CN-liaoning-XiaobeiNeural", "label": "晓北（东北话）"},
-    {"id": "zh-TW-HsiaoChenNeural", "label": "晓臻（台湾腔）"},
-    {"id": "ja-JP-NanamiNeural", "label": "七海（日语）"},
-    {"id": "en-US-AriaNeural", "label": "Aria（英语）"},
+    {"id": "zh-TW-HsiaoChenNeural", "label": "晓臻（台湾腔）", "lang": "zh-CN"},
+    {"id": "en-US-AriaNeural", "label": "Aria（英语）", "lang": "en"},
+    {"id": "en-US-JennyNeural", "label": "Jenny（英语）", "lang": "en"},
+    {"id": "en-US-GuyNeural", "label": "Guy（英语男声）", "lang": "en"},
+    {"id": "ja-JP-NanamiNeural", "label": "七海（日语）", "lang": "ja"},
+    {"id": "ko-KR-SunHiNeural", "label": "SunHi（韩语）", "lang": "ko"},
 ]
 
 # 兼容旧 import

@@ -13,6 +13,7 @@ import {
   DEFAULT_DUPLEX_PROACTIVE_SEC,
   DEFAULT_DUPLEX_SESSION_MAX_MIN,
 } from '../features/voice/duplex';
+import { alignVoice, defaultVoice, normalizeLang, setReplyLang, setUiLang, voiceFits } from '../i18n';
 
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
@@ -33,7 +34,8 @@ export const useSettingsStore = defineStore('settings', {
            duplex_proactive_sec: DEFAULT_DUPLEX_PROACTIVE_SEC,
            duplex_goodbye_sec: DEFAULT_DUPLEX_GOODBYE_SEC,
            duplex_session_max_min: DEFAULT_DUPLEX_SESSION_MAX_MIN,
-           duplex_filler: false, duplex_ingress: true },
+           duplex_filler: false, duplex_ingress: true,
+           voice_by_lang: {} as Record<string, string> },
     stt: { engine: 'sensevoice' as 'browser' | 'sensevoice' },
     omni: {
       chat_url: 'https://api.modelbest.cn/v1',
@@ -42,6 +44,12 @@ export const useSettingsStore = defineStore('settings', {
       model: 'MiniCPM-O-4.5-9B',
     },
     omni_env: false,
+    locale: {
+      ui: 'zh-CN' as 'zh-CN' | 'en' | 'ja' | 'ko',
+      reply: 'zh-CN' as 'zh-CN' | 'en' | 'ja' | 'ko',
+      reply_mode: 'fixed' as 'fixed' | 'follow',
+    },
+    locale_set: false,
     download: { aplaybox_token: '' },
     quality: {
       physics: false, pixel_ratio_cap: 2, camera_follow: false, bgm_volume: 0.5,
@@ -105,6 +113,9 @@ export const useSettingsStore = defineStore('settings', {
         ? sessionMax : DEFAULT_DUPLEX_SESSION_MAX_MIN;
       if (this.tts.duplex_filler == null) this.tts.duplex_filler = false;
       if (this.tts.duplex_ingress == null) this.tts.duplex_ingress = true;
+      if (!this.tts.voice_by_lang || typeof this.tts.voice_by_lang !== 'object') {
+        this.tts.voice_by_lang = {};
+      }
       if (!this.stt.engine) this.stt.engine = 'browser';
       const omni = (data as { omni?: Record<string, unknown>; omni_env?: boolean }).omni;
       this.omni = {
@@ -114,6 +125,30 @@ export const useSettingsStore = defineStore('settings', {
         model: String(omni?.model || 'MiniCPM-O-4.5-9B'),
       };
       this.omni_env = !!((data as { omni_env?: boolean }).omni_env);
+      const loc = (data as { locale?: { ui?: string; reply?: string; reply_mode?: string }; locale_set?: boolean });
+      this.locale_set = !!loc.locale_set;
+      const ui = normalizeLang(loc.locale?.ui || 'zh-CN');
+      const reply = normalizeLang(loc.locale?.reply || 'zh-CN');
+      this.locale = {
+        ui, reply,
+        reply_mode: loc.locale?.reply_mode === 'follow' ? 'follow' : 'fixed',
+      };
+      if (!this.locale_set && typeof navigator !== 'undefined') {
+        const nav = navigator.language.toLowerCase();
+        const os = nav.startsWith('ko') ? 'ko' : nav.startsWith('ja') ? 'ja' : nav.startsWith('en') ? 'en' : '';
+        if (os) {
+          this.locale = { ui: os, reply: os, reply_mode: 'fixed' };
+          this.tts.voice = alignVoice(this.tts.engine, this.tts.voice, os);
+          void this.save();
+        }
+      }
+      setUiLang(this.locale.ui);
+      setReplyLang(this.locale.reply);
+      const alignedNow = alignVoice(this.tts.engine, this.tts.voice, this.locale.reply);
+      if (alignedNow && alignedNow !== this.tts.voice && this.locale_set) {
+        this.tts.voice = alignedNow;
+        void this.save();
+      }
       const hw = (data as { hardware?: Record<string, unknown> }).hardware;
       if (hw && typeof hw === 'object') {
         const failed = (hw.failed || {}) as Record<string, string>;
@@ -165,15 +200,25 @@ export const useSettingsStore = defineStore('settings', {
         this.voices = v;
         if (!v.length) return;
         const ok = v.some((x) => x.engine === this.tts.engine && x.id === this.tts.voice);
-        if ((this.tts.engine === 'edge' || this.tts.engine === 'qwen' || this.tts.engine === 'cosy') && !ok) {
-          this.tts.voice = this.tts.engine === 'qwen' ? 'Serena' : '';
+        if ((this.tts.engine === 'edge' || this.tts.engine === 'qwen') && !ok) {
+          this.tts.voice = defaultVoice(this.tts.engine, this.locale.reply);
+        } else if (this.tts.engine === 'cosy' && !ok) {
+          this.tts.voice = '';
         }
       }).catch(() => {});
       this.maybeWarmupSpeech();
     },
+    noteVoice() {
+      const aligned = alignVoice(this.tts.engine, this.tts.voice, this.locale.reply);
+      if (aligned !== this.tts.voice) this.tts.voice = aligned;
+      if (!voiceFits(this.tts.voice, this.locale.reply, this.tts.engine)) return;
+      this.tts.voice_by_lang = { ...(this.tts.voice_by_lang || {}), [this.locale.reply]: this.tts.voice };
+    },
     async save() {
+      this.noteVoice();
       const data = await api.updateSettings({
         llm: this.llm, tts: this.tts, stt: this.stt, omni: this.omni,
+        locale: this.locale,
         download: this.download, quality: this.quality, modules: this.modules,
         memory: this.memory,
       });
@@ -184,6 +229,27 @@ export const useSettingsStore = defineStore('settings', {
       this.applyQuality();
       this.applyTts();
       this.maybeWarmupSpeech();
+    },
+    async setLocale(patch: Partial<{ ui: 'zh-CN' | 'en' | 'ja' | 'ko'; reply: 'zh-CN' | 'en' | 'ja' | 'ko'; reply_mode: 'fixed' | 'follow' }>) {
+      const prevReply = this.locale.reply;
+      const prevVoice = this.tts.voice;
+      this.locale = { ...this.locale, ...patch };
+      setUiLang(this.locale.ui);
+      setReplyLang(this.locale.reply);
+      const book = { ...(this.tts.voice_by_lang || {}) };
+      if (voiceFits(prevVoice, prevReply, this.tts.engine)) book[prevReply] = prevVoice;
+      if (this.locale.reply !== prevReply) {
+        const remembered = book[this.locale.reply] || '';
+        this.tts.voice = voiceFits(remembered, this.locale.reply, this.tts.engine)
+          ? remembered
+          : defaultVoice(this.tts.engine, this.locale.reply);
+      } else {
+        this.tts.voice = alignVoice(this.tts.engine, this.tts.voice, this.locale.reply);
+      }
+      this.tts.voice_by_lang = book;
+      await this.save();
+      const scenes = await import('../features/scenes/session');
+      scenes.reloadSceneLocale();
     },
     maybeWarmupSpeech() {
       // 只预热后端 ASR/TTS。前端 Silero VAD / ONNX 很占内存，等用户碰麦克风再加载

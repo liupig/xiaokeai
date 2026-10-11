@@ -2,8 +2,10 @@
 import { computed } from 'vue';
 import { NAvatar, NTooltip } from 'naive-ui';
 import { MocapToolbar } from '../mocap';
+import XkIcon from '../icons/XkIcon.vue';
 import { useCharacterStore } from '../../stores/character';
 import { useSettingsStore } from '../../stores/settings';
+import { t } from '../../i18n';
 
 type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake' | 'log';
 
@@ -12,18 +14,19 @@ const emit = defineEmits<{ (e: 'toggle', p: PanelKey): void }>();
 
 const characters = useCharacterStore();
 const settings = useSettingsStore();
-const currentName = computed(() => characters.current?.name ?? '未选择角色');
+const currentName = computed(() => characters.current?.name ?? t('top.none'));
 
 const tools = computed(() => {
+  settings.locale.ui;
   const list: { key: PanelKey; label: string }[] = [
-    { key: 'quick', label: '表情 / 动作 / 运镜' },
-    { key: 'review', label: '镜头审查' },
-    { key: 'log', label: '会话记录' },
-    { key: 'assets', label: '资产中心' },
-    { key: 'settings', label: '设置' },
+    { key: 'quick', label: t('top.quick') },
+    { key: 'review', label: t('top.review') },
+    { key: 'log', label: t('top.log') },
+    { key: 'assets', label: t('top.assets') },
+    { key: 'settings', label: t('top.settings') },
   ];
   if (settings.modules.keepsake) {
-    list.splice(2, 0, { key: 'keepsake', label: '证物相册' });
+    list.splice(2, 0, { key: 'keepsake', label: t('top.keepsake') });
   }
   return list;
 });
@@ -35,10 +38,7 @@ const tools = computed(() => {
          @click="emit('toggle', 'characters')">
       <n-avatar round size="small" class="avatar">{{ currentName.slice(0, 1) }}</n-avatar>
       <span class="name">{{ currentName }}</span>
-      <svg class="chev" viewBox="0 0 24 24" width="14" height="14" fill="none"
-           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
+      <XkIcon name="chevron" :size="12" class="chev" />
     </div>
     <div class="toolbar glass">
       <MocapToolbar />
@@ -46,44 +46,7 @@ const tools = computed(() => {
         <template #trigger>
           <button class="tool" :class="{ active: active === t.key }"
                   @click="emit('toggle', t.key)">
-            <svg v-if="t.key === 'quick'" viewBox="0 0 24 24" width="19" height="19" fill="none"
-                 stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M8.5 14a4.5 4.5 0 0 0 7 0" />
-              <line x1="9" y1="9.6" x2="9.01" y2="9.6" stroke-width="2.6" />
-              <line x1="15" y1="9.6" x2="15.01" y2="9.6" stroke-width="2.6" />
-            </svg>
-            <svg v-else-if="t.key === 'review'" viewBox="0 0 24 24" width="19" height="19" fill="none"
-                 stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="5" width="18" height="14" rx="2" />
-              <path d="M7 5V3M17 5V3M3 9h18" />
-              <circle cx="8.5" cy="14" r="1.2" fill="currentColor" stroke="none" />
-              <circle cx="15.5" cy="14" r="1.2" fill="currentColor" stroke="none" />
-            </svg>
-            <svg v-else-if="t.key === 'log'" viewBox="0 0 24 24" width="19" height="19" fill="none"
-                 stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 6h13M8 12h13M8 18h13" />
-              <circle cx="4" cy="6" r="1.1" fill="currentColor" stroke="none" />
-              <circle cx="4" cy="12" r="1.1" fill="currentColor" stroke="none" />
-              <circle cx="4" cy="18" r="1.1" fill="currentColor" stroke="none" />
-            </svg>
-            <svg v-else-if="t.key === 'assets'" viewBox="0 0 24 24" width="19" height="19" fill="none"
-                 stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 8l-9-5-9 5v8l9 5 9-5V8z" />
-              <path d="M3 8l9 5 9-5" />
-              <line x1="12" y1="13" x2="12" y2="21" />
-            </svg>
-            <svg v-else-if="t.key === 'keepsake'" viewBox="0 0 24 24" width="19" height="19" fill="none"
-                 stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <path d="M21 15l-5-5L5 21" />
-            </svg>
-            <svg v-else viewBox="0 0 24 24" width="19" height="19" fill="none"
-                 stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="3.2" />
-              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l-.06-.06a2 2 0 1 1 2.83 2.83l-.06-.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
-            </svg>
+            <XkIcon :name="t.key" :size="22" />
           </button>
         </template>
         {{ t.label }}
@@ -135,7 +98,7 @@ const tools = computed(() => {
 }
 
 .chev {
-  opacity: 0.5;
+  opacity: 0.9;
 }
 
 .toolbar {

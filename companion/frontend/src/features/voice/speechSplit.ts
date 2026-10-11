@@ -1,7 +1,6 @@
-/**
- * 与后端 speech_split.py 同一套：先标点，长段没符号才按词切。
- * 前端无 jieba；真正对话走后端。
- */
+/** 与后端 speech_split.py 同一套：中文先标点，英文按句号和词数。前端无结巴。 */
+
+import { replyLang } from '../../i18n';
 
 const HARD_END = /[。！？!?；;\n]|…{1,3}|\.{3,}/;
 const SOFT_END = /[，、：:～~）)」』】]/;
@@ -14,6 +13,15 @@ const HARD_MAX = 22;
 const MIN_SOFT = 8;
 const SENTENCE_MAX = 36;
 const MERGE_MAX = 15;
+
+function packEnglish(text: string, limit = 16): string[] {
+  const words = (text || '').split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  if (words.length <= limit) return [words.join(' ')];
+  const out: string[] = [];
+  for (let i = 0; i < words.length; i += limit) out.push(words.slice(i, i + limit).join(' '));
+  return out;
+}
 
 function charLen(s: string) {
   return Array.from(s).length;
@@ -114,6 +122,7 @@ export class SpeechSplitter {
   feed(delta: string): string[] {
     if (!delta) return [];
     this.buf += delta;
+    if (replyLang() === 'en') return this.drainEn(false);
     const out: string[] = [];
     out.push(...this.drainHard());
     out.push(...this.drainSoft());
@@ -122,9 +131,31 @@ export class SpeechSplitter {
   }
 
   flush(): string[] {
+    if (replyLang() === 'en') return this.drainEn(true);
     const left = this.buf;
     this.buf = '';
     return packComplete(left);
+  }
+
+  private drainEn(flush: boolean): string[] {
+    const out: string[] = [];
+    const end = /[.!?]+(?:\s+|$)/;
+    while (this.buf) {
+      const m = this.buf.match(end);
+      if (!m || m.index == null) break;
+      const cut = m.index + m[0].length;
+      out.push(...packEnglish(this.buf.slice(0, cut)));
+      this.buf = this.buf.slice(cut);
+    }
+    const words = this.buf.split(/\s+/).filter(Boolean);
+    if (flush) {
+      out.push(...packEnglish(this.buf));
+      this.buf = '';
+    } else if (words.length > 22) {
+      out.push(words.slice(0, 16).join(' '));
+      this.buf = words.slice(16).join(' ');
+    }
+    return out.filter((s) => s.trim());
   }
 
   private drainHard(): string[] {

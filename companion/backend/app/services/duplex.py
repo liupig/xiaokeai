@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Tuple
 
 from .narration import peel_stage_dirs
 from .speech_split import SentenceSplitter
+from ..locale_pack import current_reply
 
 BODY_CMDS = {
     "queue", "interrupt", "interrupt_or_queue",
@@ -158,7 +159,7 @@ async def annotate_stream(
     unit_kind: str = "body",
 ):
     """把 LLM 异步事件流补上 speech 单元。text 仍给 UI；合成只走 speech。"""
-    splitter = SentenceSplitter()
+    splitter = SentenceSplitter(current_reply())
     body_cmd = normalize_body_cmd(body_cmd)
     first_body = True
     try:

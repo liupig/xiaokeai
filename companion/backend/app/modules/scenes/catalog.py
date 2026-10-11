@@ -1,5 +1,5 @@
 """内置情境卡：今晚这场戏，不是舞台背景库。"""
-from typing import Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 
 class SceneCard(TypedDict, total=False):
@@ -151,5 +151,42 @@ def find_by_background(url: str) -> Optional[SceneCard]:
     return None
 
 
-def list_cards() -> List[Dict[str, str]]:
-    return [dict(c) for c in CARDS]
+_CAMS = {"close", "bust", "half", "threeQ", "full", "long"}
+
+
+def list_cards() -> List[Dict[str, Any]]:
+    """中文用内置卡。其他语言只露出该语言 content.scenes_list 里有的场，不拿中文标题硬顶。"""
+    from ...locale_pack import content, current_reply
+    rows = [dict(c) for c in CARDS]
+    if current_reply() == "zh-CN":
+        return rows
+    pack = content().get("scenes_list") or []
+    by = {c.get("id"): c for c in pack if isinstance(c, dict) and c.get("id")}
+    if not by:
+        return []
+    out: List[Dict[str, str]] = []
+    for row in rows:
+        hit = by.get(row["id"])
+        if not hit:
+            continue
+        merged = dict(row)
+        for key in ("title", "setting", "conflict", "opening"):
+            val = str(hit.get(key) or "").strip()
+            if val:
+                merged[key] = val
+        cam = str(hit.get("cam") or "").strip()
+        if cam in _CAMS:
+            merged["cam"] = cam
+        intent = str(hit.get("intent") or "").strip()
+        if intent and not intent.startswith("/"):
+            merged["intent"] = intent
+        bg = str(hit.get("background") or "").strip()
+        if bg.startswith("/"):
+            merged["background"] = bg
+        lines = hit.get("lines")
+        if isinstance(lines, list) and lines:
+            merged["lines"] = [str(x) for x in lines if str(x).strip()]
+            if merged["lines"]:
+                merged["line"] = merged["lines"][0]
+        out.append(merged)
+    return out

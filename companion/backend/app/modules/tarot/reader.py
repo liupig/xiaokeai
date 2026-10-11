@@ -42,6 +42,17 @@ VOICE = (
 
 
 def exit_note() -> str:
+    from ...locale_pack import content, current_reply, normalize
+    lang = normalize(current_reply())
+    if lang != "zh-CN":
+        pack = (content(lang).get("tarot_reader") or {})
+        note = pack.get("exit")
+        if note:
+            return str(note)
+        return (
+            "The reading just ended. You are yourself again. "
+            "One quiet spoken sentence, then stop. Do not ask for another spread."
+        )
     return (
         "【工作放下】看牌刚收完。你还是你本人，口吻照旧。"
         "余韵要淡：一两句收住就行，像把牌轻轻搁回盒里，空气还暖着。"
@@ -129,6 +140,47 @@ def ritual_note(phase: str, title: str, need: int, picked: int, next_pos: str) -
     return ""
 
 
+def _turn_task_i18n(st: Dict[str, Any], lang: str) -> str:
+    """英文 / 日文看牌。牌名走通行名，不把中文花色名送进提示。"""
+    from ...locale_pack import content
+    play = plays.get_play(str(st.get("spread") or "daily"))
+    phase = str(st.get("phase") or "")
+    cards: List[Dict[str, Any]] = list(st.get("cards") or [])
+    revealed: List[int] = [int(x) for x in (st.get("revealed") or [])]
+    pack = content(lang).get("tarot_reader") or {}
+    ident = str(pack.get("identity") or (
+        "You are still yourself, sitting across the table for a tarot reading. "
+        "Entertainment, not fortune-telling. Use the card names you are given: "
+        "Wands, Cups, Swords, Pentacles. Never say 玉币, 竹杖, 瓷盏, or 古剑."
+    ))
+    voice = str(pack.get("voice") or (
+        "Name the position, the card, and upright or reversed. Then one picture on the card. "
+        "Let the picture land on them. Three to five short spoken sentences. "
+        "No diagnosis, no 'you will', no markdown."
+    ))
+    title = plays.spread_title(play)
+    lines = [ident, voice, f"Spread: {title}. Phase: {phase}."]
+    if phase in ("intent", "shuffle", "cut", "pick"):
+        lines.append("Do not name cards yet. They are not face up.")
+        if phase == "shuffle":
+            lines.append("Ask them to cut the deck, in one sentence.")
+        return "\n".join(lines)
+    for i, c in enumerate(cards):
+        if i not in revealed:
+            lines.append(f"{i + 1}. face down")
+            continue
+        raw = deck.get(str(c.get("id") or "")) or c
+        name = deck.display_name(raw, lang)
+        face = "reversed" if c.get("reversed") else "upright"
+        angle = deck.angle_for(raw, bool(c.get("reversed")), lang)
+        lines.append(f"{i + 1}. {c.get('position')}: {name}, {face}.\n{angle}")
+    if phase == "synth":
+        lines.append("Touch every open card in one short scene. Do not ask for another draw.")
+    else:
+        lines.append("Talk only about the open card you were pointed at.")
+    return "\n".join(lines)
+
+
 def card_lines(cards: List[Dict[str, Any]], watching: int | None, revealed: List[int]) -> str:
     lines = []
     rev = set(revealed)
@@ -151,6 +203,9 @@ def card_lines(cards: List[Dict[str, Any]], watching: int | None, revealed: List
 
 
 def turn_task(st: Dict[str, Any], mode: str = "user") -> str:
+    from ...locale_pack import current_reply, normalize
+    if normalize(current_reply()) != "zh-CN":
+        return _turn_task_i18n(st, normalize(current_reply()))
     play = plays.get_play(str(st.get("spread") or "daily"))
     title = str(play["title"])
     phase = str(st.get("phase") or "")

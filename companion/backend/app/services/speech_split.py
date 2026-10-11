@@ -161,13 +161,18 @@ def pack_stream(text: str) -> Tuple[List[str], str]:
 
 
 class SentenceSplitter:
-    def __init__(self) -> None:
+    def __init__(self, lang: str = "zh-CN") -> None:
         self.buf = ""
+        self.lang = (lang or "zh-CN").split("-")[0]
 
     def feed(self, delta: str) -> List[str]:
         if not delta:
             return []
         self.buf += delta
+        if self.lang == "en":
+            return self._drain_en(flush=False)
+        if self.lang in ("ja", "ko"):
+            return self._drain_mark(flush=False)
         out: List[str] = []
         out.extend(self._drain_hard())
         out.extend(self._drain_soft())
@@ -175,9 +180,70 @@ class SentenceSplitter:
         return [s for s in out if s.strip()]
 
     def flush(self) -> List[str]:
+        if self.lang == "en":
+            return self._drain_en(flush=True)
+        if self.lang in ("ja", "ko"):
+            return self._drain_mark(flush=True)
         left = self.buf
         self.buf = ""
         return [s for s in pack_complete(left) if s.strip()]
+
+    def _pack_words(self, text: str, limit: int) -> List[str]:
+        words = [w for w in (text or "").split() if w]
+        if not words:
+            return []
+        if len(words) <= limit:
+            return [" ".join(words)]
+        out: List[str] = []
+        cur: List[str] = []
+        for w in words:
+            cur.append(w)
+            if len(cur) >= limit:
+                out.append(" ".join(cur))
+                cur = []
+        if cur:
+            out.append(" ".join(cur))
+        return out
+
+    def _drain_en(self, flush: bool) -> List[str]:
+        out: List[str] = []
+        end = re.compile(r"[.!?]+(?:\s+|$)")
+        while self.buf:
+            m = end.search(self.buf)
+            if not m:
+                break
+            piece = self.buf[:m.end()]
+            self.buf = self.buf[m.end():]
+            out.extend(self._pack_words(piece, 16))
+        if flush:
+            out.extend(self._pack_words(self.buf, 16))
+            self.buf = ""
+        elif len(self.buf.split()) > 22:
+            words = self.buf.split()
+            out.append(" ".join(words[:16]))
+            self.buf = " ".join(words[16:])
+        return [s for s in out if s.strip()]
+
+    def _drain_mark(self, flush: bool) -> List[str]:
+        """日文 / 韩文：按句号切开，不按 20 个汉字硬切。"""
+        out: List[str] = []
+        end = re.compile(r"[。！？!?]+")
+        while self.buf:
+            m = end.search(self.buf)
+            if not m:
+                break
+            piece = self.buf[:m.end()]
+            self.buf = self.buf[m.end():]
+            if piece.strip():
+                out.append(piece.strip())
+        if flush:
+            if self.buf.strip():
+                out.append(self.buf.strip())
+            self.buf = ""
+        elif len(self.buf) > 48:
+            out.append(self.buf[:40])
+            self.buf = self.buf[40:]
+        return [s for s in out if s.strip()]
 
     def _drain_hard(self) -> List[str]:
         out: List[str] = []

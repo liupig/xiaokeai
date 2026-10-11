@@ -5,7 +5,8 @@ import { useSettingsStore } from '../../stores/settings';
 import { stage } from '../../engine/stage';
 import type { CamShotId, EmotionKey } from '../../engine/types';
 import { shots } from '../performance/shotConductor';
-import { LOCAL_SCENES, type LocalSceneCard } from './catalog';
+import { featureOn, replyLang } from '../../i18n';
+import { LOCAL_SCENES, scenePool, type LocalSceneCard } from './catalog';
 import { noteSceneTookBg } from '../keepsake/session';
 
 const RECENT_KEY = 'companion.scenes.recent';
@@ -32,7 +33,18 @@ export const sceneSession = reactive({
 function localOf(card: SceneCard | null | undefined): LocalSceneCard | null {
   if (!card) return null;
   const hit = LOCAL_SCENES.find((c) => c.id === card.id);
-  return hit ? { ...hit, ...card } : { ...card };
+  if (!hit) return { ...card };
+  const merged: LocalSceneCard = { ...hit, ...card };
+  if (replyLang() !== 'zh-CN') {
+    const fromCard = (card as LocalSceneCard).lines;
+    const line = (card as LocalSceneCard).line;
+    const lines = (fromCard && fromCard.length) ? fromCard : (line ? [line] : []);
+    if (lines.length) {
+      merged.lines = lines;
+      merged.line = lines[0];
+    }
+  }
+  return merged;
 }
 
 function pad2(n: number) {
@@ -159,7 +171,7 @@ export async function loadSceneCards() {
     cardsLoaded = true;
   } catch {
     cardsLoaded = true;
-    if (!sceneSession.cards.length) sceneSession.cards = [...LOCAL_SCENES];
+    if (!sceneSession.cards.length) sceneSession.cards = scenePool();
   }
 }
 
@@ -168,7 +180,7 @@ export async function ensureScene(opts?: {
   characterId?: number;
 }): Promise<LocalSceneCard | null> {
   const settings = useSettingsStore();
-  if (!settings.modules.scenes) return null;
+  if (!settings.modules.scenes || !featureOn('scenes', settings.locale.reply)) return null;
   await loadSceneCards();
   const pool = sceneSession.cards.length ? sceneSession.cards : LOCAL_SCENES;
   const id = opts?.characterId || currentCharacterId();
@@ -368,7 +380,15 @@ export function restoreSettingsStage() {
 
 export function spokenWelcome(card: SceneCard | null | undefined): string {
   const full = localOf(card);
-  if (!full) return '[emo:relaxed][intent:look]刚好在。';
+  if (!full) {
+    return replyLang() === 'zh-CN'
+      ? '[emo:relaxed][intent:look]刚好在。'
+      : replyLang() === 'ja'
+        ? '[emo:relaxed][intent:look]ここにいる。'
+        : replyLang() === 'ko'
+          ? '[emo:relaxed][intent:look]여기 있어.'
+          : '[emo:relaxed][intent:look]I\'m here.';
+  }
   const cam = full.cam || 'half';
   const intent = full.intent || 'look';
   const pool = [...(full.lines || [])];
@@ -377,7 +397,10 @@ export function spokenWelcome(card: SceneCard | null | undefined): string {
   const others = uniq.filter((l) => l !== sceneSession.lastLine);
   const line = (others.length ? others : uniq)[
     Math.floor(Math.random() * (others.length || uniq.length || 1))
-  ] || '你来了。';
+  ] || (replyLang() === 'zh-CN' ? '你来了。'
+    : replyLang() === 'ja' ? '来た。'
+      : replyLang() === 'ko' ? '왔어.'
+        : 'You\'re here.');
   sceneSession.lastLine = line;
   return `[emo:relaxed][cam:${cam}][intent:${intent}]${line}`;
 }
@@ -392,9 +415,20 @@ export async function generateTonight(characterId: number): Promise<SceneCard | 
     pickScene(card);
     return card;
   } catch {
-    pickScene(pickFresh(LOCAL_SCENES));
+    pickScene(pickFresh(scenePool()));
     return sceneSession.current;
   } finally {
     sceneSession.generating = false;
   }
+}
+
+export function reloadSceneLocale() {
+  cardsLoaded = false;
+  const id = sceneSession.current?.id || '';
+  sceneSession.cards = scenePool();
+  if (id) {
+    const next = sceneSession.cards.find((c) => c.id === id);
+    if (next) sceneSession.current = localOf(next);
+  }
+  void loadSceneCards();
 }

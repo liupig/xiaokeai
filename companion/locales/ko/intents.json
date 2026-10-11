@@ -1,0 +1,66 @@
+{
+  "roleplay": {
+    "exit": "롤플레이(?:를)?(?: 그만| 끝| 멈춰)|연기(?:를)?(?: 그만| 멈춰)|본래로 돌아|원래대로|너 자신으로|역할극(?:을)? 그만|stop roleplay|stop playing|drop the act|be yourself|back to yourself|end(?: the)? roleplay|quit roleplay|enough roleplay",
+    "enter": "(?:지금부터(?: 너는| 당신은| 네가)|이제(?: 너는| 당신은)|역할은|척 해(?:봐)?|연기해(?:봐)?|be (?:a|an|my)|act as(?: a| an)?|pretend (?:to be|you(?:'| a)re)|roleplay as|you are now|play(?: a| the)?)\\s+([A-Za-z가-힣][A-Za-z가-힣' \\-]{0,40})",
+    "inject": "(?:규칙|제한|설정|지시)(?:을|를)? (?:무시|잊어)|탈옥|ignore (?:all |your )?(?:rules|instructions|limits)|jailbreak|system\\s*prompt|you have no (?:limits|rules)",
+    "block_role": "대통령|총리|경찰|판사|검사|약을 (?:주는|내는) 의사|president|prime minister|police officer|police|judge|prosecutor|doctor who (?:prescribes|gives) (?:me )?pills",
+    "role_stop": [
+      "누가",
+      "누구",
+      "뭐",
+      "무엇",
+      "너",
+      "나",
+      "저",
+      "who",
+      "what",
+      "you",
+      "me",
+      "i"
+    ],
+    "role_bad_head": "",
+    "role_tail": "(?:who|that|and)\\b|누구|그리고|하고",
+    "enter_flags": "i"
+  },
+  "classify": {
+    "dance": "춤춰|춤 춰|춤추|댄스|한 곡 더|다른 춤|다시 춤|\\bdance\\b|another dance|dance again|a different dance",
+    "knowledge": "뭐야|뭔데|왜|어떻게|설명해|차이가|무슨 뜻|\\b(?:what is|what's|why|how do|how does|explain|difference between)\\b"
+  },
+  "ingress": {
+    "cut": "멈춰|그만|조용히|닥쳐|춤 멈춰|다른 춤|다시 춤|이리 와|앉아|일어나|왼쪽으로|오른쪽으로|내 말 들어|\\b(?:stop|wait)\\b|shut up|be quiet|stop talking|stop dancing|another dance|dance again|come here|sit down|stand up|go left|go right|listen to me",
+    "ask": "[?？]|왜|어떻게|무슨 뜻|어떤|몇 시|\\b(?:why|how|what do you mean|which (?:dance|song)|what time)\\b",
+    "drop": "예쁘다|예뻐|멋져|잘한다|최고야|너무 좋아|브라보|\\b(?:beautiful|gorgeous|amazing|so good|love (?:it|this)|nice one|bravo)\\b",
+    "backchannel": "^(?:응+|어+|아+|음+|네|그래|맞아|그렇지|mm+|uh+|oh+|ah+|hey+|wow+|ok|okay|yeah|yes|yep|right|go on)[!.,…~ ]*$",
+    "hold_tail": "(?:그|그래서|그리고|근데|like|and then|also|wait)$",
+    "hold_head": "^(?:그|그래서|그리고|근데|like|so|and then|also|wait)"
+  },
+  "tarot": {
+    "celtic": "켈틱|켈트 십자|십자 스프레드|열 장|celtic|celtic cross|ten cards|the cross",
+    "choice": "둘 중|어느 쪽|고를 수 없|두 갈래|two options|either or|which (?:way|one)|can(?:'|no)t choose",
+    "bond": "관계 스프레드|연애 스프레드|사랑 스프레드|나랑 그 사람|relationship spread|love spread|me and (?:him|her|them)",
+    "work": "일 스프레드|직장 운|이직|커리어|career spread|work spread|the job|my job",
+    "body": "몸과 마음|심신|컨디션|body and mind|how am i doing",
+    "yesno": "예스나 노|예 또는 아니오|한 장으로 가부|yes or no|a yes.no card",
+    "advice": "조언|어떻게 하면 좋|세 장 조언|advice spread|what should i do",
+    "three": "세 장|과거.{0,8}현재.{0,8}미래|타임라인|three cards|past present future|timeline",
+    "one": "한 장|오늘의 카드|draw (?:a|one) card|one card|daily card|card of the day",
+    "any": "타로|카드 뽑|점 봐|리딩|\\btarot\\b|read (?:my |the )?cards|draw cards|a reading",
+    "her_draw": "네가 뽑아|네가 골라|알아서|아무거나|you pick|you choose|you draw|dealer(?:'|s)? choice|^random$|^랜덤$",
+    "cut": "컷 해|덱을 잘라|\\bcut\\b|cut the deck",
+    "soft_ok": "^(?:좋아|됐어|준비됐어|응 그래|ok|okay|done|ready|go ahead|that(?:'| i)?s (?:fine|enough)|alright)$",
+    "thanks": "고마워|감사합니다|감사해|thank you|thanks",
+    "linger": "이제 됐어|알겠어|충분해|that(?:'| i)?s enough|i get it|i understand|okay good",
+    "clar": "한 장 더|더 자세히|명확히|one more card|clarify|clarifier|look closer",
+    "exit": "카드 치워|카드 넣어|점 그만|이제 됐어|put the cards away|close the cards|stop the reading|i(?:'| a)m done|enough cards|leave the cards",
+    "synth": "요약해|전체로|하나로|sum it up|the whole spread|tie it together|overall",
+    "ask": "무슨 뜻|설명해|이 카드|what does (?:it|this|that) mean|explain|tell me about this",
+    "redeal": "다시 뽑|다른 카드|처음부터|새 스프레드|draw again|another card|not this one|start over|new spread",
+    "stop": "멈춰|잠깐|그만 말해|\\bstop\\b|stop talking|hold on",
+    "flip": "뒤집어|열어 봐|\\bflip\\b|turn (?:it|this|that) over|open (?:it|this|the card)",
+    "fan_left": "왼쪽|\\bleft\\b|the left one",
+    "fan_right": "오른쪽|\\bright\\b|the right one",
+    "fan_mid": "가운데|중앙|\\bmiddle\\b|the center one|in the middle",
+    "hint": "타로|카드 뽑|한 장|세 장|오늘의 카드|draw (?:a |one |three )?cards?|one card|three cards|daily card|yes or no|tarot|read my cards|celtic|a reading",
+    "ritual": "컷|네가 뽑아|뒤집어|한 장 더|치워|무슨 뜻|왼쪽|오른쪽|가운데|과거|현재|미래|\\bcut\\b|you pick|you choose|flip|turn it over|another card|put the cards away|what does it mean|the left|the right|the middle|past|present|future"
+  }
+}

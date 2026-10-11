@@ -1,4 +1,5 @@
 import type { SceneCard } from '../../api/client';
+import { contentPack, replyLang } from '../../i18n';
 
 const TEX = {
   jade: '/textures/tex_jade.png',
@@ -182,3 +183,34 @@ export const LOCAL_SCENES: LocalSceneCard[] = [
     ['有蛋。你煎。', '别关灯。我还没找着辣椒。', '吃完再说走不走。'],
     { texture: TEX.wood, color: '#2b211a', glow: '#e6a358' }),
 ];
+
+const SCENE_CAMS = new Set(['close', 'bust', 'half', 'threeQ', 'full', 'long']);
+
+/** 非中文只保留该语言 content 里有的场，舞台贴图仍用本地卡。 */
+export function scenePool(): LocalSceneCard[] {
+  if (replyLang() === 'zh-CN') return LOCAL_SCENES;
+  const pack = (contentPack().scenes_list || []) as Array<Record<string, unknown>>;
+  const byId = new Map(pack.map((row) => [String(row.id || ''), row]));
+  const out: LocalSceneCard[] = [];
+  for (const base of LOCAL_SCENES) {
+    const hit = byId.get(base.id);
+    if (!hit) continue;
+    const cam = String(hit.cam || '');
+    const intent = String(hit.intent || '');
+    const bg = String(hit.background || '');
+    const lines = Array.isArray(hit.lines) ? hit.lines.map((x) => String(x)) : [];
+    out.push({
+      ...base,
+      title: String(hit.title || base.title),
+      setting: String(hit.setting || base.setting),
+      conflict: String(hit.conflict || base.conflict),
+      opening: String(hit.opening || base.opening),
+      cam: SCENE_CAMS.has(cam) ? cam : base.cam,
+      intent: intent && !intent.startsWith('/') ? intent : base.intent,
+      background: bg.startsWith('/') ? bg : base.background,
+      line: lines[0] || String(hit.opening || ''),
+      lines: lines.length ? lines : [String(hit.opening || base.opening || '')],
+    });
+  }
+  return out;
+}

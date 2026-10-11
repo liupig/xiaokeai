@@ -296,7 +296,8 @@ def fallback_tts(reason: str) -> None:
         if (tts.get("engine") or "").strip().lower() in ("edge", "browser", "off"):
             return
         tts["engine"] = "edge"
-        tts["voice"] = EDGE_VOICE
+        from .locale_pack import default_voice, reply_of
+        tts["voice"] = default_voice("edge", reply_of(conf))
         hw = _hw_blob(conf)
         hw["failed"]["tts"] = reason[:400]
         hw["reason"] = f"TTS 已改用免费在线 edge-tts：{reason}"[:400]

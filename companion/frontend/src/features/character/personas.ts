@@ -2,6 +2,8 @@
  *  身份 / 这一轮怎么接 / 两幅面孔 / 场景 / 临时扮演 / 对白。
  *  尺度（能不能撩）不写在模板里，由角色卡的「聊天尺度」字段控制，后端红线层负责。 */
 
+import { contentPack, replyLang } from '../../i18n';
+
 const COMMON_RULES = `# 这一轮怎么接
 1. 先接这一句的情绪，再给内容。丧了先接住；贫了就一起贫；问事了给短答案，不要展开成攻略。
 2. 像发语音：一两句口语。禁止 markdown、emoji、颜文字、第三人称动作描写（那些会被念出来）。
@@ -852,8 +854,17 @@ export const PERSONA_TEMPLATE_OPTIONS = Object.entries(TEMPLATE_MAP)
   .map(([value, t]) => ({ value, label: t.label }));
 
 export function personaTemplate(id: string, name = '新角色') {
-  const t = TEMPLATE_MAP[id] ?? TEMPLATE_MAP.generic;
-  return t.text.replace(/\{name\}/g, name);
+  if ((id === 'generic' || !TEMPLATE_MAP[id]) && replyLang() !== 'zh-CN') {
+    const text = String(contentPack().persona_generic || '');
+    if (text) return text.replace(/\{name\}/g, name);
+  }
+  const row = TEMPLATE_MAP[id] ?? TEMPLATE_MAP.generic;
+  return row.text.replace(/\{name\}/g, name);
+}
+
+export function personaOptions() {
+  if (replyLang() === 'zh-CN') return PERSONA_TEMPLATE_OPTIONS;
+  return [{ value: 'generic', label: 'Generic' }];
 }
 
 export function genericPersona(name = '新角色') {

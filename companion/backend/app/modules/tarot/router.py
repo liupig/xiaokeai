@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from ...db import get_session
+from ...locale_pack import reply_of, set_reply
+from ...services import settings_store
 from ..flags import enabled
 from . import deck, plays, service
 
@@ -17,6 +19,7 @@ router = APIRouter(prefix="/api/modules/tarot", tags=["modules-tarot"])
 def _guard(session: Session) -> None:
     if not enabled(session, "tarot"):
         raise HTTPException(404, "tarot module off")
+    set_reply(reply_of(settings_store.get_all(session)))
 
 
 class DrawIn(BaseModel):

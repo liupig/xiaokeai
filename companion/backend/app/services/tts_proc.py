@@ -50,11 +50,12 @@ def main(in_q, out_q, cancel_ev) -> None:
             elif kind == "status":
                 out_q.put(("ok", "status", _status_inproc()))
             elif kind == "synth":
-                _, job, text, voice, size, instruct = cmd
+                _, job, text, voice, size, instruct, *extra = cmd
+                language = extra[0] if extra else ""
                 current["job"] = job
                 cancel_ev.clear()
                 try:
-                    for pcm in synthesize_pcm_sync(text, voice, size, instruct, cancel_ev):
+                    for pcm in synthesize_pcm_sync(text, voice, size, instruct, cancel_ev, language):
                         if cancel_ev.is_set():
                             break
                         out_q.put(("pcm", job, pcm))

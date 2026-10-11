@@ -21,6 +21,7 @@ from ..services import llm as llm_service
 from ..services import prompt_stack
 from ..services import settings_store
 from ..services.catalog import classify_motion, strip_category_prefix
+from ..locale_pack import normalize, prompts as locale_prompts, resolve_turn, set_reply
 from .. import talk_log
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -104,6 +105,29 @@ def _prompt_history(rows: List[ChatMessage]) -> List[Dict[str, str]]:
 @router.post("")
 async def chat(req: ChatRequest, request: Request, session: Session = Depends(get_session)):
     conf = settings_store.get_all(session)
+    lang = resolve_turn(conf, req.text or "", (req.mode or "user").lower())
+    loc = dict(conf.get("locale") or {})
+    if (loc.get("reply_mode") or "fixed") == "follow" and normalize(loc.get("reply") or "zh-CN") != lang:
+        from ..locale_pack import align_voice, voice_lang
+        loc["ui"] = normalize(loc.get("ui") or "zh-CN")
+        loc["reply"] = lang
+        loc["reply_mode"] = "follow"
+        tts_row = dict(conf.get("tts") or {})
+        voiced = align_voice(str(tts_row.get("engine") or ""), str(tts_row.get("voice") or ""), lang)
+        patch: Dict[str, Any] = {"locale": loc}
+        if voiced and voiced != tts_row.get("voice"):
+            book = dict(tts_row.get("voice_by_lang") or {})
+            old_reply = normalize((conf.get("locale") or {}).get("reply") or "zh-CN")
+            old_voice = str(tts_row.get("voice") or "")
+            if voice_lang(str(tts_row.get("engine") or ""), old_voice) == old_reply:
+                book[old_reply] = old_voice
+            book[lang] = voiced
+            tts_row["voice"] = voiced
+            tts_row["voice_by_lang"] = book
+            patch["tts"] = tts_row
+        settings_store.update(session, patch)
+        conf = settings_store.get_all(session)
+    set_reply(lang)
     char = session.get(Character, req.character_id)
     persona = char.persona if char else ""
 
@@ -196,29 +220,31 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
 
     llm_conf = conf.get("llm") or {}
     dx = duplex_service.duplex_conf(conf)
+    dxp = (locale_prompts().get("duplex") or {})
     hint = {
-        "continue": duplex_service.CONTINUE_HINT,
-        "proactive": duplex_service.PROACTIVE_HINT,
-        "goodbye": duplex_service.GOODBYE_HINT,
-        "welcome": duplex_service.WELCOME_HINT,
+        "continue": dxp.get("continue") or duplex_service.CONTINUE_HINT,
+        "proactive": dxp.get("proactive") or duplex_service.PROACTIVE_HINT,
+        "goodbye": dxp.get("goodbye") or duplex_service.GOODBYE_HINT,
+        "welcome": dxp.get("welcome") or duplex_service.WELCOME_HINT,
     }.get(mode)
     playing = hooks.scene_playing(session, req.character_id, extra)
     if mode == "goodbye":
         reason = (req.text or "").strip().lower()
         extra_g = (
-            "本次是会话总时长到了 SessionTimeover。"
+            str(dxp.get("goodbye_timeover") or "本次是会话总时长到了 SessionTimeover。")
             if "timeover" in reason
-            else "本次是用户沉默超时 SessionTimeout。"
+            else str(dxp.get("goodbye_timeout") or "本次是用户沉默超时 SessionTimeout。")
         )
-        hint = f"{duplex_service.GOODBYE_HINT} {extra_g}"
+        hint = f"{dxp.get('goodbye') or duplex_service.GOODBYE_HINT} {extra_g}"
     elif mode == "welcome" and playing:
         hint = None
     elif playing and mode == "continue":
-        hint = duplex_service.CONTINUE_IN_SCENE
+        hint = duplex_service.CONTINUE_IN_SCENE if lang == "zh-CN" else str(dxp.get("continue_scene") or duplex_service.CONTINUE_IN_SCENE)
     elif playing and mode == "proactive":
-        hint = duplex_service.PROACTIVE_IN_SCENE
+        hint = duplex_service.PROACTIVE_IN_SCENE if lang == "zh-CN" else str(dxp.get("proactive_scene") or duplex_service.PROACTIVE_IN_SCENE)
     elif mode == "welcome" and (req.text or "").strip():
-        hint = f"{duplex_service.WELCOME_HINT}\n补充：{(req.text or '').strip()}"
+        extra_w = str(dxp.get("welcome_extra") or "补充：")
+        hint = f"{dxp.get('welcome') or duplex_service.WELCOME_HINT}\n{extra_w}{(req.text or '').strip()}"
     tarot_afterglow = False
     if module_on(session, "tarot"):
         from ..modules.tarot.service import peek_exited as tarot_peek_exited
@@ -227,16 +253,16 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         from ..modules.tarot.service import snapshot as tarot_snap
         phase = str((tarot_snap(req.character_id) or {}).get("phase") or "")
         if phase == "synth":
-            hint = duplex_service.TAROT_SYNTH_HINT
+            hint = str(dxp.get("tarot_synth") or duplex_service.TAROT_SYNTH_HINT)
         else:
-            hint = (
+            hint = str(dxp.get("tarot_continue") or (
                 "还在看牌这场戏里。按临时身份里【这一轮任务】往下讲指定的那一张，"
                 "不要问对方还看不看、要不要再抽，不要寒暄，不要说「还在扒拉牌阵吗」。"
-            )
+            ))
     elif tarot_now and mode == "proactive":
         hint = None
     elif tarot_afterglow and mode in ("continue", "proactive", "user"):
-        hint = duplex_service.AFTERGLOW_HINT
+        hint = str(dxp.get("afterglow") or duplex_service.AFTERGLOW_HINT)
     elif mode == "codewatch":
         from ..modules.codewatch.speak import from_request as codewatch_hint
         hint = codewatch_hint(extra)

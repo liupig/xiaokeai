@@ -6,6 +6,7 @@ import { peekIngressCut } from './ingress';
 import { getMicStream, noteEchoLeak, isWasmMicStream } from './aec';
 import { isTarotVoiceCommand } from '../tarot/intent';
 import { tarotUi } from '../tarot/session';
+import { bcp } from '../../i18n';
 
 type MicVAD = import('@ricky0123/vad-web').MicVAD;
 
@@ -413,7 +414,7 @@ export class SpeechInput {
       w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!Ctor) return false;
     const rec = new Ctor();
-    rec.lang = 'zh-CN';
+    rec.lang = bcp();
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = (event: any) => {

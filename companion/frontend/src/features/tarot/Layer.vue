@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { tarotUi, askAbout, tarotGameLock, doCut, doHerDraw, doReveal, pickPlay } from './session';
 
 function pick(i: number) {
@@ -22,7 +23,7 @@ function playLabel(p: { title: string; n: number }) {
   <div class="tarot-layer" aria-live="polite">
     <div class="top">
       <transition name="fade">
-        <p v-if="tarotUi.disclaimer" class="note">仅供娱乐，不构成建议</p>
+        <p v-if="tarotUi.disclaimer" class="note">{{ t('tarot.note') }}</p>
         <p v-else-if="tarotUi.hint" class="note">{{ tarotUi.hint }}</p>
         <p v-else-if="tarotGameLock() && tarotUi.phase === 'open'" class="note">
           看牌中 · 点背面翻开
@@ -47,8 +48,8 @@ function playLabel(p: { title: string; n: number }) {
       </button>
     </div>
     <div class="hud">
-      <button v-if="tarotUi.canCut || tarotUi.phase === 'shuffle'" type="button" @click="doCut()">切牌</button>
-      <button v-if="tarotUi.canHerDraw" type="button" @click="doHerDraw()">你来抽</button>
+      <button v-if="tarotUi.canCut || tarotUi.phase === 'shuffle'" type="button" @click="doCut()">{{ t('tarot.cut') }}</button>
+      <button v-if="tarotUi.canHerDraw" type="button" @click="doHerDraw()">{{ t('tarot.her') }}</button>
     </div>
     <div v-if="tarotUi.cards.length && (tarotUi.phase === 'placed' || tarotUi.phase === 'open' || tarotUi.phase === 'linger' || tarotUi.phase === 'synth')" class="chips">
       <button

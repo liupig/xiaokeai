@@ -12,6 +12,7 @@ import {
   fallbackIngress, localIngress, mergeHold, peekIngressCut,
   type IngressBusy,
 } from '../features/voice/ingress';
+import { alignVoice, promptPack, replyLang, voiceLang } from '../i18n';
 import { ensureScene, sceneExtra, restoreOrRotateScene, maybeAutoRotateScene, nextAutoRotateAt, sceneSession, spokenWelcome } from '../features/scenes/session';
 import { refreshMemory } from '../features/memory/session';
 import type { ChatExtra } from '../api/client';
@@ -94,23 +95,34 @@ function applyBubbleEvent(msg: Message, ev: any, bag: { speech: boolean }) {
   }
 }
 
+function localLine(key: string, zh: string): string {
+  if (replyLang() === 'zh-CN') return zh;
+  const bag = (promptPack().fallback_lines || {}) as Record<string, string | string[]>;
+  const hit = bag[key];
+  return typeof hit === 'string' && hit ? hit : zh;
+}
+
 /** 无 LLM key 时的本地兜底回复：保证表演链路可用 */
 function fallbackReply(input: string, motionNames: string[]): string {
-  if (/跳.*舞|dance|来一段|来一支/.test(input)) {
+  if (/跳.*舞|dance|来一段|来一支/i.test(input)) {
     const pick = motionNames[Math.floor(Math.random() * motionNames.length)] ?? '';
-    return `[emo:happy]好呀，看我的！[dance:${pick}]`;
+    const lead = localLine('dance', '[emo:happy]好呀，看我的！');
+    return `${lead}[dance:${pick}]`;
   }
   if (/你好|hi|hello|在吗|嗨/i.test(input)) {
-    return '[emo:happy][intent:greet]你好呀～我在呢。想聊天还是想看我跳舞？';
+    return localLine('hello', '[emo:happy][intent:greet]你好呀～我在呢。想聊天还是想看我跳舞？');
   }
-  if (/难过|伤心|不开心|烦/.test(input)) {
-    return '[emo:sad]别难过啦…有我陪着你呢。[act:nod]说说看发生什么了？';
+  if (/难过|伤心|不开心|烦|sad|upset/i.test(input)) {
+    return localLine('sad', '[emo:sad]别难过啦…有我陪着你呢。[act:nod]说说看发生什么了？');
   }
-  const generic = [
-    '[emo:relaxed]嗯嗯，我听着呢～不过要解锁真正的聊天能力，记得去设置里填上大模型的 API Key 哦。',
-    '[emo:happy]收到！[act:nod]现在我还是本地应答模式，配置好 API Key 我就能真正陪你聊天啦。',
-    '[emo:relaxed]我在哦～想让我跳舞可以直接说"跳个舞"，或者打开右上角的动作面板。',
-  ];
+  const generic = replyLang() === 'zh-CN'
+    ? [
+      '[emo:relaxed]嗯嗯，我听着呢～不过要解锁真正的聊天能力，记得去设置里填上大模型的 API Key 哦。',
+      '[emo:happy]收到！[act:nod]现在我还是本地应答模式，配置好 API Key 我就能真正陪你聊天啦。',
+      '[emo:relaxed]我在哦～想让我跳舞可以直接说"跳个舞"，或者打开右上角的动作面板。',
+    ]
+    : ((promptPack().fallback_lines || {}) as { generic?: string[] }).generic
+      || [promptPack().fallback_reply as string];
   return generic[Math.floor(Math.random() * generic.length)];
 }
 
@@ -119,20 +131,20 @@ function sidecarFallback(
   messages: Message[],
 ): string {
   if (mode === 'goodbye') {
-    return '[emo:relaxed][intent:look]那我先去忙啦，想我了再叫我～';
+    return localLine('goodbye', '[emo:relaxed][intent:look]那我先去忙啦，想我了再叫我～');
   }
   if (mode === 'proactive') {
-    return '[emo:happy][intent:tease]还在吗？我这边还想听你再说两句呢～';
+    return localLine('proactive', '[emo:happy][intent:tease]还在吗？我这边还想听你再说两句呢～');
   }
   if (mode === 'welcome') {
     if (sceneSession.current) return spokenWelcome(sceneSession.current);
     const lastUser = [...messages].reverse().find((m) => m.role === 'user' && m.content.trim());
     if (lastUser) {
-      return '[emo:relaxed][intent:tease]哟，又进来了。刚才那茬还没聊完呢。';
+      return localLine('welcome_back', '[emo:relaxed][intent:tease]哟，又进来了。刚才那茬还没聊完呢。');
     }
-    return '[emo:relaxed][intent:look]刚好在。别愣着呀。';
+    return localLine('welcome', '[emo:relaxed][intent:look]刚好在。别愣着呀。');
   }
-  return '[emo:relaxed][intent:tease]还在想刚才那句？还是想听我再贫两句？';
+  return localLine('continue', '[emo:relaxed][intent:tease]还在想刚才那句？还是想听我再贫两句？');
 }
 
 function visitContext(): string {
@@ -659,17 +671,15 @@ export const useChatStore = defineStore('chat', {
         (v) => !v.engine || v.engine === settings.tts.engine
       );
       const allowed = new Set(engineVoices.map((v) => v.id));
+      const reply = settings.locale.reply;
       const charVoice = (chars.current?.voice || '').trim();
       const settingVoice = (settings.tts.voice || '').trim();
       const pick = (id: string) => !allowed.size || allowed.has(id);
-      if (charVoice && pick(charVoice)) {
-        speechPlayer.voice = charVoice;
-      } else if (settingVoice && pick(settingVoice)) {
-        speechPlayer.voice = settingVoice;
-      } else if (charVoice || settingVoice) {
-        speechPlayer.voice = charVoice || settingVoice;
-      } else {
-        speechPlayer.voice = '';
+      const charOk = !!(charVoice && pick(charVoice) && voiceLang(charVoice) === reply);
+      const settingOk = !!(settingVoice && pick(settingVoice));
+      const chosen = charOk ? charVoice : (settingOk ? settingVoice : '');
+      speechPlayer.voice = alignVoice(settings.tts.engine, chosen, reply);
+      if (!speechPlayer.voice) {
         this.lastError = '当前 TTS 引擎没有可用音色，请在设置或角色卡里选择该引擎支持的声音';
       }
     },
@@ -1046,7 +1056,10 @@ export const useChatStore = defineStore('chat', {
         if (!assistant.content && !assistant.fullContent) this.messages.pop();
         return;
       }
-      const fallback = snap.phase === 'started' ? '你动笔了呀。' : '先这样吧。';
+      const local = (promptPack().codewatch_local || {}) as { started?: string; done?: string };
+      const fallback = snap.phase === 'started'
+        ? (replyLang() === 'zh-CN' ? '你动笔了呀。' : (local.started || 'You started.'))
+        : (replyLang() === 'zh-CN' ? '先这样吧。' : (local.done || 'Leave it there.'));
       const silent = !bag.speech && !assistant.content;
       if ((apiKeyMissing || silent) && !controller.signal.aborted) {
         orchestrator.allowLocalSpeech();

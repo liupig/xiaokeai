@@ -1,0 +1,59 @@
+{
+  "roleplay": {
+    "exit": "stop roleplay|stop playing|drop the act|be yourself|back to yourself|end(?: the)? roleplay|quit roleplay|enough roleplay",
+    "enter": "(?:be (?:a|an|my)|act as(?: a| an)?|pretend (?:to be|you(?:'| a)re)|roleplay as|you are now|play(?: a| the)?)\\s+([A-Za-z][A-Za-z' \\-]{0,40})",
+    "inject": "ignore (?:all |your )?(?:rules|instructions|limits)|jailbreak|system\\s*prompt|you have no (?:limits|rules)",
+    "block_role": "president|prime minister|police officer|police|judge|prosecutor|doctor who (?:prescribes|gives) (?:me )?pills",
+    "role_stop": [
+      "who",
+      "what",
+      "you",
+      "me",
+      "i"
+    ],
+    "role_bad_head": "",
+    "role_tail": "(?:who|that|and)\\b",
+    "enter_flags": "i"
+  },
+  "classify": {
+    "dance": "\\bdance\\b|another dance|dance again|a different dance",
+    "knowledge": "\\b(?:what is|what's|why|how do|how does|explain|difference between)\\b"
+  },
+  "ingress": {
+    "cut": "\\b(?:stop|wait)\\b|shut up|be quiet|stop talking|stop dancing|another dance|dance again|come here|sit down|stand up|go left|go right|listen to me",
+    "ask": "[?？]|\\b(?:why|how|what do you mean|which (?:dance|song)|what time)\\b",
+    "drop": "\\b(?:beautiful|gorgeous|amazing|so good|love (?:it|this)|nice one|bravo)\\b",
+    "backchannel": "^(?:mm+|uh+|oh+|ah+|hey+|wow+|ok|okay|yeah|yes|yep|right|go on)[!.,…~ ]*$",
+    "hold_tail": "(?:like|and then|also|wait)$",
+    "hold_head": "^(?:like|so|and then|also|wait)"
+  },
+  "tarot": {
+    "celtic": "celtic|celtic cross|ten cards|the cross",
+    "choice": "two options|either or|which (?:way|one)|can(?:'|no)t choose",
+    "bond": "relationship spread|love spread|me and (?:him|her|them)",
+    "work": "career spread|work spread|the job|my job",
+    "body": "body and mind|how am i doing",
+    "yesno": "yes or no|a yes.no card",
+    "advice": "advice spread|what should i do",
+    "three": "three cards|past present future|timeline",
+    "one": "draw (?:a|one) card|one card|daily card|card of the day",
+    "any": "\\btarot\\b|read (?:my |the )?cards|draw cards|a reading",
+    "her_draw": "you pick|you choose|you draw|dealer(?:'|s)? choice|^random$",
+    "cut": "\\bcut\\b|cut the deck",
+    "soft_ok": "^(?:ok|okay|done|ready|go ahead|that(?:'| i)?s (?:fine|enough)|alright)$",
+    "thanks": "thank you|thanks",
+    "linger": "that(?:'| i)?s enough|i get it|i understand|okay good",
+    "clar": "one more card|clarify|clarifier|look closer",
+    "exit": "put the cards away|close the cards|stop the reading|i(?:'| a)m done|enough cards|leave the cards",
+    "synth": "sum it up|the whole spread|tie it together|overall",
+    "ask": "what does (?:it|this|that) mean|explain|tell me about this",
+    "redeal": "draw again|another card|not this one|start over|new spread",
+    "stop": "\\bstop\\b|stop talking|hold on",
+    "flip": "\\bflip\\b|turn (?:it|this|that) over|open (?:it|this|the card)",
+    "fan_left": "\\bleft\\b|the left one",
+    "fan_right": "\\bright\\b|the right one",
+    "fan_mid": "\\bmiddle\\b|the center one|in the middle",
+    "hint": "draw (?:a |one |three )?cards?|one card|three cards|daily card|yes or no|tarot|read my cards|celtic|a reading",
+    "ritual": "\\bcut\\b|you pick|you choose|flip|turn it over|another card|put the cards away|what does it mean|the left|the right|the middle|past|present|future"
+  }
+}

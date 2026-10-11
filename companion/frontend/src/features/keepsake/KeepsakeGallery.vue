@@ -4,6 +4,7 @@ import { NButton, NDrawer, NDrawerContent } from 'naive-ui';
 import { api } from '../../api/client';
 import { useCharacterStore } from '../../stores/character';
 import { useSettingsStore } from '../../stores/settings';
+import { t } from '../../i18n';
 import { applySceneStage, restoreSettingsStage, sceneSession } from '../scenes/session';
 import {
   isKeepsakeBgUrl, keepsakeSession, refreshKeepsakes,
@@ -67,27 +68,27 @@ async function clearKeepsakeBg() {
 <template>
   <n-drawer :show="show" @update:show="onShow" :width="420" placement="right"
             show-mask="transparent" to="body">
-    <n-drawer-content title="证物相册" closable :native-scrollbar="false">
-      <p class="hint">舞台上截下的剧照和短片。当背景只盖一层，不会改掉今晚这场戏；随时可以取消。</p>
+    <n-drawer-content :title="t('top.keepsake')" closable :native-scrollbar="false">
+      <p class="hint">{{ t('keep.hint') }}</p>
       <div v-if="overlayOn" class="bar">
-        <span>证物正在当背景</span>
-        <n-button size="tiny" type="primary" secondary @click="clearKeepsakeBg">取消，回到环境</n-button>
+        <span>{{ t('keep.asBg') }}</span>
+        <n-button size="tiny" type="primary" secondary @click="clearKeepsakeBg">{{ t('keep.back') }}</n-button>
       </div>
-      <div v-if="!keepsakeSession.items.length" class="empty">还没有证物。对话栏快门可以拍一张或录 8 秒。</div>
+      <div v-if="!keepsakeSession.items.length" class="empty">{{ t('keep.empty') }}</div>
       <div class="grid">
         <figure v-for="it in keepsakeSession.items" :key="it.id">
           <video v-if="it.kind === 'clip'" controls playsinline preload="metadata">
             <source :src="mediaUrl(it.url)" :type="it.mime || 'video/mp4'" />
           </video>
-          <img v-else :src="mediaUrl(it.url)" :alt="it.caption || '剧照'" />
+          <img v-else :src="mediaUrl(it.url)" :alt="it.caption || t('keep.still')" />
           <figcaption>
-            <span>{{ it.caption || it.quote || (it.kind === 'clip' ? '短片' : '剧照') }}</span>
+            <span>{{ it.caption || it.quote || (it.kind === 'clip' ? t('keep.clipWord') : t('keep.still')) }}</span>
             <span class="acts">
               <n-button v-if="it.kind !== 'clip' && isCurrentBg(it.url)" size="tiny" quaternary
-                        @click="clearKeepsakeBg">取消背景</n-button>
+                        @click="clearKeepsakeBg">{{ t('keep.clearBg') }}</n-button>
               <n-button v-else-if="it.kind !== 'clip'" size="tiny" quaternary
-                        @click="useAsBg(it.url)">当背景</n-button>
-              <n-button size="tiny" quaternary @click="drop(it.id)">删除</n-button>
+                        @click="useAsBg(it.url)">{{ t('keep.useBg') }}</n-button>
+              <n-button size="tiny" quaternary @click="drop(it.id)">{{ t('keep.delete') }}</n-button>
             </span>
           </figcaption>
         </figure>

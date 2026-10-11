@@ -8,8 +8,10 @@ import {
 import { api, type AssetItem, type OnlineWork } from '../../api/client';
 import { useAssetsStore } from '../../stores/assets';
 import { useCharacterStore } from '../../stores/character';
+import { useSettingsStore } from '../../stores/settings';
+import { t } from '../../i18n';
 import {
-  MOTION_CATS, catLabel, guessWorkCat, parseMotionCat, stripCatPrefix,
+  MOTION_CATS, guessWorkCat, parseMotionCat, stripCatPrefix,
   type MotionCat,
 } from './motionMeta';
 
@@ -18,29 +20,41 @@ const emit = defineEmits<{ (e: 'update:show', v: boolean): void }>();
 
 const assets = useAssetsStore();
 const characters = useCharacterStore();
+const settings = useSettingsStore();
 const message = useMessage();
 const downloadUrl = ref('');
 const search = ref('');
 const motionFilter = ref<MotionCat | 'all'>('all');
 const recategorizing = ref(false);
 
-const SEARCH_CHIPS: { kw: string; cat: MotionCat | 'cinematic' | ''; label: string }[] = [
-  { kw: '待机', cat: 'idle', label: '待机' },
-  { kw: '打招呼', cat: 'greet', label: '打招呼' },
-  { kw: '挥手', cat: 'greet', label: '挥手' },
-  { kw: '鞠躬', cat: 'interact', label: '鞠躬' },
-  { kw: '比心', cat: 'interact', label: '比心' },
-  { kw: '坐姿', cat: 'interact', label: '坐姿' },
-  { kw: '思考', cat: 'interact', label: '思考' },
-  { kw: '害羞', cat: 'interact', label: '害羞' },
-  { kw: '叉腰', cat: 'interact', label: '叉腰' },
-  { kw: '点头', cat: 'interact', label: '点头' },
-  { kw: '动作包', cat: '', label: '动作包' },
-  { kw: '镜头', cat: 'cinematic', label: '运镜' },
-  { kw: 'カメラ', cat: 'cinematic', label: 'カメラ' },
-];
+const searchChips = computed(() => {
+  settings.locale.ui;
+  return [
+    { kw: '待机', cat: 'idle' as const, label: t('cat.idle') },
+    { kw: '打招呼', cat: 'greet' as const, label: t('cat.greet') },
+    { kw: '挥手', cat: 'greet' as const, label: t('intent.greet') },
+    { kw: '鞠躬', cat: 'interact' as const, label: t('intent.bow') },
+    { kw: '比心', cat: 'interact' as const, label: t('intent.heart') },
+    { kw: '坐姿', cat: 'interact' as const, label: t('intent.sit') },
+    { kw: '思考', cat: 'interact' as const, label: t('intent.think') },
+    { kw: '害羞', cat: 'interact' as const, label: t('intent.shy') },
+    { kw: '叉腰', cat: 'interact' as const, label: t('assets.chipAkimbo') },
+    { kw: '点头', cat: 'interact' as const, label: t('intent.nod') },
+    { kw: '动作包', cat: '' as const, label: t('assets.chipPack') },
+    { kw: '镜头', cat: 'cinematic' as const, label: t('quick.move') },
+    { kw: 'カメラ', cat: 'cinematic' as const, label: t('assets.chipCamJa') },
+  ];
+});
 
-const catSelectOptions = MOTION_CATS.map((c) => ({ label: c.label, value: c.key }));
+const catSelectOptions = computed(() => {
+  settings.locale.ui;
+  return MOTION_CATS.map((c) => ({ label: t(`cat.${c.key}`), value: c.key }));
+});
+
+function catName(cat: MotionCat) {
+  settings.locale.ui;
+  return t(`cat.${cat}`);
+}
 
 const filteredCameras = computed(() => filterAssets(assets.cameras));
 const filteredMotions = computed(() => {
@@ -75,9 +89,9 @@ async function startDownload() {
   try {
     await assets.startDownload(url, searchCat.value);
     downloadUrl.value = '';
-    message.success('下载任务已创建，导入后会自动归类');
+    message.success(t('assets.taskOk'));
   } catch (e) {
-    message.error(`创建失败：${e}`);
+    message.error(t('assets.createFail', { err: String(e) }));
   }
 }
 
@@ -85,10 +99,10 @@ async function customUpload({ file, onFinish, onError }: UploadCustomRequestOpti
   try {
     const created = await assets.importFile(file.file as File);
     const cats = created.map((c: AssetItem) => stripCatPrefix(c.label)).join('、');
-    message.success(`导入成功：${cats}`);
+    message.success(t('assets.imported', { cats }));
     onFinish();
   } catch (e) {
-    message.error(`导入失败：${e}`);
+    message.error(t('assets.importFail', { err: String(e) }));
     onError();
   }
 }
@@ -97,12 +111,12 @@ async function useModel(asset: AssetItem) {
   const char = characters.current;
   if (!char) return;
   await characters.save({ ...char, model_asset_id: asset.id });
-  message.success(`已切换到模型「${asset.label}」`);
+  message.success(t('assets.switched', { name: asset.label }));
 }
 
 async function removeAsset(asset: AssetItem) {
   await assets.remove(asset.id, true);
-  message.success('已删除');
+  message.success(t('assets.removed'));
 }
 
 async function changeCat(asset: AssetItem, cat: MotionCat) {
@@ -113,9 +127,9 @@ async function recategorize() {
   recategorizing.value = true;
   try {
     const n = await assets.recategorize();
-    message.success(n ? `已重新归类 ${n} 个动作` : '类别没有变化');
+    message.success(n ? t('assets.recatOk', { n }) : t('assets.recatSame'));
   } catch (e) {
-    message.error(`归类失败：${e}`);
+    message.error(t('assets.recatFail', { err: String(e) }));
   } finally {
     recategorizing.value = false;
   }
@@ -154,13 +168,13 @@ async function searchOnline(page = 1) {
     onlineResults.value = page === 1 ? items : [...onlineResults.value, ...items];
     onlineTotal.value = total || items.length;
   } catch (e) {
-    message.error(`搜索失败：${e}`);
+    message.error(t('assets.searchFail', { err: String(e) }));
   } finally {
     onlineLoading.value = false;
   }
 }
 
-function clickChip(chip: (typeof SEARCH_CHIPS)[number]) {
+function clickChip(chip: { kw: string; cat: MotionCat | 'cinematic' | '' }) {
   onlineKind.value = 'motion';
   onlineKeyword.value = chip.kw;
   searchCat.value = chip.cat;
@@ -173,10 +187,10 @@ async function downloadWork(work: OnlineWork) {
   try {
     const cat = searchCat.value || guessWorkCat(work.work_name);
     await assets.startDownload(work.url, cat);
-    const tag = cat === 'cinematic' ? '运镜' : catLabel(cat as MotionCat);
-    message.success(`已开始下载「${work.work_name}」，导入后归到「${tag}」`);
+    const tag = cat === 'cinematic' ? t('quick.move') : catName(cat as MotionCat);
+    message.success(t('assets.started', { name: work.work_name, tag }));
   } catch (e) {
-    message.error(`创建下载失败：${e}`);
+    message.error(t('assets.fail', { err: String(e) }));
   } finally {
     downloading.value.delete(work.work_uuid);
     downloading.value = new Set(downloading.value);
@@ -187,14 +201,14 @@ async function downloadWork(work: OnlineWork) {
 <template>
   <n-drawer :show="show" @update:show="(v: boolean) => emit('update:show', v)"
             :width="520" placement="right" show-mask="transparent" to="body">
-    <n-drawer-content title="资产中心" closable :native-scrollbar="false">
+    <n-drawer-content :title="t('top.assets')" closable :native-scrollbar="false">
     <div class="toolbar">
-      <n-input v-model:value="downloadUrl" placeholder="粘贴模之屋链接，如 https://www.aplaybox.com/details/motion/xxxx" clearable
+      <n-input v-model:value="downloadUrl" :placeholder="t('assets.urlPh')" clearable
                @keydown.enter="startDownload" />
-      <n-button type="primary" @click="startDownload">下载</n-button>
+      <n-button type="primary" @click="startDownload">{{ t('assets.download') }}</n-button>
       <n-upload :custom-request="customUpload" :show-file-list="false"
                 accept=".zip,.rar,.7z,.vmd,.vpd,.vrm,.glb" multiple>
-        <n-button secondary>导入本地</n-button>
+        <n-button secondary>{{ t('assets.import') }}</n-button>
       </n-upload>
     </div>
 
@@ -211,31 +225,28 @@ async function downloadWork(work: OnlineWork) {
     </div>
 
     <n-tabs type="line" default-value="online">
-      <n-tab-pane name="online" tab="在线下载">
-        <p class="hint">
-          点下面分类搜索，一次下一个即可。下完会按待机 / 打招呼 / 互动 / 舞蹈 / 运镜自动归类。
-          下太快会触发模之屋验证码，隔几秒再下下一个。
-        </p>
+      <n-tab-pane name="online" :tab="t('assets.online')">
+        <p class="hint">{{ t('assets.onlineHint') }}</p>
         <div class="chips">
-          <n-button v-for="c in SEARCH_CHIPS" :key="c.kw" size="tiny"
+          <n-button v-for="c in searchChips" :key="c.kw" size="tiny"
                     :type="onlineKeyword === c.kw ? 'primary' : 'default'"
                     :secondary="onlineKeyword !== c.kw"
                     @click="clickChip(c)">{{ c.label }}</n-button>
         </div>
         <div class="online-bar">
           <n-radio-group v-model:value="onlineKind" size="small">
-            <n-radio-button value="motion">动作</n-radio-button>
-            <n-radio-button value="model">模型</n-radio-button>
+            <n-radio-button value="motion">{{ t('assets.motion') }}</n-radio-button>
+            <n-radio-button value="model">{{ t('assets.model') }}</n-radio-button>
           </n-radio-group>
           <n-input v-model:value="onlineKeyword" size="small" clearable
-                   placeholder="或自己输入关键词，如：挥手再见"
+                   :placeholder="t('assets.searchPh')"
                    @keydown.enter="searchOnline(1)" />
           <n-button size="small" type="primary" :loading="onlineLoading"
-                    @click="searchOnline(1)">搜索</n-button>
+                    @click="searchOnline(1)">{{ t('assets.search') }}</n-button>
         </div>
         <n-spin :show="onlineLoading">
           <n-empty v-if="onlineSearched && !onlineResults.length && !onlineLoading"
-                   description="没有找到相关作品" style="padding: 30px 0" />
+                   :description="t('assets.emptyOnline')" style="padding: 30px 0" />
           <div class="cards online-cards">
             <div v-for="w in onlineResults" :key="w.work_uuid" class="card">
               <img v-if="w.cover" :src="w.cover" class="cover" loading="lazy" />
@@ -243,17 +254,17 @@ async function downloadWork(work: OnlineWork) {
               <div class="card-meta">
                 <n-tag v-if="onlineKind === 'motion'" size="tiny" :bordered="false"
                        :type="catType(guessWorkCat(w.work_name))">
-                  {{ catLabel(guessWorkCat(w.work_name)) }}
+                  {{ catName(guessWorkCat(w.work_name)) }}
                 </n-tag>
                 <span>{{ w.author }}</span>
-                <span>{{ w.downloads }} 次下载</span>
+                <span>{{ t('assets.downloads', { n: w.downloads }) }}</span>
               </div>
               <div class="card-actions">
                 <n-button size="tiny" type="primary" secondary
                           :loading="downloading.has(w.work_uuid)"
-                          @click="downloadWork(w)">下载并导入</n-button>
+                          @click="downloadWork(w)">{{ t('assets.downloadImport') }}</n-button>
                 <n-button size="tiny" quaternary tag="a" :href="w.url" target="_blank">
-                  官网
+                  {{ t('assets.site') }}
                 </n-button>
               </div>
             </div>
@@ -261,38 +272,38 @@ async function downloadWork(work: OnlineWork) {
           <div v-if="onlineResults.length && onlineResults.length < onlineTotal" class="more">
             <n-button size="small" quaternary :loading="onlineLoading"
                       @click="searchOnline(onlinePage + 1)">
-              加载更多（{{ onlineResults.length }} / {{ onlineTotal }}）
+              {{ t('assets.more', { have: onlineResults.length, total: onlineTotal }) }}
             </n-button>
           </div>
         </n-spin>
       </n-tab-pane>
 
-      <n-tab-pane name="motions" :tab="`我的动作 (${assets.motions.length})`">
+      <n-tab-pane name="motions" :tab="t('assets.myMotions', { n: assets.motions.length })">
         <div class="lib-bar">
-          <n-input v-model:value="search" placeholder="搜索已入库动作…" clearable size="small" />
+          <n-input v-model:value="search" :placeholder="t('assets.searchLib')" clearable size="small" />
           <n-button size="small" :loading="recategorizing" @click="recategorize">
-            重新归类全部
+            {{ t('assets.recat') }}
           </n-button>
         </div>
         <div class="chips">
           <n-button size="tiny" :type="motionFilter === 'all' ? 'primary' : 'default'"
                     :secondary="motionFilter !== 'all'" @click="motionFilter = 'all'">
-            全部 {{ motionCounts.all }}
+            {{ t('assets.all', { n: motionCounts.all }) }}
           </n-button>
           <n-button v-for="c in MOTION_CATS" :key="c.key" size="tiny"
                     :type="motionFilter === c.key ? 'primary' : 'default'"
                     :secondary="motionFilter !== c.key"
                     @click="motionFilter = c.key">
-            {{ c.label }} {{ motionCounts[c.key] }}
+            {{ catName(c.key) }} {{ motionCounts[c.key] }}
           </n-button>
         </div>
-        <n-empty v-if="!filteredMotions.length" description="这一类还没有动作，去「在线下载」搜一下" />
+        <n-empty v-if="!filteredMotions.length" :description="t('assets.emptyMotion')" />
         <div class="cards">
           <div v-for="a in filteredMotions" :key="a.id" class="card">
             <div class="card-title" :title="a.label">{{ stripCatPrefix(a.label) }}</div>
             <div class="card-meta">
               <n-tag size="tiny" :bordered="false" :type="catType(parseMotionCat(a))">
-                {{ catLabel(parseMotionCat(a)) }}
+                {{ catName(parseMotionCat(a)) }}
               </n-tag>
               <span>{{ fmtSize(a.size) }}</span>
             </div>
@@ -302,42 +313,42 @@ async function downloadWork(work: OnlineWork) {
                         @update:value="(v: MotionCat) => changeCat(a, v)" />
               <n-popconfirm @positive-click="removeAsset(a)">
                 <template #trigger>
-                  <n-button size="tiny" quaternary type="error">删除</n-button>
+                  <n-button size="tiny" quaternary type="error">{{ t('assets.delete') }}</n-button>
                 </template>
-                确定删除该动作及文件？
+                {{ t('assets.deleteMotion') }}
               </n-popconfirm>
             </div>
           </div>
         </div>
       </n-tab-pane>
 
-      <n-tab-pane name="cameras" :tab="`我的运镜 (${assets.cameras.length})`">
-        <n-input v-model:value="search" placeholder="搜索镜头…" clearable size="small"
+      <n-tab-pane name="cameras" :tab="t('assets.myCams', { n: assets.cameras.length })">
+        <n-input v-model:value="search" :placeholder="t('assets.searchCam')" clearable size="small"
                  style="margin-bottom: 8px" />
-        <n-empty v-if="!filteredCameras.length" description="还没有镜头，去「在线下载」搜运镜，或等内置运镜自动生成" />
+        <n-empty v-if="!filteredCameras.length" :description="t('assets.emptyCam')" />
         <div class="cards">
           <div v-for="a in filteredCameras" :key="a.id" class="card">
             <div class="card-title" :title="a.label">{{ stripCatPrefix(a.label) }}</div>
             <div class="card-meta">
-              <n-tag size="tiny" :bordered="false" type="info">镜头</n-tag>
+              <n-tag size="tiny" :bordered="false" type="info">{{ t('assets.camTag') }}</n-tag>
               <span>{{ fmtSize(a.size) }}</span>
             </div>
             <div class="card-actions">
               <n-popconfirm @positive-click="removeAsset(a)">
                 <template #trigger>
-                  <n-button size="tiny" quaternary type="error">删除</n-button>
+                  <n-button size="tiny" quaternary type="error">{{ t('assets.delete') }}</n-button>
                 </template>
-                确定删除该镜头及文件？
+                {{ t('assets.deleteCam') }}
               </n-popconfirm>
             </div>
           </div>
         </div>
       </n-tab-pane>
 
-      <n-tab-pane name="models" :tab="`模型 (${assets.models.length})`">
-        <n-input v-model:value="search" placeholder="搜索模型…" clearable size="small"
+      <n-tab-pane name="models" :tab="t('assets.myModels', { n: assets.models.length })">
+        <n-input v-model:value="search" :placeholder="t('assets.searchModel')" clearable size="small"
                  style="margin-bottom: 8px" />
-        <n-empty v-if="!filteredModels.length" description="暂无模型" />
+        <n-empty v-if="!filteredModels.length" :description="t('assets.emptyModel')" />
         <div class="cards">
           <div v-for="a in filteredModels" :key="a.id" class="card">
             <div class="card-title">{{ a.label }}</div>
@@ -347,13 +358,13 @@ async function downloadWork(work: OnlineWork) {
             </div>
             <div class="card-actions">
               <n-button size="tiny" type="primary" secondary @click="useModel(a)">
-                当前角色使用
+                {{ t('assets.useModel') }}
               </n-button>
               <n-popconfirm @positive-click="removeAsset(a)">
                 <template #trigger>
-                  <n-button size="tiny" quaternary type="error">删除</n-button>
+                  <n-button size="tiny" quaternary type="error">{{ t('assets.delete') }}</n-button>
                 </template>
-                确定删除该模型及文件？
+                {{ t('assets.deleteModel') }}
               </n-popconfirm>
             </div>
           </div>

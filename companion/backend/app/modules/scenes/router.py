@@ -5,6 +5,8 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from ...db import get_session
+from ...locale_pack import reply_of, set_reply
+from ...services import settings_store
 from ..flags import enabled
 from .catalog import list_cards
 from .service import current_for, generate_tonight, save_current
@@ -30,10 +32,15 @@ class CurrentIn(BaseModel):
 
 
 @router.get("/cards")
-def cards(session: Session = Depends(get_session)) -> List[Dict[str, str]]:
+def cards(session: Session = Depends(get_session)) -> List[Dict[str, Any]]:
     if not enabled(session, "scenes"):
         return []
+    set_reply(reply_of(settings_store.get_all(session)))
     return list_cards()
+
+
+def _bind_reply(session: Session) -> None:
+    set_reply(reply_of(settings_store.get_all(session)))
 
 
 @router.get("/current/{character_id}")
@@ -48,6 +55,7 @@ def current(
 ) -> Dict[str, Any]:
     if not enabled(session, "scenes"):
         raise HTTPException(404, "scenes module off")
+    _bind_reply(session)
     return current_for(
         session, character_id,
         last_user_at=last_user_at,
@@ -82,4 +90,5 @@ def put_current(body: CurrentIn, session: Session = Depends(get_session)) -> Dic
 async def tonight(body: TonightIn, session: Session = Depends(get_session)) -> Dict[str, Any]:
     if not enabled(session, "scenes"):
         raise HTTPException(404, "scenes module off")
+    _bind_reply(session)
     return await generate_tonight(session, body.character_id)

@@ -9,6 +9,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { useCharacterStore } from '../../stores/character';
 import { useChatStore } from '../../stores/chat';
 import { LOCAL_SCENES } from '../scenes/catalog';
+import { defaultVoice, featureOn, t } from '../../i18n';
 import {
   pickScene as pickPlayScene, restoreOrRotateScene, sceneExtra, sceneSession,
 } from '../scenes/session';
@@ -34,18 +35,40 @@ const LLM_PRESETS: Record<string, { base: string; model: string }> = {
   openrouter: { base: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini' },
   minicpm: { base: 'https://api.modelbest.cn/v1', model: 'MiniCPM-O-4.5-9B' },
 };
-const llmPresetOptions = [
-  { label: '阿里云百炼（通义千问 / Kimi）', value: 'bailian' },
-  { label: '火山方舟（豆包）', value: 'volcano' },
-  { label: '火山方舟（豆包角色）', value: 'volcano_character' },
-  { label: '面壁 MiniCPM-o 4.5 Omni', value: 'minicpm' },
-  { label: 'DeepSeek 官方', value: 'deepseek' },
-  { label: 'Moonshot（Kimi 官方）', value: 'moonshot' },
-  { label: '智谱 GLM', value: 'zhipu' },
-  { label: 'OpenAI', value: 'openai' },
-  { label: 'Google Gemini（OpenAI 兼容）', value: 'gemini' },
-  { label: 'OpenRouter（海外模型聚合）', value: 'openrouter' },
-];
+const llmPresetOptions = computed(() => {
+  settings.locale.ui;
+  const all = [
+    { label: t('set.llm.bailian'), value: 'bailian' },
+    { label: t('set.llm.volcano'), value: 'volcano' },
+    { label: t('set.llm.volcano_character'), value: 'volcano_character' },
+    { label: t('set.llm.minicpm'), value: 'minicpm' },
+    { label: t('set.llm.deepseek'), value: 'deepseek' },
+    { label: t('set.llm.moonshot'), value: 'moonshot' },
+    { label: t('set.llm.zhipu'), value: 'zhipu' },
+    { label: 'OpenAI', value: 'openai' },
+    { label: t('set.llm.gemini'), value: 'gemini' },
+    { label: t('set.llm.openrouter'), value: 'openrouter' },
+  ];
+  if (settings.locale.ui !== 'en') return all;
+  const front = new Set(['openai', 'gemini', 'openrouter']);
+  return [...all.filter((o) => front.has(o.value)), ...all.filter((o) => !front.has(o.value))];
+});
+const langOptions = computed(() => {
+  settings.locale.ui;
+  return [
+    { label: t('lang.zh'), value: 'zh-CN' as const },
+    { label: t('lang.en'), value: 'en' as const },
+    { label: t('lang.ja'), value: 'ja' as const },
+    { label: t('lang.ko'), value: 'ko' as const },
+  ];
+});
+const replyModeOptions = computed(() => {
+  settings.locale.ui;
+  return [
+    { label: t('lang.fixed'), value: 'fixed' as const },
+    { label: t('lang.follow'), value: 'follow' as const },
+  ];
+});
 // 根据当前 base_url + 模型名反推预设（同地址的豆包通用/角色要分开高亮）
 const currentPreset = computed(() => {
   const url = settings.llm.base_url;
@@ -70,25 +93,24 @@ function applyLlmPreset(key: string) {
   }
 }
 
-const thinkingOptions = [
-  { label: '跟随模型默认（推荐）', value: 'default' },
-  { label: '强制开启思考', value: 'on' },
-  { label: '强制关闭思考', value: 'off' },
-];
+const thinkingOptions = computed(() => {
+  settings.locale.ui;
+  return [
+    { label: t('set.think.default'), value: 'default' },
+    { label: t('set.think.on'), value: 'on' },
+    { label: t('set.think.off'), value: 'off' },
+  ];
+});
 
 const contentPath = ref(settings.content.path || '');
 const contentBusy = ref(false);
 const contentHint = ref('');
 const canPickFolder = computed(() => typeof window.companionDesktop?.pickFolder === 'function');
 const contentFound = computed(() => {
+  settings.locale.ui;
   const f = settings.content.found || {};
-  const labels: Record<string, string> = {
-    models: '角色', motions: '动作', cameras: '镜头',
-    music: '歌曲', speech: '语音', embed: '记忆向量', torch: '推理库',
-  };
-  return Object.entries(labels)
-    .map(([k, name]) => `${name}${f[k] ? '✓' : '–'}`)
-    .join('  ');
+  const keys = ['models', 'motions', 'cameras', 'music', 'speech', 'embed', 'torch'];
+  return keys.map((k) => `${t('set.pack.' + k)}${f[k] ? '✓' : '–'}`).join('  ');
 });
 
 async function pickContentFolder() {
@@ -101,10 +123,10 @@ async function saveContentPath() {
   contentHint.value = '';
   try {
     const r = await settings.applyContent(contentPath.value.trim());
-    contentHint.value = r.message || (r.ok ? '已保存' : '设置失败');
+    contentHint.value = r.message || (r.ok ? t('set.pack.saved') : t('set.pack.fail'));
     if (r.ok && r.path) contentPath.value = r.path;
-    if (!r.ok) message.error(r.message || '设置失败', { duration: 6000, closable: true });
-    else if (r.restart) message.success(r.message || '已保存，请关窗再开');
+    if (!r.ok) message.error(r.message || t('set.pack.fail'), { duration: 6000, closable: true });
+    else if (r.restart) message.success(r.message || t('set.pack.reopen'));
   } catch (e) {
     contentHint.value = String(e);
   } finally {
@@ -124,13 +146,13 @@ async function testLlm() {
     if (r.ok) message.success(r.message);
     else message.error(r.message, { duration: 8000, closable: true });
   } catch (e) {
-    message.error('测试请求失败：' + e);
+    message.error(t('set.testFail', { err: String(e) }));
   } finally {
     testing.value = false;
   }
 }
 
-const omniPrompt = ref('用中文介绍你自己，两句话。');
+const omniPrompt = ref('');
 const omniReply = ref('');
 const omniHint = ref('');
 const omniBusy = ref(false);
@@ -178,7 +200,7 @@ function onOmniImage(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0];
   if (!file) return;
   if (file.size > 4 * 1024 * 1024) {
-    message.warning('图片请小于 4MB');
+    message.warning(t('set.omni.tooBig'));
     (e.target as HTMLInputElement).value = '';
     return;
   }
@@ -205,10 +227,10 @@ async function runOmniTest(mode: 'chat' | 'speech') {
   omniAbort = ac;
   omniBusy.value = true;
   omniReply.value = '';
-  omniHint.value = mode === 'speech' ? '正在连 Realtime…' : '正在请求 Chat Completions…';
+  omniHint.value = mode === 'speech' ? t('set.omni.connecting') : t('set.omni.requesting');
   try {
     await api.streamOmniTest({
-      text: omniPrompt.value.trim() || '用中文介绍你自己，两句话。',
+      text: omniPrompt.value.trim() || t('set.omni.sample'),
       mode,
       image_b64: omniImageB64.value,
       chat_url: settings.omni.chat_url,
@@ -219,12 +241,12 @@ async function runOmniTest(mode: 'chat' | 'speech') {
       llm_base_url: settings.llm.base_url,
     }, (ev) => {
       if (ev.type === 'queue') {
-        omniHint.value = String(ev.message || '排队中…');
+        omniHint.value = String(ev.message || t('set.omni.queue'));
         return;
       }
       if (ev.type === 'text' && ev.delta) {
         omniReply.value += String(ev.delta);
-        omniHint.value = mode === 'speech' ? '正在说…' : '正在写…';
+        omniHint.value = mode === 'speech' ? t('set.omni.speaking') : t('set.omni.writing');
         return;
       }
       if (ev.type === 'audio' && ev.pcm_b64) {
@@ -232,23 +254,23 @@ async function runOmniTest(mode: 'chat' | 'speech') {
         return;
       }
       if (ev.type === 'listen') {
-        omniHint.value = '模型在听…';
+        omniHint.value = t('set.omni.listening');
         return;
       }
       if (ev.type === 'error') {
-        omniHint.value = String(ev.message || '失败');
+        omniHint.value = String(ev.message || t('set.omni.fail'));
         message.error(omniHint.value, { duration: 8000, closable: true });
         return;
       }
       if (ev.type === 'done') {
         if (ev.text && !omniReply.value) omniReply.value = String(ev.text);
         omniHint.value = ev.audio
-          ? `完成（已播语音 ${Math.round(Number(ev.audio_bytes || 0) / 48)} ms）`
-          : '完成（本次无语音）';
+          ? t('set.omni.doneAudio', { ms: Math.round(Number(ev.audio_bytes || 0) / 48) })
+          : t('set.omni.doneSilent');
       }
     }, ac.signal);
   } catch (e) {
-    if ((e as Error).name === 'AbortError') omniHint.value = '已取消';
+    if ((e as Error).name === 'AbortError') omniHint.value = t('set.omni.cancelled');
     else {
       omniHint.value = String(e);
       message.error(omniHint.value);
@@ -261,12 +283,12 @@ async function runOmniTest(mode: 'chat' | 'speech') {
 
 // 背景预设色板
 const BG_PRESETS = [
-  { label: '深空蓝', value: '#141420' },
-  { label: '纯黑', value: '#000000' },
-  { label: '暖灰', value: '#2a2624' },
-  { label: '薄暮紫', value: '#241a30' },
-  { label: '森绿', value: '#16241c' },
-  { label: '奶白', value: '#ece7df' },
+  { key: 'deep', value: '#141420' },
+  { key: 'black', value: '#000000' },
+  { key: 'warm', value: '#2a2624' },
+  { key: 'dusk', value: '#241a30' },
+  { key: 'forest', value: '#16241c' },
+  { key: 'cream', value: '#ece7df' },
 ];
 // 台面贴图（AI 生成的顶视圆形贴图，贴在底座台面上）
 const TEX = {
@@ -278,68 +300,60 @@ const TEX = {
   stage: '/textures/tex_stagefloor.png',
 };
 const STAGE_TEXTURES = [
-  { label: '纯色台面', value: '' },
-  { label: '玉石雕纹', value: TEX.jade },
-  { label: '赛博电路', value: TEX.circuit },
-  { label: '星辰魔阵', value: TEX.star },
-  { label: '原木拼花', value: TEX.wood },
-  { label: '樱瓣水面', value: TEX.petal },
-  { label: '金属舞台', value: TEX.stage },
+  { key: 'none', value: '' },
+  { key: 'jade', value: TEX.jade },
+  { key: 'circuit', value: TEX.circuit },
+  { key: 'star', value: TEX.star },
+  { key: 'wood', value: TEX.wood },
+  { key: 'petal', value: TEX.petal },
+  { key: 'metal', value: TEX.stage },
 ];
 // 预制 3D 场景（AI 生成，随前端一起发布）。stage 字段为该场景的配套底座（贴图/台面色/发光色），
 // 点场景时自动应用，之后仍可手动微调。
 const SCENE_PRESETS = [
-  { label: '古风仙境', value: '/backgrounds/bg_guofeng.png',
+  { key: 'guofeng', value: '/backgrounds/bg_guofeng.png',
     stage: { texture: TEX.jade, color: '#1d2f2a', glow: '#58e6c8' } },
-  { label: '赛博夜城', value: '/backgrounds/bg_cyber.png',
+  { key: 'cyber', value: '/backgrounds/bg_cyber.png',
     stage: { texture: TEX.circuit, color: '#171226', glow: '#b45ce6' } },
-  { label: '星空极光', value: '/backgrounds/bg_starry.png',
+  { key: 'starry', value: '/backgrounds/bg_starry.png',
     stage: { texture: TEX.star, color: '#10142e', glow: '#7a8cff' } },
-  { label: '演唱会舞台', value: '/backgrounds/bg_concert.png',
+  { key: 'concert', value: '/backgrounds/bg_concert.png',
     stage: { texture: TEX.stage, color: '#1a1220', glow: '#e658c8' } },
-  { label: '樱花庭院', value: '/backgrounds/bg_sakura.png',
+  { key: 'sakura', value: '/backgrounds/bg_sakura.png',
     stage: { texture: TEX.petal, color: '#33222a', glow: '#ff9ec4' } },
-  { label: '黄昏海岸', value: '/backgrounds/bg_beach.png',
+  { key: 'beach', value: '/backgrounds/bg_beach.png',
     stage: { texture: TEX.wood, color: '#33261c', glow: '#ffb163' } },
-  { label: '雪夜小镇', value: '/backgrounds/bg_snow.png',
+  { key: 'snow', value: '/backgrounds/bg_snow.png',
     stage: { texture: TEX.wood, color: '#22282e', glow: '#9fd7ff' } },
-  { label: '魔法森林', value: '/backgrounds/bg_forest.png',
+  { key: 'forest', value: '/backgrounds/bg_forest.png',
     stage: { texture: TEX.star, color: '#14261c', glow: '#58e6a0' } },
-  { label: '未来实验室', value: '/backgrounds/bg_lab.png',
+  { key: 'lab', value: '/backgrounds/bg_lab.png',
     stage: { texture: TEX.circuit, color: '#101a24', glow: '#58c8e6' } },
-  { label: '金殿宫阙', value: '/backgrounds/bg_palace.png',
+  { key: 'palace', value: '/backgrounds/bg_palace.png',
     stage: { texture: TEX.jade, color: '#2a2114', glow: '#e6b358' } },
-  { label: '夏日祭典', value: '/backgrounds/bg_matsuri.png',
+  { key: 'matsuri', value: '/backgrounds/bg_matsuri.png',
     stage: { texture: TEX.wood, color: '#2c1e16', glow: '#ffa64d' } },
-  { label: '海底龙宫', value: '/backgrounds/bg_underwater.png',
+  { key: 'underwater', value: '/backgrounds/bg_underwater.png',
     stage: { texture: TEX.jade, color: '#10222b', glow: '#58c8e6' } },
-  { label: '天空之城', value: '/backgrounds/bg_skycity.png',
+  { key: 'skycity', value: '/backgrounds/bg_skycity.png',
     stage: { texture: TEX.star, color: '#23283a', glow: '#ffd97a' } },
-  { label: '暖屋咖啡', value: '/backgrounds/bg_cafe.png',
+  { key: 'cafe', value: '/backgrounds/bg_cafe.png',
     stage: { texture: TEX.wood, color: '#2b211a', glow: '#e6a358' } },
-  { label: '魔法图书馆', value: '/backgrounds/bg_library.png',
+  { key: 'library', value: '/backgrounds/bg_library.png',
     stage: { texture: TEX.wood, color: '#241c14', glow: '#d7a55e' } },
-  { label: '雨夜小巷', value: '/backgrounds/bg_alley.png',
+  { key: 'alley', value: '/backgrounds/bg_alley.png',
     stage: { texture: TEX.stage, color: '#171420', glow: '#ff5ca8' } },
-  { label: '黄昏花田', value: '/backgrounds/bg_flower.png',
+  { key: 'flower', value: '/backgrounds/bg_flower.png',
     stage: { texture: TEX.petal, color: '#2e2018', glow: '#ffac6e' } },
-  { label: '星际舷窗', value: '/backgrounds/bg_space.png',
+  { key: 'space', value: '/backgrounds/bg_space.png',
     stage: { texture: TEX.circuit, color: '#0e1220', glow: '#5878e6' } },
-  { label: '温馨卧室', value: '/backgrounds/bg_bedroom.png',
+  { key: 'bedroom', value: '/backgrounds/bg_bedroom.png',
     stage: { texture: TEX.petal, color: '#2e2226', glow: '#ffb9c9' } },
 ];
 // 舞台底座风格
 const STAGE_STYLES = [
-  { label: '经典圆盘', value: 'classic' },
-  { label: '双层舞台', value: 'double' },
-  { label: '魔法阵', value: 'magic' },
-  { label: '水晶棱台', value: 'crystal' },
-  { label: '科幻光环', value: 'tech' },
-  { label: '莲花宝座', value: 'lotus' },
-  { label: '星环轨道', value: 'orbit' },
-  { label: '极简光环', value: 'minimal' },
-  { label: '黑胶唱片', value: 'vinyl' },
-  { label: '迪斯科舞池', value: 'disco' },
+  'classic', 'double', 'magic', 'crystal', 'tech',
+  'lotus', 'orbit', 'minimal', 'vinyl', 'disco',
 ];
 const bgFileInput = ref<HTMLInputElement | null>(null);
 
@@ -349,10 +363,10 @@ function pickBgColor(color: string) {
   if (settings.modules.scenes) {
     pickPlayScene({
       id: `look-color-${color}`,
-      title: '纯色',
-      setting: '没有贴图，只亮着这层底色。',
+      title: t('set.look.solid'),
+      setting: t('set.look.solidSet'),
       conflict: '',
-      opening: '按这场场合随口接。',
+      opening: t('set.look.open'),
       cam: 'half',
       intent: 'look',
       background: '',
@@ -378,10 +392,10 @@ function pickPresetLook(scene: typeof SCENE_PRESETS[number]) {
     }
     pickPlayScene({
       id: `look-${scene.value}`,
-      title: scene.label,
-      setting: scene.label,
+      title: t('set.scene.' + scene.key),
+      setting: t('set.scene.' + scene.key),
       conflict: '',
-      opening: '按这场场合随口接。',
+      opening: t('set.look.open'),
       cam: 'half',
       intent: 'look',
       background: scene.value,
@@ -403,7 +417,7 @@ function onBgImageChosen(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0];
   if (!file) return;
   if (file.size > 8 * 1024 * 1024) {
-    message.warning('图片太大（超过 8MB），请换一张');
+    message.warning(t('set.q.tooBig'));
     return;
   }
   const reader = new FileReader();
@@ -413,10 +427,10 @@ function onBgImageChosen(e: Event) {
     if (settings.modules.scenes) {
       pickPlayScene({
         id: 'look-custom',
-        title: '自定义',
-        setting: '用你刚选的图当这场的场合。',
+        title: t('set.look.custom'),
+        setting: t('set.look.customSet'),
         conflict: '',
-        opening: '按这场场合随口接。',
+        opening: t('set.look.open'),
         cam: 'half',
         intent: 'look',
         background: url,
@@ -443,54 +457,80 @@ const voiceOptions = computed(() =>
     .filter((v) => !v.engine || v.engine === settings.tts.engine)
     .map((v) => ({ label: v.label, value: v.id }))
 );
-const ttsEngineOptions = [
-  { label: '离线 · Qwen3-TTS 本地流式（推荐）', value: 'qwen' },
-  { label: '在线 · edge-tts 流式（微软云）', value: 'edge' },
-  { label: '在线 · CosyVoice 流式（需百炼 sk- Key）', value: 'cosy' },
-  { label: '浏览器内置（无真实口型）', value: 'browser' },
-  { label: '关闭语音', value: 'off' },
-];
-const qwenSizeOptions = [
-  { label: '0.6B（更快、更省显存）', value: '0.6b' },
-  { label: '1.7B（音质更好，约 4GB 权重）', value: '1.7b' },
-];
-const qwenStyleOptions = [
-  { label: '默认（不改语气）', value: 'off' },
-  { label: '清冷御姐', value: 'yujie' },
-  { label: '磁性气声', value: 'husky' },
-  { label: '温柔撩人', value: 'flirt' },
-  { label: '自定义语气', value: 'custom' },
-];
-const duplexCmdOptions = [
-  { label: '下一轮：剩余 >Ns 才打断（InterruptOrQueue）', value: 'interrupt_or_queue' },
-  { label: '下一轮：马上打断上一轮', value: 'interrupt' },
-  { label: '下一轮：等上一轮全部说完', value: 'queue' },
-  { label: '下一轮：不够 Ns 才接，否则丢掉', value: 'conditional_queue' },
-  { label: '下一轮：超过 Ns 才切，否则丢掉', value: 'conditional_interrupt' },
-];
-const asrEngineOptions = [
-  { label: '在线 · 浏览器 Web Speech（Chrome/Edge）', value: 'browser' },
-  { label: '离线 · SenseVoice-Small（本地 CPU）', value: 'sensevoice' },
-];
-const embedderOptions = [
-  { label: '自动（对话是火山用豆包，百炼用千问，否则本地）', value: 'auto' },
-  { label: '本地 MiniLM（离线，不耗云端额度）', value: 'local' },
-  { label: '在线 · 字节豆包 embedding（火山方舟）', value: 'doubao' },
-  { label: '在线 · 通义千问 embedding（百炼）', value: 'qwen' },
-];
+const ttsEngineOptions = computed(() => {
+  settings.locale.ui;
+  return [
+    { label: t('set.tts.qwen'), value: 'qwen' },
+    { label: t('set.tts.edge'), value: 'edge' },
+    { label: t('set.tts.cosyEngine'), value: 'cosy' },
+    { label: t('set.tts.browser'), value: 'browser' },
+    { label: t('set.tts.off'), value: 'off' },
+  ];
+});
+const qwenSizeOptions = computed(() => {
+  settings.locale.ui;
+  return [
+    { label: t('set.tts.s06'), value: '0.6b' },
+    { label: t('set.tts.s17'), value: '1.7b' },
+  ];
+});
+const qwenStyleOptions = computed(() => {
+  settings.locale.ui;
+  return [
+    { label: t('set.style.off'), value: 'off' },
+    { label: t('set.style.yujie'), value: 'yujie' },
+    { label: t('set.style.husky'), value: 'husky' },
+    { label: t('set.style.flirt'), value: 'flirt' },
+    { label: t('set.style.custom'), value: 'custom' },
+  ];
+});
+const duplexCmdOptions = computed(() => {
+  settings.locale.ui;
+  return [
+    { label: t('set.duplex.interrupt_or_queue'), value: 'interrupt_or_queue' },
+    { label: t('set.duplex.interrupt'), value: 'interrupt' },
+    { label: t('set.duplex.queue'), value: 'queue' },
+    { label: t('set.duplex.conditional_queue'), value: 'conditional_queue' },
+    { label: t('set.duplex.conditional_interrupt'), value: 'conditional_interrupt' },
+  ];
+});
+const asrEngineOptions = computed(() => {
+  settings.locale.ui;
+  return [
+    { label: t('set.asr.browser'), value: 'browser' },
+    { label: t('set.asr.sense'), value: 'sensevoice' },
+  ];
+});
+const embedderOptions = computed(() => {
+  settings.locale.ui;
+  return [
+    { label: t('set.embed.auto'), value: 'auto' },
+    { label: t('set.embed.local'), value: 'local' },
+    { label: t('set.embed.doubao'), value: 'doubao' },
+    { label: t('set.embed.qwen'), value: 'qwen' },
+  ];
+});
 const hwHint = computed(() => {
+  settings.locale.ui;
   const h = settings.hardware as {
     auto?: boolean; tier?: string; ram_gb?: number; vram_gb?: number; reason?: string;
   };
   if (!h?.tier && !h?.reason) return '';
-  const names: Record<string, string> = { low: '低配', mid: '中配', high: '高配' };
-  const tier = names[h.tier || ''] || h.tier || '未知';
+  const known = h.tier === 'low' || h.tier === 'mid' || h.tier === 'high';
+  const tier = known ? t('set.hw.' + h.tier) : (h.tier || t('set.hw.unknown'));
+  const cjk = settings.locale.ui === 'zh-CN' || settings.locale.ui === 'ja';
   const bits = [
-    h.ram_gb ? `${h.ram_gb}GB 内存` : '',
-    (h.vram_gb || 0) > 0 ? `${h.vram_gb}GB 显存` : '无独显',
-  ].filter(Boolean).join('，');
-  const mode = h.auto ? '已按配置自动选择引擎，保证能启动' : '已按你保存的设置（不再自动改）';
-  return `本机 ${tier}${bits ? `（${bits}）` : ''}。${mode}。${h.reason || ''}`;
+    h.ram_gb ? t('set.hw.ram', { n: h.ram_gb }) : '',
+    (h.vram_gb || 0) > 0 ? t('set.hw.vram', { n: h.vram_gb || 0 }) : t('set.hw.none'),
+  ].filter(Boolean).join(cjk ? '，' : ', ');
+  const mode = h.auto ? t('set.hw.auto') : t('set.hw.manual');
+  const wrapped = bits ? (cjk ? `${tier}（${bits}）` : `${tier} (${bits})`) : tier;
+  return t('set.hw.line', {
+    tier: wrapped,
+    bits: '',
+    mode,
+    reason: h.reason || '',
+  });
 });
 const ttsNeedsVoice = computed(() =>
   settings.tts.engine === 'cosy' || settings.tts.engine === 'edge' || settings.tts.engine === 'qwen'
@@ -499,8 +539,8 @@ const ttsNeedsVoice = computed(() =>
 watch(() => settings.tts.engine, (eng) => {
   const list = settings.voices.filter((v) => v.engine === eng);
   if (list.length && !list.some((v) => v.id === settings.tts.voice)) {
-    settings.tts.voice = eng === 'qwen'
-      ? (list.find((v) => v.id === 'Serena')?.id || list[0].id)
+    settings.tts.voice = (eng === 'qwen' || eng === 'edge')
+      ? defaultVoice(eng, settings.locale.reply)
       : '';
   }
 });
@@ -544,7 +584,7 @@ async function warmup(target: 'asr' | 'tts') {
       target,
       target === 'tts' ? settings.tts.qwen_size : undefined,
     );
-    message.info(r.message || '已开始准备');
+    message.info(r.message || t('set.warmup.started'));
     startStatusPoll();
     await refreshSpeechStatus();
   } catch (e) {
@@ -567,7 +607,7 @@ onUnmounted(() => {
 
 async function save() {
   await settings.save();
-  message.success('设置已保存');
+  message.success(t('set.saved'));
   emit('update:show', false);
 }
 
@@ -582,7 +622,7 @@ async function saveEmbedder(v: string) {
   settings.memory.embedder = (v === 'local' || v === 'doubao' || v === 'qwen' ? v : 'auto');
   try {
     await settings.save();
-    message.success('已切换记忆向量，正在后台重建索引（事实文本保留）');
+    message.success(t('set.embed.switched'));
   } catch (e) {
     settings.memory.embedder = prev;
     message.error(String(e));
@@ -623,308 +663,278 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
 <template>
   <n-drawer :show="show" @update:show="(v: boolean) => emit('update:show', v)"
             :width="480" placement="right" show-mask="transparent" to="body">
-    <n-drawer-content title="设置" closable :native-scrollbar="false">
-    <n-tabs type="line">
-      <n-tab-pane name="content" tab="资源包">
+    <n-drawer-content :title="t('settings.title')" closable :native-scrollbar="false">
+    <n-tabs type="line" class="settings-tabs">
+      <n-tab-pane name="lang" :tab="t('lang.tab')">
         <div class="form">
-          <p class="hint">选 B 那个文件夹，不要选里面的 xiaoke-content.json。选错了再点浏览即可改，保存后关窗再开。</p>
-          <label>B 包目录</label>
+          <p class="hint">{{ t('lang.hint') }}</p>
+          <label>{{ t('lang.ui') }}</label>
+          <n-select :value="settings.locale.ui" :options="langOptions"
+                    @update:value="(v: 'zh-CN' | 'en' | 'ja' | 'ko') => settings.setLocale({ ui: v })" />
+          <label>{{ t('lang.reply') }}</label>
+          <n-select :value="settings.locale.reply" :options="langOptions"
+                    @update:value="(v: 'zh-CN' | 'en' | 'ja' | 'ko') => settings.setLocale({ reply: v })" />
+          <label>{{ t('lang.mode') }}</label>
+          <n-select :value="settings.locale.reply_mode" :options="replyModeOptions"
+                    @update:value="(v: 'fixed' | 'follow') => settings.setLocale({ reply_mode: v })" />
+          <p v-if="!featureOn('tarot', settings.locale.reply)" class="hint">{{ t('mod.missing') }} · {{ t('mod.tarot') }}</p>
+          <p v-if="!featureOn('scenes', settings.locale.reply)" class="hint">{{ t('mod.missing') }} · {{ t('mod.scenes') }}</p>
+        </div>
+      </n-tab-pane>
+      <n-tab-pane name="content" :tab="t('settings.content')">
+        <div class="form">
+          <p class="hint">{{ t('set.pack.hint') }}</p>
+          <label>{{ t('set.pack.dir') }}</label>
           <div class="content-row">
-            <n-input v-model:value="contentPath" placeholder="例如 E:\xiaoke-ai-B" />
-            <n-button v-if="canPickFolder" @click="pickContentFolder">浏览</n-button>
+            <n-input v-model:value="contentPath" :placeholder="t('set.pack.ph')" />
+            <n-button v-if="canPickFolder" @click="pickContentFolder">{{ t('set.pack.browse') }}</n-button>
           </div>
           <p class="hint">{{ contentFound }}</p>
           <p v-if="contentHint" class="hint">{{ contentHint }}</p>
           <n-button type="primary" :loading="contentBusy" :disabled="!contentPath.trim()"
-                    @click="saveContentPath">保存路径</n-button>
-          <p class="hint">保存后关掉窗口再打开才会换到新目录。</p>
+                    @click="saveContentPath">{{ t('set.pack.save') }}</n-button>
+          <p class="hint">{{ t('set.pack.restart') }}</p>
         </div>
       </n-tab-pane>
-      <n-tab-pane name="modules" tab="体验模块">
+      <n-tab-pane name="modules" :tab="t('settings.modules')">
         <div class="form">
-          <p class="hint">关掉等于没装：对话、舞台和界面都不再走这条能力。低配会自动关掉记忆，避免向量库把进程拖死。</p>
+          <p class="hint">{{ t('set.mod.off') }}</p>
           <p v-if="hwHint" class="hint">{{ hwHint }}</p>
           <div class="switch-row">
-            <span>记忆 · 她会记住你说过的事</span>
+            <span>{{ t('mod.memory') }}</span>
             <n-switch :value="settings.modules.memory" @update:value="(v: boolean) => toggleMod('memory', v)" />
           </div>
-          <p class="hint">长期事实存在本地 SQLite。向量只是索引：换 embedding 会重建 collection，句子不会丢。</p>
+          <p class="hint">{{ t('set.mod.memory') }}</p>
           <template v-if="settings.modules.memory">
-            <label>记忆向量 embedding</label>
+            <label>{{ t('set.mod.embed') }}</label>
             <n-select :value="settings.memory.embedder" :options="embedderOptions"
                       @update:value="saveEmbedder" />
-            <p class="hint">
-              豆包走火山方舟 Key（可与对话共用，或环境变量 ARK_API_KEY）。
-              千问走百炼 sk- Key（可与对话共用，或 DASHSCOPE_API_KEY）。
-              对不上时会退回本地 MiniLM。换选项后立刻保存，并在后台按新模型重建向量索引。
-            </p>
+            <p class="hint">{{ t('set.mod.embedHint') }}</p>
           </template>
           <div class="switch-row">
-            <span>情境 · 今晚有一场戏</span>
+            <span>{{ t('mod.scenes') }}</span>
             <n-switch :value="settings.modules.scenes" @update:value="(v: boolean) => toggleMod('scenes', v)" />
           </div>
-          <p class="hint">进门就在戏里，后面每一句也还在这场。可随机、点选或现编。背景、镜头、情绪跟着走。</p>
+          <p class="hint">{{ t('set.mod.scenes') }}</p>
           <div class="switch-row">
-            <span>重写 · 重说、回溯、再演</span>
+            <span>{{ t('mod.rewrite') }}</span>
             <n-switch :value="settings.modules.rewrite" @update:value="(v: boolean) => toggleMod('rewrite', v)" />
           </div>
-          <p class="hint">上一句换个说法；回到某句之后重来；同一句换情绪再演一遍（不调模型）。</p>
+          <p class="hint">{{ t('set.mod.rewrite') }}</p>
           <div class="switch-row">
-            <span>证物 · 剧照和 8 秒短片</span>
+            <span>{{ t('mod.keepsake') }}</span>
             <n-switch :value="settings.modules.keepsake" @update:value="(v: boolean) => toggleMod('keepsake', v)" />
           </div>
-          <p class="hint">从舞台截下今晚的画面。记忆开启时，保存证物也会记一笔。开关立即生效，不必再点保存。</p>
+          <p class="hint">{{ t('set.mod.keepsake') }}</p>
           <div class="switch-row">
-            <span>塔罗 · 面对面抽牌</span>
+            <span>{{ t('mod.tarot') }}</span>
             <n-switch :value="settings.modules.tarot" @update:value="(v: boolean) => toggleMod('tarot', v)" />
           </div>
-          <p class="hint">她坐在对面给你抽。口头说「抽一张」或点对话栏的牌。仅供娱乐，不构成建议。关掉等于没装。</p>
+          <p class="hint">{{ t('set.mod.tarot') }}</p>
           <div class="switch-row">
-            <span>Code 伴侣 · 看着你写代码</span>
+            <span>{{ t('mod.codewatch') }}</span>
             <n-switch :value="settings.modules.codewatch" @update:value="(v: boolean) => toggleMod('codewatch', v)" />
           </div>
-          <p class="hint">打开对话栏的「码」，盯 Cursor / Codex / Claude Code / 通义灵码 / Trae / 文心快码。开工和收工她会接，进行中只亮牌子。关掉等于没装。</p>
+          <p class="hint">{{ t('set.mod.code') }}</p>
         </div>
       </n-tab-pane>
-      <n-tab-pane name="ai" tab="AI 对话">
+      <n-tab-pane name="ai" :tab="t('settings.ai')">
         <div class="form">
-          <label>服务商（选择后自动填写接口地址和推荐模型）</label>
+          <label>{{ t('set.llm.label') }}</label>
           <n-select :value="currentPreset" :options="llmPresetOptions"
-                    placeholder="选择服务商，或在下方手动填写"
+                    :placeholder="t('set.llm.ph')"
                     @update:value="applyLlmPreset" />
-          <label>接口地址（OpenAI 兼容，国内外均支持）</label>
+          <label>{{ t('set.llm.url') }}</label>
           <n-input v-model:value="settings.llm.base_url"
                    placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
           <label>API Key</label>
           <n-input v-model:value="settings.llm.api_key" type="password"
-                   show-password-on="click" placeholder="留空则使用系统环境变量 / .env" />
-          <label>模型名</label>
+                   show-password-on="click" :placeholder="t('set.llm.keyPh')" />
+          <label>{{ t('set.llm.model') }}</label>
           <n-input v-model:value="settings.llm.model"
                    placeholder="qwen-plus / deepseek-chat / doubao-seed-1-6 …" />
           <div>
             <n-button size="small" type="primary" secondary
-                      :loading="testing" @click="testLlm">测试连接</n-button>
+                      :loading="testing" @click="testLlm">{{ t('settings.test') }}</n-button>
           </div>
-          <p v-if="settings.llm_env || settings.llm_local" class="hint">
-            设置里未填 Key，正在使用系统环境变量 / 本地 .env。密钥不会写入数据库。
-          </p>
-          <p class="hint">
-            切换服务商后记得同时换成该服务商的 API Key（Key 不通用）。
-            MiniCPM-o 的 Key 在 platform.modelbest.cn 申请；选它之后对话走文字理解，
-            自带声音请到「Omni」页测。也可以把 Key 写到 companion/scripts/.env
-            （COMPANION_LLM_API_KEY / COMPANION_OMNI_API_KEY），前端留空即可。
-            填完点「测试连接」自检，通过后再保存。
-          </p>
-          <label>思考（推理）模式</label>
+          <p v-if="settings.llm_env || settings.llm_local" class="hint">{{ t('set.llm.env') }}</p>
+          <p class="hint">{{ t('set.llm.hint') }}</p>
+          <label>{{ t('set.llm.think') }}</label>
           <n-select v-model:value="settings.llm.thinking" :options="thinkingOptions" />
-          <p class="hint">
-            思考模式会先推理再回答，更聪明但首句变慢。部分模型不支持切换
-            （如百炼 kimi-k3 只能思考），报错时请改回「跟随模型默认」。
-          </p>
-          <label>温度 temperature（越高越活泼发散，{{ settings.llm.temperature.toFixed(2) }}）</label>
+          <p class="hint">{{ t('set.llm.thinkHint') }}</p>
+          <label>{{ t('set.llm.temp', { n: settings.llm.temperature.toFixed(2) }) }}</label>
           <n-slider v-model:value="settings.llm.temperature"
                     :min="0" :max="1.5" :step="0.05" />
-          <label>top_p 采样（一般不用动，{{ settings.llm.top_p.toFixed(2) }}）</label>
+          <label>{{ t('set.llm.topp', { n: settings.llm.top_p.toFixed(2) }) }}</label>
           <n-slider v-model:value="settings.llm.top_p"
                     :min="0.1" :max="1" :step="0.05" />
-          <label>回复长度上限 max_tokens（0 = 用服务商默认）</label>
+          <label>{{ t('set.llm.max') }}</label>
           <n-input-number v-model:value="settings.llm.max_tokens"
                           :min="0" :max="32768" :step="256" style="width: 200px" />
-          <p class="hint">
-            不填 Key 也能用：聊天会用本地预设回复兜底，语音、口型、舞蹈全部可用。
-          </p>
+          <p class="hint">{{ t('set.llm.nokey') }}</p>
         </div>
       </n-tab-pane>
-      <n-tab-pane name="omni" tab="Omni">
+      <n-tab-pane name="omni" :tab="t('settings.omni')">
         <div class="form">
-          <p class="hint">
-            MiniCPM-o 4.5 是端到端看、听、说模型。本进程不能直接加载它的 9B 权重
-            （和本地 Qwen TTS 的 transformers 版本冲突，还要约 22GB 显存），
-            所以测试走官方云端：文字理解用 Chat Completions，语音走 Realtime。
-            自建 Gateway 时把 Realtime 地址改成你的主机即可。
-          </p>
-          <label>Chat Completions 地址</label>
+          <p class="hint">{{ t('set.omni.hint') }}</p>
+          <label>{{ t('set.omni.chat') }}</label>
           <n-input v-model:value="settings.omni.chat_url"
                    placeholder="https://api.modelbest.cn/v1" />
-          <label>Realtime 主机（Omni 语音）</label>
+          <label>{{ t('set.omni.realtime') }}</label>
           <n-input v-model:value="settings.omni.realtime_host"
                    placeholder="https://minicpmo45.modelbest.cn" />
-          <label>模型</label>
+          <label>{{ t('set.omni.model') }}</label>
           <n-input v-model:value="settings.omni.model" placeholder="MiniCPM-O-4.5-9B" />
-          <label>API Key（面壁）</label>
+          <label>{{ t('set.omni.key') }}</label>
           <n-input v-model:value="settings.omni.api_key" type="password"
                    show-password-on="click"
-                   placeholder="留空则用对话里的面壁 Key，或 COMPANION_OMNI_API_KEY" />
-          <p v-if="settings.omni_env" class="hint">
-            未填 Key，正在使用环境变量 COMPANION_OMNI_API_KEY / MODELBEST_API_KEY。
-          </p>
-          <label>测试句子</label>
+                   :placeholder="t('set.omni.keyPh')" />
+          <p v-if="settings.omni_env" class="hint">{{ t('set.omni.env') }}</p>
+          <label>{{ t('set.omni.sentence') }}</label>
           <n-input v-model:value="omniPrompt" type="textarea"
                    :autosize="{ minRows: 2, maxRows: 4 }"
-                   placeholder="用中文介绍你自己，两句话。" />
+                   :placeholder="t('set.omni.sample')" />
           <div class="bg-image-row">
             <n-button size="small" @click="pickOmniImage">
-              {{ omniImageName || '可选：附一张图' }}
+              {{ omniImageName || t('set.omni.image') }}
             </n-button>
-            <n-button v-if="omniImageName" size="small" @click="clearOmniImage">去掉图</n-button>
+            <n-button v-if="omniImageName" size="small" @click="clearOmniImage">{{ t('set.omni.clearImage') }}</n-button>
             <input ref="omniImg" type="file" accept="image/*" hidden @change="onOmniImage" />
           </div>
           <div class="omni-actions">
             <n-button size="small" type="primary" secondary
                       :loading="omniBusy" :disabled="omniBusy"
-                      @click="runOmniTest('chat')">测试文字</n-button>
+                      @click="runOmniTest('chat')">{{ t('settings.testText') }}</n-button>
             <n-button size="small" type="primary"
                       :loading="omniBusy" :disabled="omniBusy"
-                      @click="runOmniTest('speech')">测试 Omni 语音</n-button>
-            <n-button v-if="omniBusy" size="small" @click="omniAbort?.abort()">取消</n-button>
+                      @click="runOmniTest('speech')">{{ t('settings.testSpeech') }}</n-button>
+            <n-button v-if="omniBusy" size="small" @click="omniAbort?.abort()">{{ t('settings.cancel') }}</n-button>
           </div>
           <p v-if="omniHint" class="hint">{{ omniHint }}</p>
           <p v-if="omniReply" class="omni-reply">{{ omniReply }}</p>
         </div>
       </n-tab-pane>
-      <n-tab-pane name="voice" tab="语音">
+      <n-tab-pane name="voice" :tab="t('settings.voice')">
         <div class="form">
           <p v-if="hwHint" class="hint">{{ hwHint }}</p>
-          <h3 class="section-title">语音识别 ASR</h3>
-          <label>识别引擎（与合成互相独立）</label>
+          <h3 class="section-title">{{ t('set.asr.title') }}</h3>
+          <label>{{ t('set.asr.engine') }}</label>
           <n-select v-model:value="settings.stt.engine" :options="asrEngineOptions" />
-          <p class="hint">
-            在线：Chrome/Edge 的 Web Speech，走云端。离线：SenseVoice-Small INT8，CPU 实时，约 230MB。开麦后由浏览器端 Silero VAD 检测说话起止，切出语音段再识别。
-          </p>
+          <p class="hint">{{ t('set.asr.hint') }}</p>
           <div v-if="settings.stt.engine === 'sensevoice'" class="speech-status">
-            <p class="hint">{{ speechStatus?.asr.message || '查询状态中…' }}</p>
+            <p class="hint">{{ speechStatus?.asr.message || t('set.asr.status') }}</p>
             <n-button size="small" :loading="warmingAsr || !!speechStatus?.asr.downloading"
-                      @click="warmup('asr')">准备 / 下载模型</n-button>
+                      @click="warmup('asr')">{{ t('set.asr.warmup') }}</n-button>
           </div>
 
-          <h3 class="section-title">语音合成 TTS</h3>
-          <label>合成引擎</label>
+          <h3 class="section-title">{{ t('set.tts.title') }}</h3>
+          <label>{{ t('set.tts.engine') }}</label>
           <n-select v-model:value="settings.tts.engine" :options="ttsEngineOptions" />
           <template v-if="settings.tts.engine === 'qwen'">
-            <label>模型规格</label>
+            <label>{{ t('set.tts.size') }}</label>
             <n-select v-model:value="settings.tts.qwen_size" :options="qwenSizeOptions" />
             <p class="hint">
-              0.6B 更快更省显存；1.7B 音质更好。两套共用下面 9 个音色，切换会卸载当前模型再加载。
-              0.6B {{ speechStatus?.tts.sizes?.['0.6b']?.installed ? '已在本地' : '未下载' }}
-              · 1.7B {{ speechStatus?.tts.sizes?.['1.7b']?.installed ? '已在本地' : '未下载（约 4GB）' }}
+              {{ t('set.tts.sizeLead') }}
+              0.6B {{ speechStatus?.tts.sizes?.['0.6b']?.installed ? t('set.tts.local') : t('set.tts.missing') }}
+              · 1.7B {{ speechStatus?.tts.sizes?.['1.7b']?.installed ? t('set.tts.local') : t('set.tts.missingBig') }}
               <template v-if="speechStatus?.tts.size">
-                · 当前内存 {{ speechStatus.tts.size === '1.7b' ? '1.7B' : '0.6B' }}
+                · {{ t('set.tts.ram', { size: speechStatus.tts.size === '1.7b' ? '1.7B' : '0.6B' }) }}
               </template>
             </p>
-            <label>语气风格</label>
+            <label>{{ t('set.tts.style') }}</label>
             <n-select v-model:value="settings.tts.qwen_style" :options="qwenStyleOptions" />
             <n-input v-if="settings.tts.qwen_style === 'custom'"
                      v-model:value="settings.tts.qwen_instruct" type="textarea"
                      :autosize="{ minRows: 2, maxRows: 4 }"
-                     placeholder="例如：用低沉磁性、带一点气声的御姐语气，慢慢说。" />
-            <p class="hint">
-              语气只在 1.7B 生效，0.6B 会忽略。清宵建议：1.7B + 塞蕾娜 + 清冷御姐。
-              换语气不用重新加载模型，保存后下一句就变。
-            </p>
+                     :placeholder="t('set.tts.stylePh')" />
+            <p class="hint">{{ t('set.tts.styleHint') }}</p>
           </template>
-          <label>默认音色</label>
+          <label>{{ t('set.tts.voice') }}</label>
           <n-select v-model:value="settings.tts.voice" :options="voiceOptions" filterable
-                    :fallback-option="false" placeholder="请选择当前引擎的音色"
+                    :fallback-option="false" :placeholder="t('set.tts.voicePh')"
                     :disabled="!ttsNeedsVoice" />
-          <p class="hint">
-            只显示当前引擎支持的音色，不会自动换成别的声音。
-            角色卡若填了同引擎的音色，对话时用角色的；没填或引擎对不上，用这里的。
-            Qwen 走本机 GPU，PCM 边生成边播。edge-tts / CosyVoice 是云端备选。
-          </p>
-          <label>上一轮还在说时，下一轮 QA 怎么接</label>
+          <p class="hint">{{ t('set.tts.voiceHint') }}</p>
+          <label>{{ t('set.tts.duplex') }}</label>
           <n-select v-model:value="settings.tts.duplex_cmd" :options="duplexCmdOptions" />
-          <label>剩余音频超过 {{ Number(settings.tts.duplex_remain_sec).toFixed(1) }} 秒才打断</label>
+          <label>{{ t('set.tts.remain', { n: Number(settings.tts.duplex_remain_sec).toFixed(1) }) }}</label>
           <n-slider v-model:value="settings.tts.duplex_remain_sec"
                     :min="1" :max="8" :step="0.5" />
-          <label>超时续聊 Delayed（大约 {{ settings.tts.duplex_delayed_sec }} 秒，0 关闭；每次在附近随机）</label>
+          <label>{{ t('set.tts.delayed', { n: settings.tts.duplex_delayed_sec }) }}</label>
           <n-slider v-model:value="settings.tts.duplex_delayed_sec"
                     :min="0" :max="40" :step="1" />
-          <label>主动搭话 Proactive（大约 {{ settings.tts.duplex_proactive_sec }} 秒，0 关闭；每次在附近随机）</label>
+          <label>{{ t('set.tts.proactive', { n: settings.tts.duplex_proactive_sec }) }}</label>
           <n-slider v-model:value="settings.tts.duplex_proactive_sec"
                     :min="0" :max="90" :step="1" />
-          <label>用户沉默告别 Goodbye（大约 {{ settings.tts.duplex_goodbye_sec }} 秒，0 关闭；每次在附近随机）</label>
+          <label>{{ t('set.tts.goodbye', { n: settings.tts.duplex_goodbye_sec }) }}</label>
           <n-slider v-model:value="settings.tts.duplex_goodbye_sec"
                     :min="0" :max="300" :step="5" />
-          <label>会话总长告别 SessionTimeover（分钟，0 关闭；会略微抖动）</label>
+          <label>{{ t('set.tts.session') }}</label>
           <n-slider v-model:value="settings.tts.duplex_session_max_min"
                     :min="0" :max="60" :step="1" />
           <div class="switch-row">
-            <span>插话分流：跳舞/说话时，夸奖先听着，有事才打断</span>
+            <span>{{ t('set.tts.ingress') }}</span>
             <n-switch v-model:value="settings.tts.duplex_ingress" />
           </div>
-          <p class="hint">
-            同一轮回复按完整句子切成 A1、A2、A3 多段音频：只排队顺播，互不打断。
-            你又问了一句、上一轮还在播：剩得比上面的秒数多就切到新回答，少就让当前这句说完再播新的；上一轮还没开口的后半段丢掉。
-            插话分流开着时：正在跳舞你说「跳的真好」不会停，说「换一支」才会停；正在说话时，嗯啊先记下，问句才开新一轮。语音也等出字再判，不会一出声就掐表演。
-            双方都沉默时：先过一会儿再续聊（大约 10–28 秒，不会卡在整 6 秒），再过一阵主动搭话（大约半分钟到一分多），再按你多久没开口告别（大约 1.5–3.5 分钟）。每次都在区间里随机，像人在想要不要再开口。会话总长到了也会告别，之后不再自动说话，你开口才继续。
-          </p>
-          <p v-if="settings.tts.engine === 'cosy'" class="hint">
-            音色是 CosyVoice 龙安系列（如龙安欢），和本地 Qwen 的 Vivian/Dylan、微软晓伊不是同一套，需重新选。
-          </p>
+          <p class="hint">{{ t('set.tts.duplexHint') }}</p>
+          <p v-if="settings.tts.engine === 'cosy'" class="hint">{{ t('set.tts.cosy') }}</p>
           <div v-if="settings.tts.engine === 'qwen'" class="speech-status">
             <p class="hint">
-              {{ speechStatus?.tts.message || '查询状态中…' }}
-              <template v-if="speechStatus?.tts.gpu"> · 检测到 NVIDIA GPU</template>
+              {{ speechStatus?.tts.message || t('set.asr.status') }}
+              <template v-if="speechStatus?.tts.gpu"> · {{ t('set.tts.gpu') }}</template>
             </p>
             <n-button size="small"
                       :loading="warmingTts || !!speechStatus?.tts.loading || !!speechStatus?.tts.downloading"
-                      @click="warmup('tts')">加载 / 切换规格</n-button>
+                      @click="warmup('tts')">{{ t('set.tts.load') }}</n-button>
           </div>
         </div>
       </n-tab-pane>
-      <n-tab-pane name="download" tab="下载">
+      <n-tab-pane name="download" :tab="t('settings.download')">
         <div class="form">
-          <label>模之屋登录 Token（部分作品要求点赞/收藏后下载，需要登录态）</label>
+          <label>{{ t('set.dl.token') }}</label>
           <n-input v-model:value="settings.download.aplaybox_token" type="password"
-                   show-password-on="click" placeholder="浏览器登录模之屋后，从开发者工具请求头里复制 token" />
-          <p class="hint">
-            获取方法：浏览器登录 aplaybox.com → F12 打开开发者工具 → 网络面板 →
-            任意 api.aplaybox.com 请求 → 请求头中的 token 字段。
-            自动满足下载规则会用你的账号点赞/收藏/关注作品作者。
-          </p>
+                   show-password-on="click" :placeholder="t('set.dl.ph')" />
+          <p class="hint">{{ t('set.dl.hint') }}</p>
         </div>
       </n-tab-pane>
-      <n-tab-pane name="quality" tab="画质">
+      <n-tab-pane name="quality" :tab="t('settings.quality')">
         <div class="form">
           <div class="switch-row">
-            <span>物理模拟（头发/裙摆摆动，低配机可关闭）</span>
+            <span>{{ t('set.q.physics') }}</span>
             <n-switch v-model:value="settings.quality.physics"
                       @update:value="onPhysics" />
           </div>
-          <p class="hint">仅对 PMX 模型有效。开关立刻生效并记住。</p>
-          <label>渲染分辨率上限（devicePixelRatio）</label>
+          <p class="hint">{{ t('set.q.physicsHint') }}</p>
+          <label>{{ t('set.q.dpr') }}</label>
           <n-slider v-model:value="settings.quality.pixel_ratio_cap"
                     :min="1" :max="3" :step="0.5" />
-          <label>灯光亮度（觉得模型偏亮/偏暗时微调，1.0 为标准）</label>
+          <label>{{ t('set.q.light') }}</label>
           <n-slider v-model:value="settings.quality.light_level"
                     :min="0.5" :max="1.5" :step="0.05"
                     :format-tooltip="(v: number) => v.toFixed(2) + '×'"
                     @update:value="settings.applyQuality()" />
-          <label>舞蹈 BGM 音量</label>
+          <label>{{ t('set.q.bgm') }}</label>
           <n-slider v-model:value="settings.quality.bgm_volume"
                     :min="0" :max="1" :step="0.05"
                     :format-tooltip="(v: number) => Math.round(v * 100) + '%'"
                     @update:value="settings.applyQuality()" />
-          <label>预制场景（AI 生成，点击切换）</label>
-          <p v-if="settings.modules.scenes" class="hint">
-            情境开着时背景跟今晚这场戏走，点这里会换成对应那场，不再另存一套。
-          </p>
+          <label>{{ t('set.q.presets') }}</label>
+          <p v-if="settings.modules.scenes" class="hint">{{ t('set.q.sceneOn') }}</p>
           <div class="scene-presets">
             <div v-for="s in SCENE_PRESETS" :key="s.value" class="scene-card"
                  :class="{ active: settings.modules.scenes
                    ? sceneSession.current?.background === s.value
                    : settings.quality.background_image === s.value }"
-                 :title="s.label" @click="pickPresetLook(s)">
-              <img :src="s.value" :alt="s.label" loading="lazy" />
-              <span>{{ s.label }}</span>
+                  :title="t('set.scene.' + s.key)" @click="pickPresetLook(s)">
+              <img :src="s.value" :alt="t('set.scene.' + s.key)" loading="lazy" />
+              <span>{{ t('set.scene.' + s.key) }}</span>
             </div>
           </div>
-          <label>纯色背景</label>
+          <label>{{ t('set.q.solid') }}</label>
           <div class="bg-presets">
             <div v-for="p in BG_PRESETS" :key="p.value" class="bg-swatch"
                  :class="{ active: !settings.quality.background_image
                              && settings.quality.background_color === p.value }"
-                 :style="{ background: p.value }" :title="p.label"
+                 :style="{ background: p.value }" :title="t('set.bg.' + p.key)"
                  @click="pickBgColor(p.value)" />
             <n-color-picker
               :value="settings.quality.background_color" :show-alpha="false"
@@ -933,67 +943,67 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           </div>
           <div class="bg-image-row">
             <n-button size="small" @click="bgFileInput?.click()">
-              {{ settings.quality.background_image ? '更换自定义图片' : '使用自定义图片…' }}
+              {{ settings.quality.background_image ? t('set.q.changeImage') : t('set.q.useImage') }}
             </n-button>
             <n-button v-if="settings.quality.background_image" size="small" quaternary
-                      @click="clearBgImage">恢复纯色背景</n-button>
+                      @click="clearBgImage">{{ t('set.q.clearImage') }}</n-button>
             <input ref="bgFileInput" type="file" accept="image/*" hidden
                    @change="onBgImageChosen" />
           </div>
           <div class="switch-row" style="margin-top: 10px">
-            <span>圆形舞台底座</span>
+            <span>{{ t('set.q.stage') }}</span>
             <n-switch v-model:value="settings.quality.stage_show"
                       @update:value="settings.applyQuality()" />
           </div>
           <template v-if="settings.quality.stage_show">
             <div class="style-chips">
-              <n-button v-for="s in STAGE_STYLES" :key="s.value" size="tiny" round
-                        :type="settings.quality.stage_style === s.value ? 'primary' : 'default'"
-                        :secondary="settings.quality.stage_style !== s.value"
-                        @click="settings.quality.stage_style = s.value; settings.applyQuality()">
-                {{ s.label }}
+              <n-button v-for="style in STAGE_STYLES" :key="style" size="tiny" round
+                        :type="settings.quality.stage_style === style ? 'primary' : 'default'"
+                        :secondary="settings.quality.stage_style !== style"
+                        @click="settings.quality.stage_style = style; settings.applyQuality()">
+                {{ t('set.stage.' + style) }}
               </n-button>
             </div>
-            <label>台面贴图（选场景时自动配套，可手动更换）</label>
+            <label>{{ t('set.q.tex') }}</label>
             <div class="tex-presets">
-              <div v-for="t in STAGE_TEXTURES" :key="t.value" class="tex-card"
-                   :class="{ active: settings.quality.stage_texture === t.value }"
-                   :title="t.label"
-                   @click="settings.quality.stage_texture = t.value; settings.applyQuality()">
-                <img v-if="t.value" :src="t.value" :alt="t.label" loading="lazy" />
+              <div v-for="tex in STAGE_TEXTURES" :key="tex.key" class="tex-card"
+                   :class="{ active: settings.quality.stage_texture === tex.value }"
+                   :title="t('set.tex.' + tex.key)"
+                   @click="settings.quality.stage_texture = tex.value; settings.applyQuality()">
+                <img v-if="tex.value" :src="tex.value" :alt="t('set.tex.' + tex.key)" loading="lazy" />
                 <div v-else class="tex-none"
                      :style="{ background: settings.quality.stage_color }" />
-                <span>{{ t.label }}</span>
+                <span>{{ t('set.tex.' + tex.key) }}</span>
               </div>
             </div>
             <div class="stage-colors">
               <div class="stage-color-item">
-                <span>台面颜色</span>
+                <span>{{ t('set.q.stageColor') }}</span>
                 <n-color-picker v-model:value="settings.quality.stage_color"
                                 :show-alpha="false" :modes="['hex']" class="bg-picker"
                                 @update:value="settings.applyQuality()" />
               </div>
               <div class="stage-color-item">
-                <span>发光色</span>
+                <span>{{ t('set.q.glow') }}</span>
                 <n-color-picker v-model:value="settings.quality.stage_glow"
                                 :show-alpha="false" :modes="['hex']" class="bg-picker"
                                 @update:value="settings.applyQuality()" />
               </div>
             </div>
-            <label>底座不透明度（调低可透出背景，更好地融入场景）</label>
+            <label>{{ t('set.q.opacity') }}</label>
             <n-slider v-model:value="settings.quality.stage_opacity"
                       :min="0.15" :max="1" :step="0.05"
                       :format-tooltip="(v: number) => Math.round(v * 100) + '%'"
                       @update:value="settings.applyQuality()" />
           </template>
-          <p class="hint">选择即时生效；点下方「保存」才会记住。图片场景会自动关闭景深雾，只保留圆形舞台底座。</p>
+          <p class="hint">{{ t('set.q.hint') }}</p>
         </div>
       </n-tab-pane>
     </n-tabs>
     <template #footer>
       <div style="display:flex;justify-content:flex-end;gap:10px;width:100%">
-        <n-button @click="emit('update:show', false)">取消</n-button>
-        <n-button type="primary" @click="save">保存</n-button>
+        <n-button @click="emit('update:show', false)">{{ t('settings.cancel') }}</n-button>
+        <n-button type="primary" @click="save">{{ t('settings.save') }}</n-button>
       </div>
     </template>
     </n-drawer-content>
@@ -1001,6 +1011,49 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
 </template>
 
 <style scoped>
+/* 标签比抽屉宽时会整行被裁掉。压回抽屉宽度并换行，下划线跟在每个标签自己底下。 */
+.settings-tabs {
+  width: 100%;
+  min-width: 0;
+}
+
+.settings-tabs :deep(.n-tabs-nav),
+.settings-tabs :deep(.n-tabs-nav-scroll-wrapper),
+.settings-tabs :deep(.v-x-scroll) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.settings-tabs :deep(.v-x-scroll) {
+  overflow: visible;
+}
+
+.settings-tabs :deep(.n-tabs-nav-scroll-content) {
+  width: 100%;
+}
+
+.settings-tabs :deep(.n-tabs-wrapper) {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  column-gap: 18px;
+  row-gap: 2px;
+}
+
+.settings-tabs :deep(.n-tabs-tab-pad),
+.settings-tabs :deep(.n-tabs-scroll-padding) {
+  display: none;
+}
+
+.settings-tabs :deep(.n-tabs-bar) {
+  display: none;
+}
+
+.settings-tabs :deep(.n-tabs-tab--active) {
+  box-shadow: inset 0 -2px 0 var(--n-bar-color);
+}
+
 .form {
   display: flex;
   flex-direction: column;

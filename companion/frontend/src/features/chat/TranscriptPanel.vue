@@ -4,6 +4,7 @@ import { NDrawer, NDrawerContent, NTabPane, NTabs } from 'naive-ui';
 import { api, type TalkLogLine } from '../../api/client';
 import { useChatStore } from '../../stores/chat';
 import { friendlyWhen } from './when';
+import { t } from '../../i18n';
 
 const props = defineProps<{ show: boolean }>();
 const emit = defineEmits<{ (e: 'update:show', v: boolean): void }>();
@@ -48,34 +49,34 @@ onUnmounted(() => {
 <template>
   <n-drawer :show="show" @update:show="(v: boolean) => emit('update:show', v)"
             :width="460" placement="right" show-mask="transparent" to="body">
-    <n-drawer-content title="会话记录" closable :native-scrollbar="false">
+    <n-drawer-content :title="t('top.log')" closable :native-scrollbar="false">
       <n-tabs v-model:value="tab" type="line" size="small">
-        <n-tab-pane name="talk" tab="对话对照">
-          <p class="hint">气泡里是实际播出的。这里还能看到模型完整回复；插话没念完的会标成未播出。</p>
-          <div v-if="!turns.length" class="empty">还没有对话。</div>
+        <n-tab-pane name="talk" :tab="t('log.talk')">
+          <p class="hint">{{ t('log.talkHint') }}</p>
+          <div v-if="!turns.length" class="empty">{{ t('log.empty') }}</div>
           <div v-for="(m, i) in turns" :key="m.id ?? i" class="turn" :class="m.role">
             <div class="meta">
-              <span class="who">{{ m.role === 'user' ? '对方' : '她' }}</span>
+              <span class="who">{{ m.role === 'user' ? t('log.user') : t('log.her') }}</span>
               <span class="time">{{ friendlyWhen(m.when, m.created_at) }}</span>
             </div>
             <p v-if="m.role === 'user'" class="body">{{ m.content }}</p>
             <template v-else>
               <div class="block">
-                <span class="tag">完整回复</span>
+                <span class="tag">{{ t('log.full') }}</span>
                 <p class="body">{{ m.fullContent || m.content || '…' }}</p>
               </div>
               <div v-if="m.content && !sameText(m.content, m.fullContent || m.content)" class="block spoken">
-                <span class="tag">实际播出</span>
+                <span class="tag">{{ t('log.spoken') }}</span>
                 <p class="body">{{ m.content }}</p>
               </div>
-              <div v-else-if="m.content" class="ok">实际播出与完整回复相同</div>
-              <div v-else class="wait">还没开口</div>
+              <div v-else-if="m.content" class="ok">{{ t('log.same') }}</div>
+              <div v-else class="wait">{{ t('log.quiet') }}</div>
             </template>
           </div>
         </n-tab-pane>
-        <n-tab-pane name="log" tab="后台日志">
-          <p class="hint">今天的流水账，时间是本机本地时间{{ logWhen ? `（刷新于 ${friendlyWhen(logWhen)}）` : '' }}。</p>
-          <div v-if="!lines.length" class="empty">还没有日志。说一句之后会写到这里。</div>
+        <n-tab-pane name="log" :tab="t('log.backend')">
+          <p class="hint">{{ t('log.backendHint', { when: logWhen ? t('log.refreshed', { time: friendlyWhen(logWhen) }) : '' }) }}</p>
+          <div v-if="!lines.length" class="empty">{{ t('log.emptyLog') }}</div>
           <div v-for="(row, i) in lines" :key="i" class="log" :class="row.kind">
             <span class="time">{{ friendlyWhen(row.t) }}</span>
             <span class="kind">{{ row.kind_cn || row.kind }}</span>

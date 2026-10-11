@@ -58,6 +58,27 @@ _cache: Dict[str, Any] = {
     "key": None, "llm_key": None, "mem": None, "imported": False, "embed_sig": "",
 }
 _IDENTITY_RE = re.compile(r"(用户的名字是|她的名字是|对方的名字是)")
+
+
+def _extract_hint() -> str:
+    from ...locale_pack import prompts
+    mem = prompts().get("memory") or {}
+    return str(mem.get("extract") or _EXTRACT_HINT)
+
+
+def _extract_tail() -> str:
+    from ...locale_pack import prompts
+    mem = prompts().get("memory") or {}
+    return str(mem.get("json_tail") or '只输出 JSON：{"facts":["短句",...]}。没有可记的事实就 {"facts":[]}。')
+
+
+def _identity_re():
+    from ...locale_pack import prompts
+    mem = prompts().get("memory") or {}
+    pat = str(mem.get("identity") or _IDENTITY_RE.pattern)
+    if pat == _IDENTITY_RE.pattern:
+        return _IDENTITY_RE
+    return re.compile(f"(?:{pat})|(?:{_IDENTITY_RE.pattern})")
 _MARKER = MEM0_DIR / "embedder.txt"
 _IMPORTED = MEM0_DIR / "facts_imported.txt"
 
@@ -143,7 +164,7 @@ def _mem0_config(llm_conf: Dict[str, Any], *, dims: int, collection: str) -> Dic
             },
         },
         "history_db_path": str(MEM0_DIR / "history.db"),
-        "custom_instructions": _EXTRACT_HINT,
+        "custom_instructions": _extract_hint(),
     }
 
 
@@ -219,7 +240,7 @@ def _dump_collection(mem, character_ids: Sequence[int]) -> List[Dict[str, Any]]:
 
 
 def _is_identity_fact(text: str) -> bool:
-    return bool(_IDENTITY_RE.search((text or "").strip()))
+    return bool(_identity_re().search((text or "").strip()))
 
 
 def _pin_identity(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -535,7 +556,8 @@ def _client(session: Session):
     conf = all_conf.get("llm") or {}
     api_key = (conf.get("api_key") or "").strip()
     choice = _embedder_choice(session)
-    llm_key = (api_key, conf.get("base_url") or "", conf.get("model") or "", choice)
+    from ...locale_pack import current_reply
+    llm_key = (api_key, conf.get("base_url") or "", conf.get("model") or "", choice, current_reply())
     with _lock:
         if _cache["mem"] is not None and _cache.get("llm_key") == llm_key:
             return _cache["mem"]
@@ -550,7 +572,8 @@ def _client(session: Session):
     else:
         semantic = getattr(embedder, "provider", "") != "hashing"
     sig = embed_svc.embed_sig(embedder)
-    key = (api_key, conf.get("base_url") or "", conf.get("model") or "", choice, sig)
+    from ...locale_pack import current_reply
+    key = (api_key, conf.get("base_url") or "", conf.get("model") or "", choice, sig, current_reply())
     with _lock:
         if _cache["mem"] is not None and _cache["key"] == key:
             _cache["llm_key"] = llm_key
@@ -877,10 +900,20 @@ def llm_extract_facts(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]) 
         return []
     lines = []
     for m in messages:
-        role = "用户" if m.get("role") == "user" else "助手"
+        role_user = "用户"
+        role_asst = "助手"
+        try:
+            from ...locale_pack import prompts
+            mem = prompts().get("memory") or {}
+            role_user = str(mem.get("role_user") or role_user)
+            role_asst = str(mem.get("role_assistant") or role_asst)
+        except Exception:
+            pass
+        role = role_user if m.get("role") == "user" else role_asst
         content = (m.get("content") or "").strip()
         if content:
-            lines.append(f"{role}：{content}")
+            sep = ": " if role_user == "User" else "："
+            lines.append(f"{role}{sep}{content}")
     blob = "\n".join(lines)[:8000]
     if not blob.strip():
         return []
@@ -892,8 +925,8 @@ def llm_extract_facts(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]) 
             {
                 "role": "system",
                 "content": (
-                    _EXTRACT_HINT
-                    + '只输出 JSON：{"facts":["短句",...]}。没有可记的事实就 {"facts":[]}。'
+                    _extract_hint()
+                    + _extract_tail()
                 ),
             },
             {"role": "user", "content": blob},

@@ -1,5 +1,6 @@
 import { api } from '../../api/client';
 import { stage } from '../../engine/stage';
+import { bcp } from '../../i18n';
 import { AecSpeaker } from './aecLoopback';
 import { reportLoopback } from './aec';
 import {
@@ -845,7 +846,11 @@ export class SpeechPlayer {
   private playBrowser(text: string, gen: number, token: number) {
     return new Promise<void>((resolve) => {
       const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = 'zh-CN';
+      utter.lang = bcp();
+      const voices = window.speechSynthesis?.getVoices?.() || [];
+      const want = bcp().toLowerCase();
+      const match = voices.find((v) => (v.lang || '').toLowerCase().startsWith(want.slice(0, 2)));
+      if (match) utter.voice = match;
       utter.onstart = () => {
         if (gen !== this.generation || token !== this.playToken) {
           speechSynthesis.cancel();

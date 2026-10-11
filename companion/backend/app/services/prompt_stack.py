@@ -26,6 +26,9 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from .llm import SYSTEM_PROTOCOL
+from ..locale_pack import (
+    LangRe, current_reply, prompts as locale_prompts, role_bad_head, role_stop, tod_index,
+)
 
 FALLBACK_PERSONA = "你是一个温柔开朗的虚拟陪玩女孩。"
 
@@ -37,32 +40,15 @@ _lock = threading.Lock()
 _overlays: Dict[int, Dict[str, str]] = {}   # character_id -> {"role": 扮演对象}
 _just_exited: Dict[int, bool] = {}          # 退出后给一轮缓冲提示
 
-_EXIT_RE = re.compile(
-    r"退出扮演|结束扮演|退出角色|结束角色|停止扮演|别演了|不演了|不用演了|"
-    r"变回(?:来|自己|你自己)|回到你自己|恢复(?:原来的)?(?:你|自己|人设)"
-)
-_ENTER_RE = re.compile(
-    r"(?:扮演|假扮|你现在是|你来当|当我的|假装你是|假装是|cosplay)"
-    r"(?:一个|一位|一名|个|位|名)?\s*"
-    r"([^\s，。,、！!？?；;：:\[\]（）()]{1,20})",
-    re.IGNORECASE,
-)
+_EXIT_RE = LangRe("roleplay.exit")
+_ENTER_RE = LangRe("roleplay.enter")
 # 疑问词/否定开头不是在点角色（如「你现在是不是困了」「你现在是谁」）
-_ROLE_STOP = {"谁", "什么", "啥", "你", "我", "他", "她", "它"}
-_ROLE_BAD_HEAD = "不没别啥谁咋怎"
 # 角色名后面常挂任务描述（「扮演学姐陪我复习」），从连接词处截断只留身份
-_ROLE_TAIL_RE = re.compile(r"(?:陪|帮|给|教|带|考|哄|叫|喊)我")
+_ROLE_TAIL_RE = LangRe("roleplay.role_tail")
 # 扮演请求里夹带的越狱指令：进 overlay 前剥掉
-_INJECT_RE = re.compile(
-    r"(?:忽略|无视|不用管|抛弃|解除|绕过|忘掉)[^，。,！!？?；;]{0,12}"
-    r"(?:规则|限制|设定|指令|约束|安全|人设)"
-    r"|你没有(?:任何)?(?:限制|规则|约束)|越狱|jailbreak|system\s*prompt",
-    re.IGNORECASE,
-)
+_INJECT_RE = LangRe("roleplay.inject")
 # 高危身份：代码直接不生成 overlay，让底座人设自己接
-_BLOCK_ROLE_RE = re.compile(
-    r"领导人|主席|总理|总统|书记|公安|警察|法官|检察|军官|客服官方|医生?给?我?开药"
-)
+_BLOCK_ROLE_RE = LangRe("roleplay.block_role")
 
 
 def update_overlay(character_id: int, text: str) -> None:
@@ -83,10 +69,11 @@ def update_overlay(character_id: int, text: str) -> None:
         tail = _ROLE_TAIL_RE.search(role)
         if tail and tail.start() > 0:
             role = role[:tail.start()]
-        if (not role or role in _ROLE_STOP or role[0] in _ROLE_BAD_HEAD
+        bad = role_bad_head()
+        if (not role or role in role_stop() or (bad and role[0] in bad)
                 or _BLOCK_ROLE_RE.search(role)):
             return
-        _overlays[character_id] = {"role": role[:20]}
+        _overlays[character_id] = {"role": role[:40]}
         _just_exited.pop(character_id, None)
 
 
@@ -171,11 +158,8 @@ _REDLINES = {
 # L2 场景包：代码前置分类，选一段轮次规则塞进去
 # ---------------------------------------------------------------------------
 
-_DANCE_RE = re.compile(r"跳[个支一段首两]{0,2}舞|舞蹈|来一支|再来一支|换一支|dance", re.IGNORECASE)
-_KNOW_RE = re.compile(
-    r"是什么|什么是|为什么|为啥|怎么(?:做|办|用|写|学|算|回事)|如何|哪些|哪个好|"
-    r"有什么区别|区别|优缺点|原理|教程|解释一?下|什么意思|帮我(?:写|查|算|翻译|总结)"
-)
+_DANCE_RE = LangRe("classify.dance")
+_KNOW_RE = LangRe("classify.knowledge")
 
 _PACKS = {
     "chat": "这一轮是闲聊或情绪：先接住这句话里的情绪，一两句口语说完，最多再轻轻追问一句，别急着给建议。",
@@ -213,7 +197,11 @@ def classify(text: str, mode: str, *, tarot: bool = False) -> str:
 # ---------------------------------------------------------------------------
 
 def _time_of_day(hour: int) -> str:
-    if hour < 5:
+    labels = locale_prompts().get("time_of_day") or []
+    idx = tod_index(hour)
+    if isinstance(labels, list) and idx < len(labels):
+        return str(labels[idx])
+    if hour < 5 or hour >= 23:
         return "深夜"
     if hour < 9:
         return "早上"
@@ -223,36 +211,45 @@ def _time_of_day(hour: int) -> str:
         return "中午"
     if hour < 18:
         return "下午"
-    if hour < 23:
-        return "晚上"
-    return "深夜"
+    return "晚上"
 
 
 def _gap_text(last_at: Optional[datetime]) -> str:
+    gap = (locale_prompts().get("gap") or {})
     if not last_at:
-        return "这是你们的第一次聊天。"
+        return str(gap.get("first") or "这是你们的第一次聊天。")
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     ref = last_at.replace(tzinfo=None) if last_at.tzinfo else last_at
     mins = max(0, int((now_utc - ref).total_seconds() // 60))
     if mins < 10:
-        return "你们正聊着。"
+        return str(gap.get("now") or "你们正聊着。")
     if mins < 60:
-        return f"距上一句话过了大约{mins}分钟。"
+        return str(gap.get("mins") or "距上一句话过了大约{n}分钟。").format(n=mins)
     hours = mins // 60
     if hours < 48:
-        return f"距上次聊天过了大约{hours}小时。"
+        return str(gap.get("hours") or "距上次聊天过了大约{n}小时。").format(n=hours)
     days = hours // 24
-    return f"距上次聊天过了大约{days}天，可以自然带一句想念，但别太刻意。"
+    return str(gap.get("days") or "距上次聊天过了大约{n}天。").format(n=days)
 
 
 def context_slots(last_at: Optional[datetime]) -> str:
     now = datetime.now()
-    wd = "一二三四五六日"[now.weekday()]
-    return (
-        f"现在是{now.month}月{now.day}日星期{wd}{_time_of_day(now.hour)}"
-        f"{now.hour}点{now.minute:02d}分。{_gap_text(last_at)}"
-        "这些是给你参考的背景，不用每轮都念出来。"
-    )
+    pack = locale_prompts()
+    wd_src = pack.get("weekday")
+    if isinstance(wd_src, list):
+        wd = wd_src[now.weekday()] if now.weekday() < len(wd_src) else ""
+    else:
+        wd = str(wd_src or "一二三四五六日")[now.weekday()]
+    clock = str(pack.get("clock") or "现在是{month}月{day}日星期{weekday}{tod}{hour}点{minute}分。")
+    tail = str(pack.get("context_tail") or "这些是给你参考的背景，不用每轮都念出来。")
+    try:
+        line = clock.format(
+            month=now.month, day=now.day, weekday=wd, tod=_time_of_day(now.hour),
+            hour=now.hour, minute=f"{now.minute:02d}",
+        )
+    except (KeyError, IndexError, ValueError):
+        line = clock
+    return f"{line}{_gap_text(last_at)}{tail}"
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +266,17 @@ _DEFLECT_LINE = "这句越界啦，我不接这个话题。换一个吧，我还
 _GUARD_WINDOW = 60  # 只检查开头这么多字，避免长回复被误伤
 
 
+def _deflect_line() -> str:
+    return str(locale_prompts().get("deflect") or _DEFLECT_LINE)
+
+
+def _refusal_re() -> re.Pattern:
+    pat = str(locale_prompts().get("refusal") or "")
+    if not pat or pat == _REFUSAL_RE.pattern:
+        return _REFUSAL_RE
+    return re.compile(f"(?:{pat})|(?:{_REFUSAL_RE.pattern})", re.IGNORECASE)
+
+
 async def guard_refusal(source):
     """包在 stream_chat 外面：开头若命中审查播报特征，丢弃模型输出换成挡话。"""
     buf: List[Dict[str, str]] = []
@@ -276,10 +284,11 @@ async def guard_refusal(source):
     checking = True
 
     def _deflect():
+        line = _deflect_line()
         return [
             {"type": "emo", "value": "neutral"},
-            {"type": "text", "delta": _DEFLECT_LINE},
-            {"type": "done", "full_text": _DEFLECT_LINE},
+            {"type": "text", "delta": line},
+            {"type": "done", "full_text": line},
         ]
 
     try:
@@ -291,7 +300,7 @@ async def guard_refusal(source):
             if t == "text":
                 acc += ev.get("delta") or ""
                 buf.append(ev)
-                if _REFUSAL_RE.search(acc):
+                if _refusal_re().search(acc):
                     print(f"[guard] refusal boilerplate -> deflect: {acc[:48]!r}")
                     for e in _deflect():
                         yield e
@@ -303,7 +312,7 @@ async def guard_refusal(source):
                     buf = []
                 continue
             if t in ("done", "error"):
-                if t == "done" and _REFUSAL_RE.search(acc):
+                if t == "done" and _refusal_re().search(acc):
                     print(f"[guard] refusal boilerplate -> deflect: {acc[:48]!r}")
                     for e in _deflect():
                         yield e
@@ -343,7 +352,8 @@ def build_messages(
 ) -> List[Dict[str, str]]:
     """固定架子：persona -> (记忆由 hooks 插这里) -> 上下文+场景包 -> 扮演 overlay
     -> 导演手册 -> 历史。system 各层每轮重算，不随历史窗口滚掉。"""
-    name = (char_name or "").strip() or "你自己"
+    pack = locale_prompts()
+    name = (char_name or "").strip() or str(pack.get("self_name") or "你自己")
     if mode == "user":
         update_overlay(character_id, user_text)
     tarot_on = False
@@ -354,28 +364,43 @@ def build_messages(
         except Exception:
             tarot_on = False
     kind = classify(user_text, mode, tarot=tarot_on)
+    redlines = pack.get("redlines") or _REDLINES
+    packs = pack.get("packs") or _PACKS
+    persona_fallback = str(pack.get("fallback_persona") or FALLBACK_PERSONA)
+    label = str(pack.get("context_label") or "【本轮上下文】")
 
     msgs: List[Dict[str, str]] = [
-        {"role": "system", "content": (persona or FALLBACK_PERSONA).strip()},
+        {"role": "system", "content": (persona or persona_fallback).strip()},
         {"role": "system",
-         "content": _REDLINES.get(boundary) or _REDLINES["strict"]},
+         "content": redlines.get(boundary) or redlines.get("strict") or _REDLINES["strict"]},
         {"role": "system",
-         "content": f"【本轮上下文】{context_slots(last_at)}\n{_PACKS[kind]}"},
+         "content": f"{label}{context_slots(last_at)}\n{packs[kind]}"},
     ]
 
     with _lock:
         ov = _overlays.get(character_id)
         exited = _just_exited.pop(character_id, False)
     if ov:
+        tmpl = str(pack.get("overlay") or _OVERLAY_TMPL)
         msgs.append({"role": "system",
-                     "content": _OVERLAY_TMPL.format(role=ov["role"], name=name)})
+                     "content": tmpl.format(role=ov["role"], name=name)})
     elif exited:
-        msgs.append({"role": "system", "content": _EXIT_NOTE.format(name=name)})
+        note = str(pack.get("exit_note") or _EXIT_NOTE)
+        msgs.append({"role": "system", "content": note.format(name=name)})
 
     names = (motion_groups.get("dance") or [])[:48]
-    dance_extra = (
-        f"\n可用舞蹈（格式：文件名（舞蹈名），跳舞时输出 [dance:文件名]）：\n"
-        f"{chr(10).join(names)}"
-    ) if names else ""
-    msgs.append({"role": "system", "content": SYSTEM_PROTOCOL.strip() + dance_extra})
+    dance_head = str(pack.get("dance_list") or (
+        "可用舞蹈（格式：文件名（舞蹈名），跳舞时输出 [dance:文件名]）：\n"
+    ))
+    dance_extra = f"\n{dance_head}{chr(10).join(names)}" if names else ""
+    protocol = str(pack.get("protocol") or SYSTEM_PROTOCOL)
+    msgs.append({"role": "system", "content": protocol.strip() + dance_extra})
+    lock = str(pack.get("reply_lock") or "").strip()
+    if lock and history and history[-1].get("role") == "user":
+        return msgs + history[:-1] + [
+            {"role": "system", "content": lock},
+            history[-1],
+        ]
+    if lock:
+        msgs.append({"role": "system", "content": lock})
     return msgs + history

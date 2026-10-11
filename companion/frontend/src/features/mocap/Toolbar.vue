@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { NTooltip } from 'naive-ui';
+import XkIcon from '../icons/XkIcon.vue';
 import { startMocap, stopMocap } from './api';
 import { mocapState } from './session';
 
@@ -42,11 +43,7 @@ async function onVideoFile(e: Event) {
                 rec: mocapState.status === 'running' && mocapState.source === 'camera',
               }"
               @click="toggleCamera">
-        <svg viewBox="0 0 24 24" width="19" height="19" fill="none"
-             stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M23 7l-7 5 7 5V7z" />
-          <rect x="1" y="5" width="15" height="14" rx="2" />
-        </svg>
+        <XkIcon name="cam" :size="22" />
       </button>
     </template>
     {{ mocapOn && mocapState.source === 'camera' ? '停止摄像头动捕' : '摄像头动捕（全身 / 手 / 脸）' }}
@@ -58,11 +55,7 @@ async function onVideoFile(e: Event) {
                 rec: mocapState.status === 'running' && mocapState.source === 'video',
               }"
               @click="fileInput?.click()">
-        <svg viewBox="0 0 24 24" width="19" height="19" fill="none"
-             stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="4" width="20" height="16" rx="2" />
-          <polygon points="10 9 16 12 10 15" fill="currentColor" stroke="none" />
-        </svg>
+        <XkIcon name="film" :size="22" />
       </button>
     </template>
     用视频文件测试动捕

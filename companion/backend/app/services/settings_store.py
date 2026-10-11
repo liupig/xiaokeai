@@ -28,6 +28,7 @@ DEFAULTS: Dict[str, Any] = {
                 "stage_show": True, "stage_color": "#232342", "stage_glow": "#5b5bd6",
                 "stage_style": "classic", "stage_texture": "", "stage_opacity": 1.0},
     "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "codewatch": True},
+    "locale": {"ui": "zh-CN", "reply": "zh-CN", "reply_mode": "fixed"},
     "memory": {"embedder": "auto"},
     "hardware": {
         "auto": False, "tier": "", "ram_gb": 0, "vram_gb": 0, "cores": 0,
@@ -211,6 +212,7 @@ def public_all(session: Session) -> Dict[str, Any]:
     result["llm_local"] = using_env
     omni = dict(result.get("omni") or {})
     result["omni_env"] = omni_env_fallback(omni)
+    result["locale_set"] = "locale" in saved_keys(session)
     return result
 
 
@@ -219,6 +221,7 @@ def update(session: Session, patch: Dict[str, Any]) -> Dict[str, Any]:
     patch.pop("llm_local", None)
     patch.pop("llm_env", None)
     patch.pop("omni_env", None)
+    patch.pop("locale_set", None)
     for key, value in patch.items():
         row = session.get(Setting, key)
         if row is None:

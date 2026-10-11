@@ -6,8 +6,29 @@ from typing import Any, Dict, List
 from .sources import label_of
 
 
+def _hint_locale(phase: str, *, title: str, source: str, pack: Dict[str, Any]) -> str:
+    task = (title or "").strip()
+    clip = int(pack.get("clip_chars") or 48)
+    bit = "".join(task.split())[:clip]
+    desk = label_of(source)
+    if phase == "started":
+        about = str(pack.get("started_about_task") or "").format(desk=desk, task=task) if task else str(pack.get("started_about") or "").format(desk=desk)
+        body = str(pack.get("started_body") or "")
+        return f"{about}\n{body}".strip()
+    if phase == "done":
+        about = str(pack.get("done_about") or "").format(desk=desk)
+        if bit:
+            about += str(pack.get("done_bit") or "").format(bit=bit)
+        body = str(pack.get("done_body") or "")
+        return f"{about}\n{body}".strip()
+    return ""
+
+
 def hint(phase: str, *, title: str = "", tools: List[str] | None = None,
          project: str = "", source: str = "") -> str:
+    from ...locale_pack import current_reply, prompts
+    if current_reply() != "zh-CN":
+        return _hint_locale(phase, title=title, source=source, pack=prompts().get("codewatch") or {})
     task = (title or "").strip() or ""
     bit = "".join(task.split())[:10]
     desk = label_of(source)

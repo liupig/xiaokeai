@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/omni", tags=["omni"])
 
 
 class OmniTestBody(BaseModel):
-    text: str = "用中文介绍你自己，两句话。"
+    text: str = ""
     mode: str = "speech"  # chat = 文字理解；speech = Realtime 语音
     image_b64: str = ""
     chat_url: str = ""
