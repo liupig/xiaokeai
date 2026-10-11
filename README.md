@@ -97,7 +97,9 @@ To build a double-click Windows exe (bundled Chromium, Python runtime, models an
 
 ### Ready-made pack (no compile)
 
-A built Windows pack is on Baidu Netdisk: **A / B as two 7z files**, plus one **all-in-one** 7z.
+Windows packs are on Baidu Netdisk: **A / B as two 7z files**, plus one **all-in-one** 7z. **Updated 2026-10-11.** Same share. The new program pack is `xiaoke-ai-A-20261011203508.7z`. If you already have B, replace only A, then quit and open again.
+
+This A adds what the current source does: interface language and speech language are separate (Simplified Chinese, English, Japanese, Korean). English speech stays a woman’s voice. Japanese uses Ono Anna, Korean uses Sohee. Settings, tarot, and scenes follow the language you pick.
 
 [xiaoke.ai local 3D companion · Baidu Netdisk](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)　password: `xkai`
 
@@ -111,7 +113,7 @@ Extract with [7-Zip](https://www.7-zip.org/). Do not nest A inside B or the othe
 
 ```
 D:\xiaoke\
-  xiaoke-ai-A-20260904233641\   ← double-click xiaoke-ai.exe here
+  xiaoke-ai-A-20261011203508\   ← double-click xiaoke-ai.exe here
     xiaoke-ai.exe
   xiaoke-ai-B\
     xiaoke-content.json
@@ -411,7 +413,9 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 ### 体验包（不用自己编译）
 
-网盘里是已经打好的 Windows 包，解压就能开。里面有 **A / B 两份 7z**，以及一份 **一体包**：
+网盘里是已经打好的 Windows 包，解压就能开。里面有 **A / B 两份 7z**，以及一份 **一体包**。**2026-10-11 更新过。** 链接没变。新的程序包是 `xiaoke-ai-A-20261011203508.7z`。已经有 B 的话，只换 A，关掉再开。
+
+这一版 A 和现在的源码一致：界面语言和对话语言分开，简体中文、英语、日语、韩语。英语仍是女声。日语是小野安娜，韩语是素熙。设置、塔罗、情境跟着你选的语言走。
 
 [xiaoke.ai 3D本地陪聊 · 百度网盘](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)　提取码：`xkai`
 
@@ -425,7 +429,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 ```
 某盘:\xiaoke\
-  xiaoke-ai-A-20260904233641\   ← 双击这里的 xiaoke-ai.exe
+  xiaoke-ai-A-20261011203508\   ← 双击这里的 xiaoke-ai.exe
     xiaoke-ai.exe
   xiaoke-ai-B\
     xiaoke-content.json
