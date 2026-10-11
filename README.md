@@ -97,11 +97,18 @@ To build a double-click Windows exe (bundled Chromium, Python runtime, models an
 
 ### Ready-made pack (no compile)
 
-Windows packs are on Baidu Netdisk: **A / B as two 7z files**, plus one **all-in-one** 7z. **Updated 2026-10-11.** Same share. The new program pack is `xiaoke-ai-A-20261011203508.7z`. If you already have B, replace only A, then quit and open again.
-
-This A adds what the current source does: interface language and speech language are separate (Simplified Chinese, English, Japanese, Korean). English speech stays a woman’s voice. Japanese uses Ono Anna, Korean uses Sohee. Settings, tarot, and scenes follow the language you pick.
+Windows packs are on Baidu Netdisk: **A / B as two 7z files**, plus one **all-in-one** 7z. Same share. Use the newest A below. If you already have B, replace only A, then quit and open again.
 
 [xiaoke.ai local 3D companion · Baidu Netdisk](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)　password: `xkai`
+
+#### Pack updates
+
+Newest first. The link above does not change when a new A is uploaded.
+
+| Date | Pack | What changed |
+|---|---|---|
+| 2026-10-11 | `xiaoke-ai-A-20261011203508.7z` | Interface language and speech language are separate: Simplified Chinese, English, Japanese, Korean. English stays a woman’s voice (Serena). Japanese is Ono Anna, Korean is Sohee. Settings, tarot, and scenes follow the language you pick. `xiaoke-ai-B.7z` was packed the same day; keep an older B if it already runs. |
+| 2026-09-04 | `xiaoke-ai-A-20260904233641.7z` | First published Windows A/B pack: desktop 3D companion, voice, lip-sync, motion, dance, camera, tarot, memory. |
 
 | You downloaded | What it is | How to open |
 |---|---|---|
@@ -413,11 +420,18 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 ### 体验包（不用自己编译）
 
-网盘里是已经打好的 Windows 包，解压就能开。里面有 **A / B 两份 7z**，以及一份 **一体包**。**2026-10-11 更新过。** 链接没变。新的程序包是 `xiaoke-ai-A-20261011203508.7z`。已经有 B 的话，只换 A，关掉再开。
-
-这一版 A 和现在的源码一致：界面语言和对话语言分开，简体中文、英语、日语、韩语。英语仍是女声。日语是小野安娜，韩语是素熙。设置、塔罗、情境跟着你选的语言走。
+网盘里是已经打好的 Windows 包，解压就能开。里面有 **A / B 两份 7z**，以及一份 **一体包**。链接不变。用下面最新的 A。已经有 B 的话，只换 A，关掉再开。
 
 [xiaoke.ai 3D本地陪聊 · 百度网盘](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)　提取码：`xkai`
+
+#### 打包更新记录
+
+新的在上。以后每次换 A，往这张表加一行，不删旧的。
+
+| 日期 | 包 | 这一版 |
+|---|---|---|
+| 2026-10-11 | `xiaoke-ai-A-20261011203508.7z` | 界面语言和对话语言分开：简体中文、英语、日语、韩语。英语仍是女声（塞蕾娜）。日语小野安娜，韩语素熙。设置、塔罗、情境跟着所选语言走。当天也重打了 `xiaoke-ai-B.7z`；旧 B 还能用就不用换。 |
+| 2026-09-04 | `xiaoke-ai-A-20260904233641.7z` | 第一次放出的 Windows A/B 体验包：桌面 3D 陪玩，语音、口型、动作、舞蹈、运镜、塔罗、记忆。 |
 
 | 你下到的 | 是什么 | 怎么开 |
 |---|---|---|
