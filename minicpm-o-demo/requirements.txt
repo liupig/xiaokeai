@@ -1,0 +1,19 @@
+# 独立环境，不要装进 companion 的 Python。
+# MiniCPM-o 4.5 官方钉死 transformers 4.51；companion 的 Qwen TTS 是 4.57.3。
+transformers==4.51.0
+accelerate>=1.0.0
+sentencepiece>=0.2.0
+protobuf>=4.25
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+numpy>=1.24,<2.3
+soundfile>=0.12
+librosa>=0.10
+Pillow>=10.0
+modelscope>=1.18
+huggingface_hub>=0.24,<1
+httpx>=0.27
+bitsandbytes>=0.43
+# minicpmo-utils 钉死 librosa==0.9.0，和上面冲突；本 demo 不用它
+# torch / torchaudio 由 setup.ps1 按 CUDA 轮子单独装（<=2.8）

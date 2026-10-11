@@ -32,11 +32,13 @@ const LLM_PRESETS: Record<string, { base: string; model: string }> = {
   openai: { base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
   gemini: { base: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.0-flash' },
   openrouter: { base: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini' },
+  minicpm: { base: 'https://api.modelbest.cn/v1', model: 'MiniCPM-O-4.5-9B' },
 };
 const llmPresetOptions = [
   { label: '阿里云百炼（通义千问 / Kimi）', value: 'bailian' },
   { label: '火山方舟（豆包）', value: 'volcano' },
   { label: '火山方舟（豆包角色）', value: 'volcano_character' },
+  { label: '面壁 MiniCPM-o 4.5 Omni', value: 'minicpm' },
   { label: 'DeepSeek 官方', value: 'deepseek' },
   { label: 'Moonshot（Kimi 官方）', value: 'moonshot' },
   { label: '智谱 GLM', value: 'zhipu' },
@@ -61,6 +63,11 @@ function applyLlmPreset(key: string) {
   settings.llm.base_url = p.base;
   settings.llm.model = p.model;
   if (key === 'volcano_character') settings.llm.thinking = 'off';
+  if (key === 'minicpm') {
+    settings.llm.thinking = 'off';
+    settings.omni.chat_url = p.base;
+    settings.omni.model = p.model;
+  }
 }
 
 const thinkingOptions = [
@@ -120,6 +127,135 @@ async function testLlm() {
     message.error('测试请求失败：' + e);
   } finally {
     testing.value = false;
+  }
+}
+
+const omniPrompt = ref('用中文介绍你自己，两句话。');
+const omniReply = ref('');
+const omniHint = ref('');
+const omniBusy = ref(false);
+const omniImageName = ref('');
+const omniImageB64 = ref('');
+const omniImg = ref<HTMLInputElement | null>(null);
+let omniAbort: AbortController | null = null;
+let omniAudioCtx: AudioContext | null = null;
+let omniHorizon = 0;
+
+function stopOmniAudio() {
+  try { omniAudioCtx?.close(); } catch { /* ignore */ }
+  omniAudioCtx = null;
+  omniHorizon = 0;
+}
+
+function playOmniPcm(pcmB64: string, rate: number) {
+  const raw = atob(pcmB64);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  const samples = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
+  if (!samples.length) return;
+  if (!omniAudioCtx || omniAudioCtx.sampleRate !== rate || omniAudioCtx.state === 'closed') {
+    omniAudioCtx = new AudioContext({ sampleRate: rate });
+    omniHorizon = 0;
+  }
+  const f32 = new Float32Array(samples.length);
+  for (let i = 0; i < samples.length; i++) f32[i] = samples[i] / 32768;
+  const buf = omniAudioCtx.createBuffer(1, f32.length, rate);
+  buf.copyToChannel(f32, 0);
+  const src = omniAudioCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(omniAudioCtx.destination);
+  const now = omniAudioCtx.currentTime;
+  const t = omniHorizon > now + 0.004 ? omniHorizon : now + 0.02;
+  omniHorizon = t + buf.duration;
+  src.start(t);
+}
+
+function pickOmniImage() {
+  omniImg.value?.click();
+}
+
+function onOmniImage(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  if (file.size > 4 * 1024 * 1024) {
+    message.warning('图片请小于 4MB');
+    (e.target as HTMLInputElement).value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const url = String(reader.result || '');
+    const comma = url.indexOf(',');
+    omniImageB64.value = comma >= 0 ? url.slice(comma + 1) : url;
+    omniImageName.value = file.name;
+  };
+  reader.readAsDataURL(file);
+  (e.target as HTMLInputElement).value = '';
+}
+
+function clearOmniImage() {
+  omniImageB64.value = '';
+  omniImageName.value = '';
+}
+
+async function runOmniTest(mode: 'chat' | 'speech') {
+  omniAbort?.abort();
+  stopOmniAudio();
+  const ac = new AbortController();
+  omniAbort = ac;
+  omniBusy.value = true;
+  omniReply.value = '';
+  omniHint.value = mode === 'speech' ? '正在连 Realtime…' : '正在请求 Chat Completions…';
+  try {
+    await api.streamOmniTest({
+      text: omniPrompt.value.trim() || '用中文介绍你自己，两句话。',
+      mode,
+      image_b64: omniImageB64.value,
+      chat_url: settings.omni.chat_url,
+      realtime_host: settings.omni.realtime_host,
+      api_key: settings.omni.api_key,
+      model: settings.omni.model,
+      llm_api_key: settings.llm.api_key,
+      llm_base_url: settings.llm.base_url,
+    }, (ev) => {
+      if (ev.type === 'queue') {
+        omniHint.value = String(ev.message || '排队中…');
+        return;
+      }
+      if (ev.type === 'text' && ev.delta) {
+        omniReply.value += String(ev.delta);
+        omniHint.value = mode === 'speech' ? '正在说…' : '正在写…';
+        return;
+      }
+      if (ev.type === 'audio' && ev.pcm_b64) {
+        playOmniPcm(String(ev.pcm_b64), Number(ev.rate) || 24000);
+        return;
+      }
+      if (ev.type === 'listen') {
+        omniHint.value = '模型在听…';
+        return;
+      }
+      if (ev.type === 'error') {
+        omniHint.value = String(ev.message || '失败');
+        message.error(omniHint.value, { duration: 8000, closable: true });
+        return;
+      }
+      if (ev.type === 'done') {
+        if (ev.text && !omniReply.value) omniReply.value = String(ev.text);
+        omniHint.value = ev.audio
+          ? `完成（已播语音 ${Math.round(Number(ev.audio_bytes || 0) / 48)} ms）`
+          : '完成（本次无语音）';
+      }
+    }, ac.signal);
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') omniHint.value = '已取消';
+    else {
+      omniHint.value = String(e);
+      message.error(omniHint.value);
+    }
+  } finally {
+    omniBusy.value = false;
+    if (omniAbort === ac) omniAbort = null;
   }
 }
 
@@ -423,7 +559,11 @@ watch(() => props.show, (v) => {
   if (v) startStatusPoll();
   else stopStatusPoll();
 });
-onUnmounted(stopStatusPoll);
+onUnmounted(() => {
+  stopStatusPoll();
+  omniAbort?.abort();
+  stopOmniAudio();
+});
 
 async function save() {
   await settings.save();
@@ -570,8 +710,9 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           </p>
           <p class="hint">
             切换服务商后记得同时换成该服务商的 API Key（Key 不通用）。
-            也可以把 Key 写到环境变量或 companion/scripts/.env（COMPANION_LLM_API_KEY / ARK_API_KEY），
-            前端留空即可直接用。火山方舟可用模型名（如 doubao-seed-character-260628），或填 ep- 接入点 ID。
+            MiniCPM-o 的 Key 在 platform.modelbest.cn 申请；选它之后对话走文字理解，
+            自带声音请到「Omni」页测。也可以把 Key 写到 companion/scripts/.env
+            （COMPANION_LLM_API_KEY / COMPANION_OMNI_API_KEY），前端留空即可。
             填完点「测试连接」自检，通过后再保存。
           </p>
           <label>思考（推理）模式</label>
@@ -592,6 +733,53 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <p class="hint">
             不填 Key 也能用：聊天会用本地预设回复兜底，语音、口型、舞蹈全部可用。
           </p>
+        </div>
+      </n-tab-pane>
+      <n-tab-pane name="omni" tab="Omni">
+        <div class="form">
+          <p class="hint">
+            MiniCPM-o 4.5 是端到端看、听、说模型。本进程不能直接加载它的 9B 权重
+            （和本地 Qwen TTS 的 transformers 版本冲突，还要约 22GB 显存），
+            所以测试走官方云端：文字理解用 Chat Completions，语音走 Realtime。
+            自建 Gateway 时把 Realtime 地址改成你的主机即可。
+          </p>
+          <label>Chat Completions 地址</label>
+          <n-input v-model:value="settings.omni.chat_url"
+                   placeholder="https://api.modelbest.cn/v1" />
+          <label>Realtime 主机（Omni 语音）</label>
+          <n-input v-model:value="settings.omni.realtime_host"
+                   placeholder="https://minicpmo45.modelbest.cn" />
+          <label>模型</label>
+          <n-input v-model:value="settings.omni.model" placeholder="MiniCPM-O-4.5-9B" />
+          <label>API Key（面壁）</label>
+          <n-input v-model:value="settings.omni.api_key" type="password"
+                   show-password-on="click"
+                   placeholder="留空则用对话里的面壁 Key，或 COMPANION_OMNI_API_KEY" />
+          <p v-if="settings.omni_env" class="hint">
+            未填 Key，正在使用环境变量 COMPANION_OMNI_API_KEY / MODELBEST_API_KEY。
+          </p>
+          <label>测试句子</label>
+          <n-input v-model:value="omniPrompt" type="textarea"
+                   :autosize="{ minRows: 2, maxRows: 4 }"
+                   placeholder="用中文介绍你自己，两句话。" />
+          <div class="bg-image-row">
+            <n-button size="small" @click="pickOmniImage">
+              {{ omniImageName || '可选：附一张图' }}
+            </n-button>
+            <n-button v-if="omniImageName" size="small" @click="clearOmniImage">去掉图</n-button>
+            <input ref="omniImg" type="file" accept="image/*" hidden @change="onOmniImage" />
+          </div>
+          <div class="omni-actions">
+            <n-button size="small" type="primary" secondary
+                      :loading="omniBusy" :disabled="omniBusy"
+                      @click="runOmniTest('chat')">测试文字</n-button>
+            <n-button size="small" type="primary"
+                      :loading="omniBusy" :disabled="omniBusy"
+                      @click="runOmniTest('speech')">测试 Omni 语音</n-button>
+            <n-button v-if="omniBusy" size="small" @click="omniAbort?.abort()">取消</n-button>
+          </div>
+          <p v-if="omniHint" class="hint">{{ omniHint }}</p>
+          <p v-if="omniReply" class="omni-reply">{{ omniReply }}</p>
         </div>
       </n-tab-pane>
       <n-tab-pane name="voice" tab="语音">
@@ -860,6 +1048,21 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
   opacity: 0.55;
   line-height: 1.7;
   margin-top: 4px;
+}
+
+.omni-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.omni-reply {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+  opacity: 0.9;
+  white-space: pre-wrap;
 }
 
 .bg-presets {

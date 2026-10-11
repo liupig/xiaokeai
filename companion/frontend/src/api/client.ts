@@ -391,6 +391,54 @@ export const api = {
       body: JSON.stringify(conf),
     });
   },
+  async streamOmniTest(
+    body: {
+      text: string;
+      mode: 'chat' | 'speech';
+      image_b64?: string;
+      chat_url?: string;
+      realtime_host?: string;
+      api_key?: string;
+      model?: string;
+      llm_api_key?: string;
+      llm_base_url?: string;
+    },
+    onEvent: (ev: Record<string, any>) => void,
+    signal?: AbortSignal,
+  ) {
+    const resp = await fetch('/api/omni/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!resp.ok || !resp.body) {
+      let detail = `omni ${resp.status}`;
+      try {
+        const bodyJson = await resp.json();
+        detail = bodyJson.detail ?? JSON.stringify(bodyJson);
+      } catch { /* keep */ }
+      throw new Error(detail);
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const chunk = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const line = chunk.split('\n').find((l) => l.startsWith('data:'));
+        if (!line) continue;
+        try {
+          onEvent(JSON.parse(line.slice(5).trim()));
+        } catch { /* 忽略坏帧 */ }
+      }
+    }
+  },
   updateSettings(patch: Record<string, any>) {
     return request<Record<string, any>>('/api/settings', {
       method: 'PUT',

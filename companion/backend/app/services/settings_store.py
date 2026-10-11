@@ -34,6 +34,13 @@ DEFAULTS: Dict[str, Any] = {
         "reason": "", "fingerprint": "",
         "failed": {"stt": "", "tts": "", "memory": ""},
     },
+    # MiniCPM-o 4.5 Omni：云端文字理解 + Realtime 语音。本地 PyTorch 不进本进程。
+    "omni": {
+        "chat_url": "https://api.modelbest.cn/v1",
+        "realtime_host": "https://minicpmo45.modelbest.cn",
+        "api_key": "",
+        "model": "MiniCPM-O-4.5-9B",
+    },
 }
 
 
@@ -70,6 +77,28 @@ def _load_local_env() -> None:
             key, val = key.strip(), val.strip().strip('"').strip("'")
             if key:
                 os.environ.setdefault(key, val)
+
+
+def env_omni() -> Dict[str, Any]:
+    """MiniCPM-o 专用 Key / 地址。不落库。"""
+    _load_local_env()
+    out: Dict[str, Any] = {}
+    key = (
+        (os.environ.get("COMPANION_OMNI_API_KEY") or "").strip()
+        or (os.environ.get("MODELBEST_API_KEY") or "").strip()
+    )
+    host = (os.environ.get("COMPANION_OMNI_HOST") or "").strip()
+    chat_url = (os.environ.get("COMPANION_OMNI_CHAT_URL") or "").strip()
+    model = (os.environ.get("COMPANION_OMNI_MODEL") or "").strip()
+    if key:
+        out["api_key"] = key
+    if host:
+        out["realtime_host"] = host
+    if chat_url:
+        out["chat_url"] = chat_url.rstrip("/")
+    if model:
+        out["model"] = model
+    return out
 
 
 def env_llm() -> Dict[str, Any]:
@@ -116,6 +145,25 @@ def apply_llm_overlay(llm: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return out
 
 
+def apply_omni_overlay(omni: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    out = dict(omni or {})
+    env = env_omni()
+    if not (out.get("api_key") or "").strip() and env.get("api_key"):
+        out["api_key"] = env["api_key"]
+    if env.get("realtime_host") and not (out.get("realtime_host") or "").strip():
+        out["realtime_host"] = env["realtime_host"]
+    if env.get("chat_url") and not (out.get("chat_url") or "").strip():
+        out["chat_url"] = env["chat_url"]
+    if env.get("model") and not (out.get("model") or "").strip():
+        out["model"] = env["model"]
+    return out
+
+
+def omni_env_fallback(omni: Optional[Dict[str, Any]] = None) -> bool:
+    stored = dict(omni or {})
+    return bool(env_omni().get("api_key")) and not (stored.get("api_key") or "").strip()
+
+
 def llm_env_fallback(llm: Optional[Dict[str, Any]] = None) -> bool:
     stored = dict(llm or {})
     return bool(env_llm().get("api_key")) and not (stored.get("api_key") or "").strip()
@@ -150,6 +198,7 @@ def get_all(session: Session) -> Dict[str, Any]:
     """运行时配置：前端没填 Key 时补上环境变量。"""
     result = _read_all(session)
     result["llm"] = apply_llm_overlay(result.get("llm") or {})
+    result["omni"] = apply_omni_overlay(result.get("omni") or {})
     return result
 
 
@@ -160,6 +209,8 @@ def public_all(session: Session) -> Dict[str, Any]:
     using_env = llm_env_fallback(llm)
     result["llm_env"] = using_env
     result["llm_local"] = using_env
+    omni = dict(result.get("omni") or {})
+    result["omni_env"] = omni_env_fallback(omni)
     return result
 
 
@@ -167,6 +218,7 @@ def update(session: Session, patch: Dict[str, Any]) -> Dict[str, Any]:
     patch = dict(patch)
     patch.pop("llm_local", None)
     patch.pop("llm_env", None)
+    patch.pop("omni_env", None)
     for key, value in patch.items():
         row = session.get(Setting, key)
         if row is None:

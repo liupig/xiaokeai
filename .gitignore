@@ -180,3 +180,11 @@ companion/assets/tarot/_logs/
 *.rar
 *.zip
 *.7z
+*.gguf
+
+# MiniCPM-o 独立 Demo：虚拟环境和权重不入库
+minicpm-o-demo/.venv/
+minicpm-o-demo/models/
+minicpm-o-demo/output/
+minicpm-o-demo/bin/
+minicpm-o-demo/tmp/

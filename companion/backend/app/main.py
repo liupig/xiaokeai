@@ -14,7 +14,7 @@ from sqlmodel import Session
 from .db import engine, init_db
 from .models import CamReview, Character, SceneState  # noqa: F401 — register table
 from .paths import KEEPSAKES_DIR, WEB_DIR, resolve_asset_file
-from .routers import assets, characters, chat, download, review, settings, speech
+from .routers import assets, characters, chat, download, omni, review, settings, speech
 from .modules.memory.router import router as memory_router
 from .modules.scenes.router import router as scenes_router
 from .modules.rewrite.router import router as rewrite_router
@@ -43,6 +43,7 @@ app.include_router(assets.router)
 app.include_router(characters.router)
 app.include_router(chat.router)
 app.include_router(speech.router)
+app.include_router(omni.router)
 app.include_router(settings.router)
 app.include_router(download.router)
 app.include_router(review.router)

@@ -35,6 +35,13 @@ export const useSettingsStore = defineStore('settings', {
            duplex_session_max_min: DEFAULT_DUPLEX_SESSION_MAX_MIN,
            duplex_filler: false, duplex_ingress: true },
     stt: { engine: 'sensevoice' as 'browser' | 'sensevoice' },
+    omni: {
+      chat_url: 'https://api.modelbest.cn/v1',
+      realtime_host: 'https://minicpmo45.modelbest.cn',
+      api_key: '',
+      model: 'MiniCPM-O-4.5-9B',
+    },
+    omni_env: false,
     download: { aplaybox_token: '' },
     quality: {
       physics: false, pixel_ratio_cap: 2, camera_follow: false, bgm_volume: 0.5,
@@ -99,6 +106,14 @@ export const useSettingsStore = defineStore('settings', {
       if (this.tts.duplex_filler == null) this.tts.duplex_filler = false;
       if (this.tts.duplex_ingress == null) this.tts.duplex_ingress = true;
       if (!this.stt.engine) this.stt.engine = 'browser';
+      const omni = (data as { omni?: Record<string, unknown>; omni_env?: boolean }).omni;
+      this.omni = {
+        chat_url: String(omni?.chat_url || 'https://api.modelbest.cn/v1'),
+        realtime_host: String(omni?.realtime_host || 'https://minicpmo45.modelbest.cn'),
+        api_key: String(omni?.api_key || ''),
+        model: String(omni?.model || 'MiniCPM-O-4.5-9B'),
+      };
+      this.omni_env = !!((data as { omni_env?: boolean }).omni_env);
       const hw = (data as { hardware?: Record<string, unknown> }).hardware;
       if (hw && typeof hw === 'object') {
         const failed = (hw.failed || {}) as Record<string, string>;
@@ -158,13 +173,14 @@ export const useSettingsStore = defineStore('settings', {
     },
     async save() {
       const data = await api.updateSettings({
-        llm: this.llm, tts: this.tts, stt: this.stt,
+        llm: this.llm, tts: this.tts, stt: this.stt, omni: this.omni,
         download: this.download, quality: this.quality, modules: this.modules,
         memory: this.memory,
       });
-      const flags = data as { llm_env?: boolean; llm_local?: boolean };
+      const flags = data as { llm_env?: boolean; llm_local?: boolean; omni_env?: boolean };
       this.llm_env = !!(flags.llm_env || flags.llm_local);
       this.llm_local = this.llm_env;
+      this.omni_env = !!flags.omni_env;
       this.applyQuality();
       this.applyTts();
       this.maybeWarmupSpeech();
