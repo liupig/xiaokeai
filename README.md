@@ -1,6 +1,6 @@
 # xiaoke.ai
 
-An open-source, local **3D virtual companion** · 开源免费的本地 3D 陪玩
+Open-source, local-first **3D virtual companion** · 开源本地 3D 陪玩 / 虚拟陪玩 / 桌宠
 
 [English](#english) · [中文](#中文) · [xiaoke.ai](https://xiaoke.ai)
 
@@ -16,9 +16,9 @@ QQ group · QQ 群 1124054481
 
 ## English
 
-An open-source, local **3D virtual companion** (桌面 3D 陪玩 / 虚拟陪玩): pick or download a 3D character, set persona and voice, then talk in text or speech. She answers with voice, lip-sync, expression, motion, dance, and camera work — and can sit across from you to draw tarot.
+**xiaoke.ai** is an open-source, local-first desktop **3D virtual companion**. A VRM, MMD (PMX), or GLB character sits across from you: voice chat, lip-sync, expression, motion, dance, and camera, with tarot and long-term memory kept on the machine. Interface language and speech language are separate: Simplified Chinese, English, Japanese, and Korean.
 
-开源免费的**本地 3D 陪玩 / 虚拟陪玩**：选一个 3D 角色坐到对面，用文字或语音聊天。
+Search names for the same thing: open-source 3D AI companion, local AI companion, VRM chatbot, MMD desktop pet, AI VTuber, 开源 3D 陪玩, 虚拟陪玩, 本地桌宠.
 
 > **Open source · free · runs on your machine — someone who talks, moves, and remembers you, sitting across the desk.**
 
@@ -31,7 +31,7 @@ Stage 3D models, motions, music, and voices are **not** under that license. Copy
 
 ### What this is: a local 3D companion
 
-A desktop virtual companion: a 3D character sits across from you to chat, dance, and draw cards. Not a webpage popup. Conversation and memory stay on your machine. No membership, no usage cap. Source is Apache 2.0 and may be used commercially.
+Not a text chatbot and not a browser popup. The character is a VRM, MMD, or GLB model on a stage. A reply is spoken, lip-synced, and performed: face, motion, dance, camera. Chat, memory, and speech weights stay on the computer. UI and speech can each be Chinese, English, Japanese, or Korean. Source is Apache 2.0 and may be used commercially. No membership, no usage cap.
 
 ### Look
 
@@ -330,9 +330,9 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 ## 中文
 
-开源免费的**本地 3D 陪玩 / 虚拟陪玩**：挑选或下载 3D 角色，配好人设与声音，用文字或语音聊天。角色用语音、口型、表情、动作、舞蹈和运镜实时回应；还能坐在你对面给你抽塔罗。
+**xiaoke.ai（小可爱）** 是开源的本地 **3D 陪玩 / 虚拟陪玩**。VRM、MMD（PMX）、GLB 角色坐在对面：语音聊天、口型、表情、动作、舞蹈、运镜，对面抽塔罗，长期记忆留在本机。界面语言和对话语言分开，支持简体中文、英语、日语、韩语。
 
-A local **3D virtual companion** for desktop — voice, lip-sync, expression, motion, dance, and tarot.
+别人会用这些词来找：开源 3D 陪玩、虚拟陪玩、本地桌宠、VRM 聊天、MMD 陪玩、AI 虚拟主播、3D virtual companion、local AI companion。
 
 > **开源免费 · 本地运行 —— 让一个会说、会动、会记得你的她，坐到你对面。**
 
@@ -345,7 +345,7 @@ A local **3D virtual companion** for desktop — voice, lip-sync, expression, mo
 
 ### 这是什么：本地 3D 陪玩
 
-桌面级虚拟陪玩：3D 角色坐在对面陪你聊天、跳舞、抽牌。不是网页弹窗，对话和记忆都在本机。没有会员、没有次数卡；源码按 Apache 2.0 公开，允许商用。
+不是文字聊天机器人，也不是网页弹窗。角色是舞台上的 VRM、MMD 或 GLB。一句回复会说出来、对上口型，并带上表情、动作、舞蹈和运镜。对话、记忆和语音权重在本机。界面和对话可以分别是中文、英语、日语、韩语。源码 Apache 2.0，允许商用。没有会员，没有次数卡。
 
 ### 看一眼
 
