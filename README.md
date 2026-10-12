@@ -4,14 +4,6 @@ Open-source **3D AI companion** · 开源 3D AI 伴侣 / 本地 3D 陪玩 / 虚�
 
 [English](#english) · [中文](#中文) · [xiaoke.ai](https://xiaoke.ai)
 
-## Community · 交流群
-
-QQ group · QQ 群 1124054481
-
-<p align="center">
-  <img src="./docs/community/qq-group.jpg" alt="QQ group" width="320" />
-</p>
-
 ---
 
 ## English
@@ -655,3 +647,13 @@ foreach ($port in 8600, 5175) {
 - 塔罗玩法定位为心理视角与娱乐文创，仅供娱乐，不构成任何建议。
 - 模之屋、音乐站等第三方接口可能随时变更或要求登录，不保证长期可用。
 - LLM / TTS / ASR 会把对话或语音发到你配置的服务商，请自己看对方的隐私条款。
+
+---
+
+## Community · 交流群
+
+QQ group · QQ 群 1124054481
+
+<p align="center">
+  <img src="./docs/community/qq-group.jpg" alt="QQ group" width="320" />
+</p>
