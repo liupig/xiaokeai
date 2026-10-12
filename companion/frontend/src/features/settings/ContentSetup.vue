@@ -42,7 +42,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div v-if="settings.content.packed && !settings.content.ok && !skipped" class="gate">
+  <div v-if="settings.content.packed && !settings.content.ok && !skipped" class="gate" data-pet-hit>
     <div class="card">
       <p class="title">xiaoke.ai</p>
       <p class="lead">{{ t('set.gate.lead') }}</p>

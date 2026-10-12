@@ -6,6 +6,9 @@ import './styles/global.css';
 
 if (window.companionDesktop?.isShell) {
   document.documentElement.classList.add('is-desktop');
+  if (new URLSearchParams(location.search).get('shell') === 'pet') {
+    document.documentElement.classList.add('is-pet');
+  }
 }
 
 const app = createApp(App);

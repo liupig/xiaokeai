@@ -25,6 +25,17 @@ html.is-desktop {
   --desk-controls: calc(100vw - env(titlebar-area-x, 100vw) - env(titlebar-area-width, 0px));
 }
 
+html.is-pet,
+html.is-pet body,
+html.is-pet #app {
+  background: transparent;
+}
+
+html.is-pet {
+  --desk-chrome: 0px;
+  --desk-controls: 0px;
+}
+
 html.is-desktop .n-drawer-container {
   inset: var(--desk-chrome) 0 0 0;
 }

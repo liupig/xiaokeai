@@ -17,17 +17,22 @@ function smootherstep(t: number) {
 export class StandController {
   slot: StandSlot = 'center';
   x = 0;
+  y = 0;
   radius = 1.6;
   /** 到位回调（用于停掉走路动作） */
   onArrive: (() => void) | null = null;
 
   private targetX = 0;
+  private targetY = 0;
   private fromX = 0;
+  private fromY = 0;
   private travelT = 0;
   private travelDur = 0;
   private moving = false;
   private dir = 0;
   private facing = 0;
+  /** 桌宠按世界坐标走动时，不再被站台三档半径拉回去 */
+  private freeX = false;
 
   get isMoving() {
     return this.moving;
@@ -39,8 +44,59 @@ export class StandController {
 
   setRadius(r: number) {
     this.radius = Math.max(0.6, r);
+    if (this.freeX) return;
     this.targetX = this.slotX(this.slot);
     if (!this.moving) this.x = this.targetX;
+  }
+
+  /** 走到画面上的一点。x 是左右，y 是脚的高低。横向才转身。 */
+  goToXY(x: number, y: number, speed = 0.4): boolean {
+    this.freeX = true;
+    this.targetX = x;
+    this.targetY = y;
+    const dist = Math.hypot(this.targetX - this.x, this.targetY - this.y);
+    if (dist < 0.05) {
+      this.x = this.targetX;
+      this.y = this.targetY;
+      this.moving = false;
+      this.facing = 0;
+      return false;
+    }
+    this.fromX = this.x;
+    this.fromY = this.y;
+    const dx = this.targetX - this.fromX;
+    this.dir = Math.abs(dx) < 0.12 ? 0 : Math.sign(dx);
+    this.travelDur = Math.min(14, Math.max(1.15, dist / speed));
+    this.travelT = 0;
+    this.moving = true;
+    return true;
+  }
+
+  goToX(x: number, speed = 0.45): boolean {
+    return this.goToXY(x, this.y, speed);
+  }
+
+  /** 立刻放到某处，拖动时用。若正在走，停步并触发到位回调。 */
+  placeXY(x: number, y: number) {
+    this.freeX = true;
+    const was = this.moving;
+    this.x = x;
+    this.y = y;
+    this.targetX = x;
+    this.targetY = y;
+    this.fromX = x;
+    this.fromY = y;
+    this.moving = false;
+    this.facing = 0;
+    this.dir = 0;
+    if (!was) return;
+    const cb = this.onArrive;
+    this.onArrive = null;
+    cb?.();
+  }
+
+  placeX(x: number) {
+    this.placeXY(x, this.y);
   }
 
   /** 走到指定档位；已在该档则 noop。返回是否开始移动。 */
@@ -73,13 +129,17 @@ export class StandController {
   reset() {
     this.slot = 'center';
     this.x = 0;
+    this.y = 0;
     this.targetX = 0;
+    this.targetY = 0;
     this.fromX = 0;
+    this.fromY = 0;
     this.travelT = 0;
     this.travelDur = 0;
     this.moving = false;
     this.dir = 0;
     this.facing = 0;
+    this.freeX = false;
     this.onArrive = null;
   }
 
@@ -88,7 +148,7 @@ export class StandController {
    * 身体步态交给走路 VMD，这里不再做机械颠簸。
    */
   update(dt: number, root: {
-    position: { x: number; y: number };
+    position: { x: number; y: number; z: number };
     rotation: { y: number };
   } | null) {
     if (this.moving) {
@@ -96,11 +156,14 @@ export class StandController {
       const u = Math.min(1, this.travelT / Math.max(this.travelDur, 1e-4));
       const e = smootherstep(u);
       this.x = this.fromX + (this.targetX - this.fromX) * e;
+      this.y = this.fromY + (this.targetY - this.fromY) * e;
       // 起步/收步时朝向更正，中途略侧身，到位回正对镜头
-      this.facing = this.dir * 0.42 * Math.sin(Math.PI * e);
+      const turn = this.freeX ? 0.95 : 0.42;
+      this.facing = this.dir * turn * Math.sin(Math.PI * e);
 
       if (u >= 1) {
         this.x = this.targetX;
+        this.y = this.targetY;
         this.facing = 0;
         this.moving = false;
         const cb = this.onArrive;
@@ -110,7 +173,12 @@ export class StandController {
     }
     if (!root) return;
     root.position.x = this.x;
-    root.position.y = 0;
+    if (this.freeX) {
+      root.position.y = this.y;
+      root.position.z = 0;
+    } else {
+      root.position.y = 0;
+    }
     root.rotation.y = this.facing;
   }
 }

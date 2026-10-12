@@ -24,7 +24,7 @@ export type SttEngine = 'browser' | 'sensevoice';
 
 type SpeechRecognitionCtor = new () => any;
 
-export type SttMeta = { phase?: 'recognizing'; asrFail?: boolean; echo?: boolean };
+export type SttMeta = { phase?: 'recognizing' | 'ready'; asrFail?: boolean; echo?: boolean };
 type ResultCb = (text: string, isFinal: boolean, meta?: SttMeta) => void;
 type EndCb = () => void;
 
@@ -33,6 +33,14 @@ function vadAssetBase(): string {
     ? import.meta.env.BASE_URL
     : `${import.meta.env.BASE_URL}/`;
   return new URL('vad/', window.location.origin + base).href;
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer = 0;
+  return new Promise<T>((resolve, reject) => {
+    timer = window.setTimeout(() => reject(new Error(label)), ms);
+    work.then(resolve, reject);
+  }).finally(() => window.clearTimeout(timer));
 }
 
 export function browserSttSupported(): boolean {
@@ -146,6 +154,7 @@ export class SpeechInput {
   private recognition: any = null;
   private vad: MicVAD | null = null;
   private vadLoading: Promise<MicVAD> | null = null;
+  private vadGen = 0;
   private gen = 0;
   private localBusy = false;
   private onResult: ResultCb | null = null;
@@ -320,10 +329,21 @@ export class SpeechInput {
     end?.();
   }
 
+  private dropVad() {
+    this.vadGen += 1;
+    const vad = this.vad;
+    this.vad = null;
+    this.vadLoading = null;
+    if (vad) void vad.destroy().catch(() => {});
+  }
+
   private async ensureVad(): Promise<MicVAD> {
     if (this.vad) return this.vad;
     if (!this.vadLoading) {
+      const gen = this.vadGen;
       const base = vadAssetBase();
+      speechPlayer.unlock();
+      const audioContext = speechPlayer.audioContext() ?? undefined;
       const getStream = () => {
         speechPlayer.unlock();
         return getMicStream({
@@ -331,11 +351,12 @@ export class SpeechInput {
           tap: speechPlayer.aecTap(),
         });
       };
-      this.vadLoading = loadMicVAD().then((MicVAD) => MicVAD.new({
+      const loading = loadMicVAD().then((MicVAD) => MicVAD.new({
         startOnLoad: false,
         model: 'v5',
         baseAssetPath: base,
         onnxWASMBasePath: base,
+        audioContext,
         submitUserSpeechOnPause: true,
         getStream,
         resumeStream: getStream,
@@ -382,13 +403,18 @@ export class SpeechInput {
           if (this.localBusy || this.listening) return;
           if (this.closing) this.finishSession();
         },
-      }).then((vad) => {
+      })).then((vad) => {
+        if (gen !== this.vadGen) {
+          void vad.destroy().catch(() => {});
+          throw new Error('开麦已取消');
+        }
         this.vad = vad;
         return vad;
       }).catch((e) => {
-        this.vadLoading = null;
+        if (this.vadLoading === loading) this.vadLoading = null;
         throw e;
-      }));
+      });
+      this.vadLoading = loading;
     }
     return this.vadLoading;
   }
@@ -481,17 +507,26 @@ export class SpeechInput {
     this.listening = true;
     let vad: MicVAD;
     try {
+      speechPlayer.unlock();
       vad = await this.ensureVad();
       if (this.gen !== gen) return;
-      await vad.start();
+      const audible = await speechPlayer.prepareAudio();
+      if (!audible) throw new Error('声音设备还没就绪，点一下窗口再开麦');
+      await withTimeout(vad.start(), 8000, '开麦超时');
       if (this.gen !== gen) {
         await this.pauseVad();
         return;
       }
+      if (!vad.listening) {
+        this.dropVad();
+        throw new Error('麦克风没有开始采集');
+      }
       this.armSliceTimer();
+      this.onResult?.('', false, { phase: 'ready' });
     } catch (e) {
       console.warn('打开麦克风失败', e);
       if (this.gen !== gen) return;
+      this.dropVad();
       this.finishSession();
       throw e;
     } finally {

@@ -2,10 +2,11 @@
 
 /**
  * 自带 Chromium 的桌面壳：不依赖本机安装 Chrome。
- * 隐藏系统标题栏，用深色顶栏 + Windows 原生最小化/最大化/关闭。
+ * 舞台模式：隐藏系统标题栏，用深色顶栏 + Windows 原生最小化/最大化/关闭。
+ * 桌宠模式：透明无边框小窗，只留人物，空白处点击穿透到桌面。
  * 页面仍是现有 Vue 前端（打包 5211 / 开发 5175）。
  */
-const { app, BrowserWindow, dialog, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, screen, session, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -43,9 +44,80 @@ if (process.platform === 'win32') {
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+// 桌面壳没有网页那种麦克风弹窗，不自动选默认设备的话 getUserMedia 会一直挂着。
+app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+
+const shellState = { mode: 'stage', stage: null, pet: null };
+const roleOf = new WeakMap();
+let swapping = false;
+let saveTimer = null;
+
+function statePath() {
+  return path.join(app.getPath('userData'), 'shell-mode.json');
+}
+
+function loadState() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(statePath(), 'utf8'));
+    if (raw.mode === 'pet' || raw.mode === 'stage') shellState.mode = raw.mode;
+    if (raw.stage) shellState.stage = raw.stage;
+    if (raw.pet) shellState.pet = raw.pet;
+  } catch { /* 第一次打开 */ }
+}
+
+function saveState() {
+  try {
+    fs.mkdirSync(path.dirname(statePath()), { recursive: true });
+    fs.writeFileSync(statePath(), JSON.stringify(shellState));
+  } catch { /* 位置记不住也不影响使用 */ }
+}
+
+function saveSoon() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveState, 400);
+}
+
+function boundsOf(win) {
+  const b = win.getBounds();
+  return { x: b.x, y: b.y, width: b.width, height: b.height };
+}
+
+function remember(win, immediate) {
+  const key = roleOf.get(win);
+  if (!key || !win || win.isDestroyed()) return;
+  shellState[key] = boundsOf(win);
+  if (immediate) {
+    clearTimeout(saveTimer);
+    saveState();
+  } else {
+    saveSoon();
+  }
+}
+
+function usable(b) {
+  if (!b || !Number.isFinite(b.width) || !Number.isFinite(b.height)) return false;
+  if (b.width < 280 || b.height < 360) return false;
+  const cx = b.x + b.width / 2;
+  const cy = b.y + b.height / 2;
+  return screen.getAllDisplays().some((d) => {
+    const a = d.workArea;
+    return cx >= a.x && cx < a.x + a.width && cy >= a.y && cy < a.y + a.height;
+  });
+}
+
+function shellPage(mode) {
+  const u = new URL(HOME);
+  if (mode === 'pet') u.searchParams.set('shell', 'pet');
+  else u.searchParams.delete('shell');
+  return u.toString();
+}
 
 const MEDIA_PERMS = new Set([
   'media',
+  'microphone',
+  'camera',
+  'audioCapture',
+  'videoCapture',
   'mediaKeySystem',
   'display-capture',
   'clipboard-sanitized-write',
@@ -78,7 +150,9 @@ function grantPermissions() {
 
 function reveal(win) {
   if (!win || win.isDestroyed() || win.isVisible()) return;
-  win.show();
+  // 桌宠不要在弹出时抢走键盘，否则点她那一下不算用户操作，语音上下文会一直停着。
+  if (roleOf.get(win) === 'pet') win.showInactive();
+  else win.show();
 }
 
 function focusWindow(win) {
@@ -88,47 +162,33 @@ function focusWindow(win) {
   win.focus();
 }
 
-function createWindow() {
-  const existing = BrowserWindow.getAllWindows()[0];
-  if (existing && !existing.isDestroyed()) {
-    focusWindow(existing);
-    return existing;
-  }
-  const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 960,
-    minHeight: 600,
-    title: 'xiaoke.ai',
-    icon: fs.existsSync(ICON) ? ICON : undefined,
-    show: false,
-    autoHideMenuBar: true,
-    backgroundColor: '#141420',
-    roundedCorners: true,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#141420',
-      symbolColor: '#d0d0e4',
-      height: 36,
-    },
-    webPreferences: {
-      preload: PRELOAD,
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-      webSecurity: true,
-      backgroundThrottling: false,
-    },
-  });
+function webPrefs() {
+  return {
+    preload: PRELOAD,
+    nodeIntegration: false,
+    contextIsolation: true,
+    sandbox: true,
+    webSecurity: true,
+    backgroundThrottling: false,
+  };
+}
+
+function attachPage(win, mode) {
+  roleOf.set(win, mode);
   win.setMenuBarVisibility(false);
   win.once('ready-to-show', () => reveal(win));
   win.webContents.once('did-finish-load', () => reveal(win));
   setTimeout(() => reveal(win), 4000);
+  const save = () => remember(win, false);
+  win.on('move', save);
+  win.on('resize', save);
+  win.on('close', () => remember(win, true));
 
   let tries = 0;
+  const page = shellPage(mode);
   const load = () => {
     if (win.isDestroyed()) return;
-    win.loadURL(HOME);
+    win.loadURL(page);
   };
   win.webContents.on('did-fail-load', (_e, code, _desc, _url, isMain) => {
     if (!isMain || win.isDestroyed()) return;
@@ -148,7 +208,85 @@ function createWindow() {
     } catch { /* 忽略坏链 */ }
     return { action: 'deny' };
   });
+}
+
+function createStageWindow() {
+  const b = usable(shellState.stage) ? shellState.stage : null;
+  const opts = {
+    width: b ? b.width : 1440,
+    height: b ? b.height : 900,
+    minWidth: 960,
+    minHeight: 600,
+    title: 'xiaoke.ai',
+    icon: fs.existsSync(ICON) ? ICON : undefined,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#141420',
+    roundedCorners: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#141420',
+      symbolColor: '#d0d0e4',
+      height: 36,
+    },
+    webPreferences: webPrefs(),
+  };
+  if (b) {
+    opts.x = b.x;
+    opts.y = b.y;
+  }
+  const win = new BrowserWindow(opts);
+  attachPage(win, 'stage');
   return win;
+}
+
+function petWorkArea() {
+  return screen.getPrimaryDisplay().workArea;
+}
+
+function layoutPetWindow(win) {
+  if (!win || win.isDestroyed() || roleOf.get(win) !== 'pet') return;
+  const area = petWorkArea();
+  win.setBounds({ x: area.x, y: area.y, width: area.width, height: area.height });
+}
+
+function createPetWindow() {
+  const area = petWorkArea();
+  const win = new BrowserWindow({
+    x: area.x,
+    y: area.y,
+    width: area.width,
+    height: area.height,
+    title: 'xiaoke.ai',
+    icon: fs.existsSync(ICON) ? ICON : undefined,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    roundedCorners: false,
+    thickFrame: false,
+    alwaysOnTop: true,
+    resizable: false,
+    movable: false,
+    autoHideMenuBar: true,
+    webPreferences: webPrefs(),
+  });
+  win.setAlwaysOnTop(true, 'floating');
+  win.setIgnoreMouseEvents(true, { forward: true });
+  attachPage(win, 'pet');
+  layoutPetWindow(win);
+  return win;
+}
+
+function openWindow() {
+  return shellState.mode === 'pet' ? createPetWindow() : createStageWindow();
+}
+
+function focusExisting() {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win) focusWindow(win);
+  else openWindow();
 }
 
 ipcMain.handle('pick-folder', async () => {
@@ -161,20 +299,176 @@ ipcMain.handle('pick-folder', async () => {
   return r.filePaths[0];
 });
 
+ipcMain.handle('get-shell-mode', () => shellState.mode);
+
+ipcMain.handle('set-shell-mode', (e, mode) => {
+  const next = mode === 'pet' ? 'pet' : 'stage';
+  const old = BrowserWindow.fromWebContents(e.sender);
+  if (old && !old.isDestroyed()) remember(old, true);
+  if (shellState.mode === next && old && !old.isDestroyed()) return next;
+  shellState.mode = next;
+  saveState();
+  swapping = true;
+  const created = openWindow();
+  if (old && !old.isDestroyed() && old !== created) old.close();
+  swapping = false;
+  return next;
+});
+
+ipcMain.on('set-ignore-mouse', (e, ignore) => {
+  if (shellState.mode !== 'pet') return;
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win.isDestroyed()) return;
+  if (ignore) win.setIgnoreMouseEvents(true, { forward: true });
+  else win.setIgnoreMouseEvents(false);
+});
+
+let petRegion = null;
+let petHot = false;
+
+function finite(v, fallback) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function distToSeg(px, py, ax, ay, bx, by) {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const len2 = abx * abx + aby * aby || 1;
+  const t = Math.max(0, Math.min(1, ((px - ax) * abx + (py - ay) * aby) / len2));
+  return Math.hypot(px - (ax + abx * t), py - (ay + aby * t));
+}
+
+function regionHits(region, x, y, pad) {
+  if (!region) return false;
+  if (region.r > 0 && distToSeg(x, y, region.ax, region.ay, region.bx, region.by) <= region.r + pad) {
+    return true;
+  }
+  const rects = region.rects || [];
+  for (let i = 0; i < rects.length; i += 1) {
+    const rc = rects[i];
+    if (x >= rc.x - pad && x <= rc.x + rc.w + pad && y >= rc.y - pad && y <= rc.y + rc.h + pad) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function petWindow() {
+  if (shellState.mode !== 'pet') return null;
+  const wins = BrowserWindow.getAllWindows();
+  for (let i = 0; i < wins.length; i += 1) {
+    const win = wins[i];
+    if (!win.isDestroyed() && roleOf.get(win) === 'pet') return win;
+  }
+  return null;
+}
+
+function applyPetPointer(win) {
+  if (!win || win.isDestroyed()) return;
+  const cursor = screen.getCursorScreenPoint();
+  const bounds = win.getBounds();
+  const x = cursor.x - bounds.x;
+  const y = cursor.y - bounds.y;
+  const pressed = !!(petRegion && petRegion.pressed);
+  const inside = pressed || regionHits(petRegion, x, y, 0);
+  const next = inside || (!!petHot && regionHits(petRegion, x, y, 12));
+  if (next !== petHot) {
+    petHot = next;
+    if (next) win.setIgnoreMouseEvents(false);
+    else win.setIgnoreMouseEvents(true, { forward: true });
+  }
+  if (pressed && !win.isFocused()) win.focus();
+}
+
+ipcMain.on('pet-hit-region', (e, raw) => {
+  if (shellState.mode !== 'pet') return;
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const rects = Array.isArray(src.rects) ? src.rects.slice(0, 6).map((rc) => ({
+    x: finite(rc && rc.x, 0),
+    y: finite(rc && rc.y, 0),
+    w: Math.max(0, finite(rc && rc.w, 0)),
+    h: Math.max(0, finite(rc && rc.h, 0)),
+  })) : [];
+  petRegion = {
+    ax: finite(src.ax, 0),
+    ay: finite(src.ay, 0),
+    bx: finite(src.bx, 0),
+    by: finite(src.by, 0),
+    r: Math.max(0, Math.min(96, finite(src.r, 0))),
+    rects,
+    pressed: !!src.pressed,
+    focus: !!src.focus,
+  };
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (win && !win.isDestroyed()) applyPetPointer(win);
+});
+
+function petDelta(delta) {
+  return {
+    dx: Math.max(-400, Math.min(400, Number(delta && delta.dx) || 0)),
+    dy: Math.max(-400, Math.min(400, Number(delta && delta.dy) || 0)),
+  };
+}
+
+ipcMain.on('pet-drag', (e, delta) => {
+  if (shellState.mode !== 'pet') return;
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win.isDestroyed()) return;
+  const { dx, dy } = petDelta(delta);
+  const [x, y] = win.getPosition();
+  win.setPosition(Math.round(x + dx), Math.round(y + dy));
+});
+
+ipcMain.on('pet-resize', (e, delta) => {
+  if (shellState.mode !== 'pet') return;
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win.isDestroyed()) return;
+  const { dx, dy } = petDelta(delta);
+  const b = win.getBounds();
+  win.setBounds({
+    x: b.x,
+    y: b.y,
+    width: Math.max(300, Math.round(b.width + dx)),
+    height: Math.max(420, Math.round(b.height + dy)),
+  });
+});
+
+ipcMain.on('window-minimize', (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (win && !win.isDestroyed()) win.minimize();
+});
+
+ipcMain.on('window-close', (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (win && !win.isDestroyed()) win.close();
+});
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (win) focusWindow(win);
-    else createWindow();
+    focusExisting();
   });
   app.whenReady().then(() => {
+    loadState();
     grantPermissions();
-    createWindow();
+    openWindow();
+    setInterval(() => {
+      const win = petWindow();
+      if (!win) {
+        petHot = false;
+        return;
+      }
+      applyPetPointer(win);
+    }, 16);
+    screen.on('display-metrics-changed', () => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win) layoutPetWindow(win);
+    });
   });
   app.on('window-all-closed', () => {
-    app.quit();
+    if (!swapping) app.quit();
   });
 }

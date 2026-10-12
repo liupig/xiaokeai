@@ -21,6 +21,14 @@ const PHY_STEP = 1 / 65; // MMDPhysics 内部最小步长
 /** 1080p @ 2x；更高分辨率不再叠 DPR，避免 4K 开 2x 吃掉上百 MB 显存 */
 const PIXEL_BUDGET = 1920 * 1080 * 4;
 
+function distToSeg(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const len2 = abx * abx + aby * aby || 1;
+  const t = Math.max(0, Math.min(1, ((px - ax) * abx + (py - ay) * aby) / len2));
+  return Math.hypot(px - (ax + abx * t), py - (ay + aby * t));
+}
+
 function fitPixelRatio(cap: number, w: number, h: number) {
   const want = Math.min(window.devicePixelRatio || 1, Math.max(1, cap || 1));
   const area = Math.max(1, w * h);
@@ -146,8 +154,28 @@ export class Stage {
   private quality: QualityOptions = { physics: false, pixelRatioCap: 2, lightLevel: 1 };
   // 当前模型类型的灯光基准值，乘以 lightLevel 得到实际强度
   private lightBase = { key: 1.8, rim: 1.0, amb: 0.9 };
+  /** 桌宠：整屏透明，人物缩小，在画面里走动 */
+  private petMode = false;
+  private petHeld = false;
+  private petGrabOffset = 0;
+  private petGrabOffsetY = 0;
+  private petNextWalk = 0;
+  private petPath: { x: number; y: number }[] = [];
+  private petRay = new THREE.Vector3();
+  private petTmp = new THREE.Vector3();
+  private static readonly PET_SHOTS: CamShotId[] = ['threeQ', 'full'];
+  private raycaster = new THREE.Raycaster();
+  private pointerNdc = new THREE.Vector2();
   /** 景别白名单：塔罗等玩法期间只许这些身位，空则不限制 */
-  camSizeLock: CamShotId[] | null = null;
+  private _camSizeLock: CamShotId[] | null = null;
+
+  get camSizeLock(): CamShotId[] | null {
+    return this.petMode ? Stage.PET_SHOTS : this._camSizeLock;
+  }
+
+  set camSizeLock(value: CamShotId[] | null) {
+    this._camSizeLock = value;
+  }
 
   use(plugin: StagePlugin) {
     if (plugin.id) this.plugins = this.plugins.filter((p) => p.id !== plugin.id);
@@ -179,19 +207,28 @@ export class Stage {
 
   init(container: HTMLElement) {
     this.host = container;
+    this.petMode = document.documentElement.classList.contains('is-pet');
     const dpr = fitPixelRatio(
       this.quality.pixelRatioCap, container.clientWidth, container.clientHeight);
     this.renderer = new THREE.WebGLRenderer({
-      antialias: true, preserveDrawingBuffer: false, stencil: false,
+      antialias: true,
+      alpha: this.petMode,
+      premultipliedAlpha: true,
+      preserveDrawingBuffer: false,
+      stencil: false,
     });
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    if (this.petMode) {
+      this.renderer.setClearColor(0x000000, 0);
+      this.renderer.domElement.style.background = 'transparent';
+    }
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x141420);
-    this.scene.fog = new THREE.Fog(0x141420, 6, 14);
+    this.scene.background = this.petMode ? null : new THREE.Color(0x141420);
+    this.scene.fog = this.petMode ? null : new THREE.Fog(0x141420, 6, 14);
 
     this.camera = new THREE.PerspectiveCamera(
       30, container.clientWidth / container.clientHeight, 0.1, 50);
@@ -224,6 +261,7 @@ export class Stage {
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.position.y = -0.08;
     this.scene.add(this.ground);
+    if (this.petMode) this.ground.visible = false;
 
     this.buildPlatform();
 
@@ -234,6 +272,7 @@ export class Stage {
       this.camera.updateProjectionMatrix();
       this.applyPixelRatio();
       this.renderer.setSize(w, h);
+      if (this.petMode) this.layoutPetDesk();
     };
     window.addEventListener('resize', this.onResize);
     this.onVis = () => {
@@ -247,6 +286,12 @@ export class Stage {
       }
     };
     document.addEventListener('visibilitychange', this.onVis);
+
+    if (this.petMode) {
+      this.clearPetBackdrop();
+      this.controls.enabled = false;
+      this.layoutPetDesk();
+    }
 
     this.animate();
   }
@@ -267,7 +312,8 @@ export class Stage {
     if (!this.renderer || !this.host) return;
     const w = this.host.clientWidth || window.innerWidth;
     const h = this.host.clientHeight || window.innerHeight;
-    this.renderer.setPixelRatio(fitPixelRatio(this.quality.pixelRatioCap, w, h));
+    const cap = this.petMode ? Math.min(1.25, this.quality.pixelRatioCap) : this.quality.pixelRatioCap;
+    this.renderer.setPixelRatio(fitPixelRatio(cap, w, h));
   }
 
   private applyLights() {
@@ -325,7 +371,7 @@ export class Stage {
     this.disposePlatform();
     const g = new THREE.Group();
     this.platform = g;
-    g.visible = this.platformOpts.show;
+    g.visible = this.petMode ? false : this.platformOpts.show;
 
     const base = new THREE.Color(this.platformOpts.color);
     const glow = new THREE.Color(this.platformOpts.glow);
@@ -561,8 +607,22 @@ export class Stage {
    * 更换背景：纯色 或 图片（预设场景/自定义 dataURL）。
    * 图片模式关闭景深雾、隐藏远景地面，只保留圆形舞台底座悬浮在场景前。
    */
+  /** 桌宠清掉纯色、雾、地面和底座，让窗口透明处露出桌面 */
+  private clearPetBackdrop() {
+    if (!this.scene) return;
+    this.scene.background = null;
+    this.scene.fog = null;
+    if (this.ground) this.ground.visible = false;
+    if (this.platform) this.platform.visible = false;
+    this.renderer?.setClearColor(0x000000, 0);
+  }
+
   setBackground(color: string, imageUrl?: string | null) {
     if (!this.scene) return;
+    if (this.petMode) {
+      this.clearPetBackdrop();
+      return;
+    }
     const url = imageUrl || '';
     if (url) {
       if (url === this.bgUrl) return;
@@ -799,15 +859,22 @@ export class Stage {
     this.modelKind = format;
     // 保持当前站位（换模型不强制回中心）
     root.position.x = this.stand.x;
+    root.position.y = this.petMode ? this.stand.y : 0;
+    if (this.petMode) root.position.z = 0;
     this.camRig.focusX = this.stand.x;
     if (this.avatar) this.emit('onAvatarReady', root, this.avatar, this.vrm);
 
-    // 根据模型头部实际高度设置镜头
+    // 根据模型头部实际高度设置镜头。桌宠保持自己的固定机位，避免被全身景别拉出画面。
     const head = this.avatar!.bone('head');
-    if (head) {
+    if (head && !this.petMode) {
       this.camRig.headY = head.getWorldPosition(new THREE.Vector3()).y + 0.06;
     }
-    this.camRig.set('full', true);
+    if (this.petMode) {
+      this.layoutPetDesk();
+      this.seatPet();
+    } else {
+      this.camRig.set('full', true);
+    }
 
     const info: ModelInfo = {
       url, format,
@@ -938,7 +1005,210 @@ export class Stage {
   }
 
   setCamera(preset: CamPreset, instant = false) {
+    if (this.petMode) return;
     this.camRig.set(preset, instant);
+  }
+
+  /**
+   * 桌宠机位固定，人大约占屏幕高度的三成。
+   * 她可以靠到四边：头顶不出画面，底下至少留半个身子，左右至少留半个身子。
+   */
+  layoutPetDesk() {
+    if (!this.petMode || !this.camera || !this.host) return;
+    const w = this.host.clientWidth || window.innerWidth;
+    const h = this.host.clientHeight || window.innerHeight;
+    if (w < 2 || h < 2) return;
+    this.camera.fov = 26;
+    this.camera.aspect = w / h;
+    this.camera.near = 0.1;
+    this.camera.far = 80;
+    this.camera.up.set(0, 1, 0);
+    this.camera.position.set(0, 1.55, 12.4);
+    this.camera.lookAt(0, 1.85, 0);
+    this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld();
+    this.controls.target.set(0, 1.85, 0);
+  }
+
+  /** 换人之后把她放回画面中间 */
+  private seatPet() {
+    const p = this.clampPet(0, 0);
+    this.stand.placeXY(p.x, p.y);
+    if (this.modelRoot) {
+      this.modelRoot.position.set(this.stand.x, this.stand.y, 0);
+    }
+  }
+
+  /** 鼠标射线打在 z=0 平面上，返回脚的高度（胸口在射线点下方 0.9） */
+  private deskPoint(ndcX: number, ndcY: number) {
+    const cam = this.camera.position;
+    this.petRay.set(ndcX, ndcY, 0.5).unproject(this.camera);
+    const dz = this.petRay.z - cam.z;
+    const t = Math.abs(dz) > 1e-4 ? (0 - cam.z) / dz : 0;
+    const hitY = cam.y + (this.petRay.y - cam.y) * t;
+    return {
+      x: cam.x + (this.petRay.x - cam.x) * t,
+      y: hitY - 0.9,
+    };
+  }
+
+  private clientToDesk(clientX: number, clientY: number) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndcX = ((clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+    const ndcY = -((clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1;
+    const p = this.deskPoint(
+      Math.max(-1, Math.min(1, ndcX)),
+      Math.max(-1, Math.min(1, ndcY)),
+    );
+    return this.clampPet(p.x, p.y);
+  }
+
+  private projectNdc(x: number, y: number, z: number) {
+    this.petRay.set(x, y, z).project(this.camera);
+    return { x: this.petRay.x, y: this.petRay.y, z: this.petRay.z };
+  }
+
+  /** edge：可靠边。full：整个人都在画面里。 */
+  private petFits(x: number, feetY: number, mode: 'edge' | 'full') {
+    if (!this.camera) return true;
+    const head = this.projectNdc(x, feetY + 1.7, 0);
+    const mid = this.projectNdc(x, feetY + 0.85, 0);
+    const feet = this.projectNdc(x, feetY, 0);
+    const left = this.projectNdc(x - 0.32, feetY + 1.05, 0);
+    const right = this.projectNdc(x + 0.32, feetY + 1.05, 0);
+    if (head.z > 1 || feet.z > 1) return false;
+    if (mode === 'edge') {
+      if (head.y > 0.97) return false;
+      if (mid.y < -1) return false;
+      if (Math.abs(mid.x) > 1) return false;
+      return true;
+    }
+    return head.y <= 0.93 && feet.y >= -0.93 && left.x >= -0.96 && right.x <= 0.96;
+  }
+
+  /** 从越界点往画面中心收，收到刚好满足规则的位置 */
+  private pullPet(x: number, y: number, mode: 'edge' | 'full') {
+    if (this.petFits(x, y, mode)) return { x, y };
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 16; i++) {
+      const t = (lo + hi) / 2;
+      const px = x + (0 - x) * t;
+      const py = y + (0 - y) * t;
+      if (this.petFits(px, py, mode)) hi = t;
+      else lo = t;
+    }
+    return { x: x + (0 - x) * hi, y: y + (0 - y) * hi };
+  }
+
+  private clampPet(x: number, y: number) {
+    return this.pullPet(x, y, 'edge');
+  }
+
+  /** 点她一下：如果身子出了画面，走回能看全的位置 */
+  petReveal() {
+    if (!this.petMode || !this.modelRoot) return;
+    if (this.petFits(this.stand.x, this.stand.y, 'full')) return;
+    const goal = this.pullPet(this.stand.x, this.stand.y, 'full');
+    this.petPath = [];
+    this.petHeld = false;
+    this.stand.onArrive = () => this.finishWalkLocomotion();
+    this.petNextWalk = performance.now() + 8000;
+    if (!this.stand.goToXY(goal.x, goal.y, 0.9)) return;
+    void this.startWalkLocomotion();
+  }
+
+  /** 头顶附近的屏幕坐标，给字幕跟着人走 */
+  petBubblePoint(): { x: number; y: number } | null {
+    if (!this.petMode || !this.renderer || !this.camera) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.petRay.set(this.stand.x, this.stand.y + 1.72, 0).project(this.camera);
+    if (this.petRay.z > 1) return null;
+    return {
+      x: rect.left + (this.petRay.x * 0.5 + 0.5) * rect.width,
+      y: rect.top + (-this.petRay.y * 0.5 + 0.5) * rect.height,
+    };
+  }
+
+  canPetWander() {
+    return this.petMode && !!this.modelRoot && !this.petHeld
+      && !this.stand.isMoving && !this._danceLive
+      && performance.now() >= this.petNextWalk;
+  }
+
+  petWanderOnce() {
+    if (!this.canPetWander()) return;
+    const here = { x: this.stand.x, y: this.stand.y };
+    if (Math.random() < 0.22) {
+      this.petNextWalk = performance.now() + 4000 + Math.random() * 5000;
+      return;
+    }
+    const dest = Math.random() < 0.72 ? this.petNearby(here) : this.petInterior();
+    const mid = this.petBend(here, dest);
+    this.petPath = [mid, dest];
+    this.petNextWalk = performance.now() + 7000;
+    this.stepPetPath();
+  }
+
+  private petInterior() {
+    const ndcX = (Math.random() * 2 - 1) * (Math.random() < 0.4 ? 1 : 0.62);
+    const ndcY = (Math.random() * 2 - 1) * (Math.random() < 0.4 ? 0.98 : 0.62);
+    const p = this.deskPoint(ndcX, ndcY);
+    return this.clampPet(p.x, p.y);
+  }
+
+  private petNearby(here: { x: number; y: number }) {
+    const ang = Math.random() * Math.PI * 2;
+    const dist = 0.35 + Math.random() * 0.85;
+    return this.clampPet(here.x + Math.cos(ang) * dist, here.y + Math.sin(ang) * dist * 0.7);
+  }
+
+  private petBend(a: { x: number; y: number }, b: { x: number; y: number }) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const mag = (Math.random() - 0.5) * Math.min(0.9, len * 0.5);
+    return this.clampPet((a.x + b.x) / 2 + (-dy / len) * mag, (a.y + b.y) / 2 + (dx / len) * mag);
+  }
+
+  private stepPetPath() {
+    const p = this.petPath.shift();
+    if (!p) return;
+    const speed = 0.48 + Math.random() * 0.32;
+    this.stand.onArrive = () => {
+      if (this.petPath.length && !this.petHeld) this.stepPetPath();
+      else this.finishWalkLocomotion();
+    };
+    if (!this.stand.goToXY(p.x, p.y, speed)) {
+      const cb = this.stand.onArrive;
+      this.stand.onArrive = null;
+      cb?.();
+      return;
+    }
+    void this.startWalkLocomotion();
+  }
+
+  petGrab(clientX: number, clientY: number) {
+    if (!this.petMode) return;
+    this.petHeld = true;
+    this.petPath = [];
+    const p = this.clientToDesk(clientX, clientY);
+    this.petGrabOffset = this.stand.x - p.x;
+    this.petGrabOffsetY = this.stand.y - p.y;
+    this.stand.placeXY(this.stand.x, this.stand.y);
+    this.petNextWalk = performance.now() + 7000;
+  }
+
+  petSlide(clientX: number, clientY: number) {
+    if (!this.petMode || !this.petHeld) return;
+    const p = this.clientToDesk(clientX, clientY);
+    const next = this.clampPet(p.x + this.petGrabOffset, p.y + this.petGrabOffsetY);
+    this.stand.placeXY(next.x, next.y);
+  }
+
+  petRelease() {
+    this.petHeld = false;
+    this.petNextWalk = performance.now() + 4500 + Math.random() * 4000;
   }
 
   /** 走到站台直径 1/4（左）/ 1/2（中）/ 3/4（右），并用走路动作走过去 */
@@ -960,7 +1230,7 @@ export class Stage {
   /** 从动作库挑走路循环，到位后停掉 */
   private async startWalkLocomotion() {
     if (this._danceLive) return;
-    this.stand.onArrive = () => this.finishWalkLocomotion();
+    if (!this.petMode) this.stand.onArrive = () => this.finishWalkLocomotion();
     try {
       const { useAssetsStore } = await import('../stores/assets');
       const { api } = await import('../api/client');
@@ -1000,20 +1270,23 @@ export class Stage {
   }
 
   playShot(id: CamShotId, instant = false, duration?: number) {
+    if (this.petMode) return;
     this.camRig.playShot(this.clampCamSize(id), instant, duration);
   }
 
   playIdleCut(size: CamShotId, move: IdleMoveKind, duration?: number) {
+    if (this.petMode) return;
     this.camRig.playIdleCut(this.clampCamSize(size), move, duration);
   }
 
   playCameraVmd(url: string, opts?: { once?: boolean }) {
-    if (this.camSizeLock?.length) return Promise.resolve();
+    if (this.petMode || this.camSizeLock?.length) return Promise.resolve();
     return this.camRig.playVmd(url, opts);
   }
 
   /** 景别锁：特写/半身近的落到 3/4，远景落到全身；运镜（偏转/俯仰）原样放行 */
   clampCamSize(id: CamShotId): CamShotId {
+    if (this.petMode) return id === 'threeQ' ? 'threeQ' : 'full';
     const lock = this.camSizeLock;
     if (!lock?.length) return id;
     if (lock.includes(id)) return id;
@@ -1042,6 +1315,53 @@ export class Stage {
 
   get canvas() {
     return this.renderer?.domElement ?? null;
+  }
+
+  /**
+   * 头到脚的一条屏幕胶囊。网格射线会在头发缝和裙子空档里漏点，
+   * 桌宠改成按身体范围判断，点和拖都落在看得见的人身上。
+   */
+  petHitBody(): { ax: number; ay: number; bx: number; by: number; r: number } | null {
+    if (!this.petMode || !this.modelRoot || !this.renderer || !this.camera) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return null;
+    const headBone = this.avatar?.bone('head');
+    let head: { x: number; y: number };
+    if (headBone) {
+      headBone.getWorldPosition(this.petTmp);
+      this.petTmp.y += 0.16;
+      head = this.clientOfWorld(this.petTmp.x, this.petTmp.y, this.petTmp.z, rect);
+    } else {
+      head = this.clientOfWorld(this.stand.x, this.stand.y + 1.7, 0, rect);
+    }
+    const foot = this.clientOfWorld(this.stand.x, this.stand.y + 0.02, 0, rect);
+    const body = Math.hypot(head.x - foot.x, head.y - foot.y);
+    if (body < 8) return null;
+    let r = Math.max(18, body * 0.17);
+    const cap = Math.max(r, body * 0.28);
+    for (const key of ['leftUpperArm', 'rightUpperArm'] as const) {
+      const bone = this.avatar?.bone(key);
+      if (!bone) continue;
+      bone.getWorldPosition(this.petTmp);
+      const p = this.clientOfWorld(this.petTmp.x, this.petTmp.y, this.petTmp.z, rect);
+      r = Math.max(r, distToSeg(p.x, p.y, head.x, head.y, foot.x, foot.y) + 6);
+    }
+    return { ax: head.x, ay: head.y, bx: foot.x, by: foot.y, r: Math.min(r, cap) };
+  }
+
+  private clientOfWorld(x: number, y: number, z: number, rect: DOMRect) {
+    this.petRay.set(x, y, z).project(this.camera);
+    return {
+      x: rect.left + (this.petRay.x * 0.5 + 0.5) * rect.width,
+      y: rect.top + (-this.petRay.y * 0.5 + 0.5) * rect.height,
+    };
+  }
+
+  /** 屏幕坐标是否落在人物身上 */
+  hitsAvatar(clientX: number, clientY: number) {
+    const hit = this.petHitBody();
+    if (!hit) return false;
+    return distToSeg(clientX, clientY, hit.ax, hit.ay, hit.bx, hit.by) <= hit.r;
   }
 
   get avatarRoot() {
@@ -1079,17 +1399,20 @@ export class Stage {
     requestAnimationFrame(this.animate);
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const t = this.clock.elapsedTime;
+    if (this.petMode) this.controls.enabled = false;
 
     this.stand.update(dt, this.modelRoot);
-    this.camRig.focusX = this.stand.x;
-    this.camRig.update(dt);
-    if (!this.camRig.driving) {
-      const fov = 32 - this.director.camPush * 0.6;
-      if (Math.abs(this.camera.fov - fov) > 0.002) {
-        this.camera.fov = fov;
-        this.camera.updateProjectionMatrix();
+    if (!this.petMode) {
+      this.camRig.focusX = this.stand.x;
+      this.camRig.update(dt);
+      if (!this.camRig.driving) {
+        const fov = 32 - this.director.camPush * 0.6;
+        if (Math.abs(this.camera.fov - fov) > 0.002) {
+          this.camera.fov = fov;
+          this.camera.updateProjectionMatrix();
+        }
+        this.controls.update();
       }
-      this.controls.update();
     }
     for (const s of this.platformSpin) s.obj.rotation.y += s.speed * dt;
 

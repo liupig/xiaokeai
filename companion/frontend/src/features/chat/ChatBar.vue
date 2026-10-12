@@ -2,6 +2,7 @@
 import { defineAsyncComponent, computed, nextTick, ref, watch } from 'vue';
 import { NButton, NInput, NInputNumber, NPopover, useMessage } from 'naive-ui';
 import { micAvailable, speechInput } from '../voice/stt';
+import { speechPlayer } from '../voice/tts';
 import { stage } from '../../engine/stage';
 import { useChatStore } from '../../stores/chat';
 import { useCharacterStore } from '../../stores/character';
@@ -196,6 +197,7 @@ function toggleMic() {
       : '当前浏览器不支持在线语音识别，请改用 Chrome/Edge，或在设置里切到离线 ASR');
     return;
   }
+  speechPlayer.unlock();
   if (speechInput.opening) return;
   if (listening.value) {
     if (engine === 'sensevoice') void speechInput.stopAndRecognize();
@@ -213,6 +215,10 @@ function toggleMic() {
       if (meta?.echo) {
         upsertLive((text || '').trim() || '（像回声）', 'echo');
         liveMark = -1;
+        return;
+      }
+      if (meta?.phase === 'ready') {
+        upsertLive(t('voice.hearing'), 'hearing');
         return;
       }
       if (meta?.phase === 'recognizing') {
@@ -246,6 +252,7 @@ function toggleMic() {
     },
     (err) => {
       listening.value = false;
+      upsertLive('麦克风没打开', 'fail');
       message.error(`麦克风没打开：${err instanceof Error ? err.message : String(err)}`);
     },
   );

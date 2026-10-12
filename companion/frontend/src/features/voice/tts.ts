@@ -110,6 +110,27 @@ export class SpeechPlayer {
 
   unlock() {
     this.ensureCtx();
+    this.aecSpeaker.nudge();
+    const ctx = this.ctx;
+    if (!ctx || ctx.state === 'running') return;
+    void ctx.resume().then(() => {
+      this.aecSpeaker.nudge();
+      if (ctx.state === 'running' && !this.playing && (this.pending.length || this.waitQueue.length)) {
+        void this.pump();
+      }
+    });
+  }
+
+  /** 开麦前等到音频上下文真正在跑。挂起时 AudioWorklet 会永远等下去。 */
+  async prepareAudio(): Promise<boolean> {
+    this.unlock();
+    const ctx = this.ctx;
+    if (!ctx) return false;
+    if (ctx.state !== 'running') {
+      try { await ctx.resume(); } catch { /* */ }
+    }
+    this.aecSpeaker.nudge();
+    return ctx.state === 'running';
   }
 
   audioContext(): AudioContext | null {
@@ -478,7 +499,24 @@ export class SpeechPlayer {
       this.analyser.connect(this.aecDest);
       void this.armAecSpeaker();
     }
-    if (this.ctx.state === 'suspended') void this.ctx.resume();
+    if (this.ctx.state !== 'running') void this.ctx.resume();
+  }
+
+  /** 上下文被挂起或被系统打断时先等它真正跑起来，再排声音。 */
+  private whenAudible(): Promise<void> {
+    this.ensureCtx();
+    const ctx = this.ctx!;
+    if (ctx.state === 'running') return Promise.resolve();
+    return new Promise((resolve) => {
+      const finish = () => {
+        if (ctx.state !== 'running') return;
+        ctx.removeEventListener('statechange', finish);
+        this.aecSpeaker.nudge();
+        resolve();
+      };
+      ctx.addEventListener('statechange', finish);
+      void ctx.resume().then(finish);
+    });
   }
 
   /** 环回成功后只从 WebRTC 远端出声，Chrome 才能拿 TTS 当 AEC 参考。 */
@@ -584,8 +622,9 @@ export class SpeechPlayer {
     if (gen === this.generation && (this.pending.length || this.waitQueue.length)) void this.pump();
   }
 
-  private playBuffer(buf: AudioBuffer, gen: number, token: number) {
-    this.ensureCtx();
+  private async playBuffer(buf: AudioBuffer, gen: number, token: number) {
+    await this.whenAudible();
+    if (gen !== this.generation || token !== this.playToken) return;
     stage.lipsync.attachAnalyser(this.analyser!);
     return new Promise<void>((resolve) => {
       const src = this.ctx!.createBufferSource();
@@ -629,8 +668,10 @@ export class SpeechPlayer {
     let started = false;
     let nextTime = this.pcmHorizon > this.ctx!.currentTime ? this.pcmHorizon : 0;
 
-    const playSamples = (samples: Int16Array) => {
+    const playSamples = async (samples: Int16Array) => {
       if (!samples.length || !alive()) return;
+      await this.whenAudible();
+      if (!alive()) return;
       const f32 = new Float32Array(samples.length);
       for (let i = 0; i < samples.length; i++) f32[i] = samples[i] / 32768;
       const buf = this.ctx!.createBuffer(1, f32.length, sr);
@@ -679,14 +720,14 @@ export class SpeechPlayer {
         acc.set(chunk, pending.length);
         const min = started ? MIN_REST : MIN_FIRST;
         if (acc.length >= min) {
-          playSamples(acc);
+          await playSamples(acc);
           started = true;
           pending = new Int16Array(0);
         } else {
           pending = acc;
         }
       }
-      if (pending.length && alive()) playSamples(pending);
+      if (pending.length && alive()) await playSamples(pending);
     } finally {
       this.clipReceiving = false;
       void reader.cancel().catch(() => {});

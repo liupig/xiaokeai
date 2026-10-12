@@ -6,6 +6,7 @@ import XkIcon from '../icons/XkIcon.vue';
 import { useCharacterStore } from '../../stores/character';
 import { useSettingsStore } from '../../stores/settings';
 import { t } from '../../i18n';
+import { setShellMode } from '../shell/mode';
 
 type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake' | 'log';
 
@@ -15,6 +16,7 @@ const emit = defineEmits<{ (e: 'toggle', p: PanelKey): void }>();
 const characters = useCharacterStore();
 const settings = useSettingsStore();
 const currentName = computed(() => characters.current?.name ?? t('top.none'));
+const canPet = typeof window.companionDesktop?.setShellMode === 'function';
 
 const tools = computed(() => {
   settings.locale.ui;
@@ -42,14 +44,26 @@ const tools = computed(() => {
     </div>
     <div class="toolbar glass">
       <MocapToolbar />
-      <n-tooltip v-for="t in tools" :key="t.key" :delay="300">
+      <n-tooltip v-if="canPet" :delay="300">
         <template #trigger>
-          <button class="tool" :class="{ active: active === t.key }"
-                  @click="emit('toggle', t.key)">
-            <XkIcon :name="t.key" :size="22" />
+          <button class="tool" type="button" @click="setShellMode('pet')">
+            <svg class="pet-ico" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6" />
+              <path d="M8 20h8M12 16v4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+              <circle cx="12" cy="10" r="1.5" fill="currentColor" />
+            </svg>
           </button>
         </template>
-        {{ t.label }}
+        {{ t('top.pet') }}
+      </n-tooltip>
+      <n-tooltip v-for="item in tools" :key="item.key" :delay="300">
+        <template #trigger>
+          <button class="tool" :class="{ active: active === item.key }"
+                  @click="emit('toggle', item.key)">
+            <XkIcon :name="item.key" :size="22" />
+          </button>
+        </template>
+        {{ item.label }}
       </n-tooltip>
     </div>
   </div>
@@ -131,6 +145,10 @@ const tools = computed(() => {
 .tool.active {
   background: #5b5bd6;
   color: #fff;
+}
+
+.pet-ico {
+  display: block;
 }
 
 .tool.rec {

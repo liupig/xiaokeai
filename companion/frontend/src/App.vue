@@ -20,6 +20,10 @@ import { useChatStore } from './stores/chat';
 import { useSettingsStore } from './stores/settings';
 import { tarotLayerOn } from './features/tarot/gate';
 import { featureOn } from './i18n';
+import { isPetShell } from './features/shell/mode';
+import { installPetPointer } from './features/shell/petPointer';
+import { installPetWander } from './features/shell/petWander';
+import PetBar from './features/shell/PetBar.vue';
 
 const QuickPanel = defineAsyncComponent(() => import('./features/hud/QuickPanel.vue'));
 const AssetCenter = defineAsyncComponent(() => import('./features/assets/AssetCenter.vue'));
@@ -66,6 +70,10 @@ const settings = useSettingsStore();
 const chat = useChatStore();
 
 onMounted(async () => {
+  if (isPetShell) {
+    installPetPointer();
+    installPetWander();
+  }
   await settings.load().catch(() => {});
   await assets.refresh().catch(() => {});
   await characters.loadList().catch(() => {});
@@ -110,7 +118,10 @@ onMounted(async () => {
     chat.scheduleDelayed();
   };
   settings.applyTts();
-  window.addEventListener('pointerdown', () => speechPlayer.unlock(), { once: true });
+  const armVoice = () => speechPlayer.unlock();
+  window.addEventListener('pointerdown', armVoice);
+  window.addEventListener('keydown', armVoice);
+  window.addEventListener('focus', armVoice);
   await chat.beginVisit();
 });
 </script>
@@ -120,17 +131,18 @@ onMounted(async () => {
     <n-message-provider placement="top">
       <div class="layout">
         <StageView />
-        <DeskChrome />
+        <DeskChrome v-if="!isPetShell" />
         <ContentSetup />
-        <TopBar :active="activePanel" @toggle="togglePanel" />
-        <LiveBeatHud v-if="!tarotLayerOn && (!activePanel || activePanel === 'characters')" />
-        <MocapOverlay />
+        <TopBar v-if="!isPetShell" :active="activePanel" @toggle="togglePanel" />
+        <LiveBeatHud v-if="!isPetShell && !tarotLayerOn && (!activePanel || activePanel === 'characters')" />
+        <MocapOverlay v-if="!isPetShell" />
         <SpeechCaption />
-        <TarotLayer v-if="tarotLayerOn" />
-        <CodewatchHud v-if="settings.modules.codewatch" />
+        <TarotLayer v-if="!isPetShell && tarotLayerOn" />
+        <CodewatchHud v-if="!isPetShell && settings.modules.codewatch" />
         <QuickPanel :show="activePanel === 'quick'"
                     @update:show="(v: boolean) => setPanel('quick', v)" />
-        <ChatBar />
+        <ChatBar v-if="!isPetShell" />
+        <PetBar v-if="isPetShell" />
         <AssetCenter :show="activePanel === 'assets'"
                      @update:show="(v: boolean) => setPanel('assets', v)" />
         <CharacterPanel :show="activePanel === 'characters'"

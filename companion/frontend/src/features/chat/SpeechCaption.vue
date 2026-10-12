@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onUnmounted, ref } from 'vue';
 import { speechPlayer } from '../voice/tts';
+import { stage } from '../../engine/stage';
 
+const pet = document.documentElement.classList.contains('is-pet');
+const layer = ref<HTMLElement | null>(null);
 const line = ref('');
 const said = ref('');
 const now = ref('');
@@ -38,6 +41,16 @@ function tick() {
     line.value = cap.text;
     paint(cap.text, cap.progress);
   }
+  if (pet && layer.value) {
+    const p = stage.petBubblePoint();
+    if (p) {
+      layer.value.style.left = `${p.x}px`;
+      layer.value.style.top = `${p.y}px`;
+      layer.value.style.right = 'auto';
+      layer.value.style.bottom = 'auto';
+      layer.value.style.transform = 'translate(-50%, -120%)';
+    }
+  }
   raf = requestAnimationFrame(tick);
 }
 
@@ -47,7 +60,7 @@ onUnmounted(() => cancelAnimationFrame(raf));
 
 <template>
   <transition name="cap">
-    <div v-if="line" class="caption-layer" aria-live="polite">
+    <div v-if="line" ref="layer" class="caption-layer" :class="{ pet }" aria-live="polite">
       <p class="caption">
         <span class="said">{{ said }}</span><span class="now" :class="{ waiting }">{{ now }}</span><span class="wait">{{ wait }}</span>
       </p>
@@ -65,6 +78,17 @@ onUnmounted(() => cancelAnimationFrame(raf));
   pointer-events: none;
   display: flex;
   justify-content: center;
+}
+
+.caption-layer.pet {
+  left: 16px;
+  right: 16px;
+  bottom: 108px;
+}
+
+.caption-layer.pet .caption {
+  max-width: 100%;
+  font-size: 14px;
 }
 
 .caption {

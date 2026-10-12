@@ -61,6 +61,13 @@ export class AecSpeaker {
     }
   }
 
+  /** 窗口重新得到焦点后，把被系统暂停的播出拉起来。 */
+  nudge() {
+    const el = this.el;
+    if (!el) return;
+    if (el.paused) void el.play().catch(() => {});
+  }
+
   private close() {
     try { this.el?.pause(); } catch { /* */ }
     this.el = null;
