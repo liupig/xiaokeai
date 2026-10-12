@@ -1,6 +1,6 @@
 # xiaoke.ai
 
-Open-source **3D AI companion** · 开源 3D AI 伴侣 / 本地 3D 陪玩 / 虚拟陪玩
+Open-source **3D AI companion** / desktop pet · 开源 3D AI 伴侣 / 本地 3D 陪玩 / 虚拟陪玩 / 透明桌宠
 
 [English](#english) · [中文](#中文) · [xiaoke.ai](https://xiaoke.ai)
 
@@ -8,9 +8,9 @@ Open-source **3D AI companion** · 开源 3D AI 伴侣 / 本地 3D 陪玩 / 虚�
 
 ## English
 
-**xiaoke.ai** (小可爱) is an open-source **3D AI companion**: a local desktop 3D virtual companion. A VRM, MMD (PMX), or GLB character sits across from you: voice chat, lip-sync, expression, motion, dance, and camera, with tarot and long-term memory kept on the machine. Interface language and speech language are separate: Simplified Chinese, English, Japanese, and Korean.
+**xiaoke.ai** (小可爱) is an open-source **3D AI companion**: a local desktop 3D virtual companion. A VRM, MMD (PMX), or GLB character sits across from you: voice chat, lip-sync, expression, motion, dance, and camera, with tarot and long-term memory kept on the machine. In the desktop app she can leave the stage and float as a transparent desktop pet. Interface language and speech language are separate: Simplified Chinese, English, Japanese, and Korean.
 
-Also called: open-source 3D AI companion, 3D AI companion, AI companion, local AI companion, 开源 3D AI 伴侣, AI 伴侣, 本地 AI 伴侣, 开源 3D 陪玩, 虚拟陪玩, 本地桌宠, VRM chatbot, MMD desktop pet, AI VTuber.
+Also called: open-source 3D AI companion, 3D AI companion, AI companion, local AI companion, transparent desktop pet, 开源 3D AI 伴侣, AI 伴侣, 本地 AI 伴侣, 开源 3D 陪玩, 虚拟陪玩, 本地桌宠, 透明桌宠, VRM chatbot, MMD desktop pet, AI VTuber.
 
 > **Open source · free · runs on your machine — someone who talks, moves, and remembers you, sitting across the desk.**
 
@@ -23,7 +23,7 @@ Stage 3D models, motions, music, and voices are **not** under that license. Copy
 
 ### What this is: a local 3D companion
 
-Not a text chatbot and not a browser popup. The character is a VRM, MMD, or GLB model on a stage. A reply is spoken, lip-synced, and performed: face, motion, dance, camera. Chat, memory, and speech weights stay on the computer. UI and speech can each be Chinese, English, Japanese, or Korean. Source is Apache 2.0 and may be used commercially. No membership, no usage cap.
+Not a text chatbot and not a browser popup. The character is a VRM, MMD, or GLB model on a stage. A reply is spoken, lip-synced, and performed: face, motion, dance, camera. The desktop app can also shrink her into a transparent window that stays on the desktop. Chat, memory, and speech weights stay on the computer. UI and speech can each be Chinese, English, Japanese, or Korean. Source is Apache 2.0 and may be used commercially. No membership, no usage cap.
 
 ### Look
 
@@ -136,6 +136,7 @@ Building from source: [`companion/README_BUILD.md`](./companion/README_BUILD.md)
 - **Performed chat**: the LLM streams `[emo:]` `[act:]` `[dance:]` `[cam:]` tags and switches face, motion, dance, and camera live. No API key still gets a local fallback so the performance path works.
 - **Camera review**: every shot × camera × stance × motion row is scored; only reviewed combos enter the show, to avoid clipping or mismatched moves.
 - **Live mocap**: webcam, or a local video for repeatable tests. MediaPipe Holistic runs in a Worker (body, both hands, face) and drives the current character. The solver follows [Reze MiPo](https://github.com/AmyangXYZ/reze-mipo).
+- **Desktop pet**: in the Electron window, the top bar button “Float on desktop” replaces the stage with a small always-on-top transparent window. Empty space clicks through to the desktop; drag her body to move her, and drag the corner to resize. She walks on her own and stands still while you talk, she replies, or you drag. A bubble by her head is text and the mic. “Back to the stage” restores the full window. Size and place are remembered. The browser dev page stays the full stage.
 
 #### Talk and voice
 
@@ -175,7 +176,7 @@ Setup, tag protocol, and troubleshooting: [`companion/README.md`](./companion/RE
 | Speech UI | Web Speech API, [@ricky0123/vad-web](https://github.com/ricky0123/vad) (Silero VAD), AEC3 |
 | Clips | [mediabunny](https://github.com/Vanilagy/mediabunny) |
 
-Engine code lives in `companion/frontend/src/engine/` (stage, character, motion, face, lips, camera, idle, `StagePlugin`). Features live in `features/` (chat, voice, performance, assets, character, mocap, memory, scene, keepsake, tarot, camera review).
+Engine code lives in `companion/frontend/src/engine/` (stage, character, motion, face, lips, camera, idle, `StagePlugin`). Features live in `features/` (chat, voice, performance, assets, character, mocap, memory, scene, keepsake, tarot, camera review, desktop pet).
 
 #### Backend (`companion/backend`)
 
@@ -190,7 +191,7 @@ Engine code lives in `companion/frontend/src/engine/` (stage, character, motion,
 
 #### Desktop shell (`companion/desktop`, `build_exe.py`)
 
-Electron ships the Chromium window. PyInstaller builds a single-file launcher that starts frontend and backend. The release folder includes a Python runtime, backend bytecode, packed frontend, models, and speech weights. The target PC needs neither Chrome nor Python.
+Electron ships the Chromium window, either the full stage or a transparent desktop pet. PyInstaller builds a single-file launcher that starts frontend and backend. The release folder includes a Python runtime, backend bytecode, packed frontend, models, and speech weights. The target PC needs neither Chrome nor Python. The 2026-10-11 pack on the share link does not include the desktop pet yet; that is in the current source.
 
 ### Quick start
 
@@ -331,9 +332,9 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 ## 中文
 
-**xiaoke.ai（小可爱）** 是开源 **3D AI 伴侣**，也是本地 **3D 陪玩 / 虚拟陪玩**。VRM、MMD（PMX）、GLB 角色坐在对面：语音聊天、口型、表情、动作、舞蹈、运镜，对面抽塔罗，长期记忆留在本机。界面语言和对话语言分开，支持简体中文、英语、日语、韩语。
+**xiaoke.ai（小可爱）** 是开源 **3D AI 伴侣**，也是本地 **3D 陪玩 / 虚拟陪玩**。VRM、MMD（PMX）、GLB 角色坐在对面：语音聊天、口型、表情、动作、舞蹈、运镜，对面抽塔罗，长期记忆留在本机。桌面程序里还可以离开舞台，变成透明桌宠浮在桌面上。界面语言和对话语言分开，支持简体中文、英语、日语、韩语。
 
-别人会用这些词来找：开源 3D AI 伴侣、AI 伴侣、本地 AI 伴侣、3D AI companion、open-source AI companion、AI companion、开源 3D 陪玩、虚拟陪玩、本地桌宠、VRM 聊天、MMD 陪玩、AI VTuber、虚拟主播。
+别人会用这些词来找：开源 3D AI 伴侣、AI 伴侣、本地 AI 伴侣、3D AI companion、open-source AI companion、AI companion、开源 3D 陪玩、虚拟陪玩、本地桌宠、透明桌宠、VRM 聊天、MMD 陪玩、AI VTuber、虚拟主播。
 
 > **开源免费 · 本地运行 —— 让一个会说、会动、会记得你的她，坐到你对面。**
 
@@ -346,7 +347,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 ### 这是什么：本地 3D 陪玩
 
-不是文字聊天机器人，也不是网页弹窗。角色是舞台上的 VRM、MMD 或 GLB。一句回复会说出来、对上口型，并带上表情、动作、舞蹈和运镜。对话、记忆和语音权重在本机。界面和对话可以分别是中文、英语、日语、韩语。源码 Apache 2.0，允许商用。没有会员，没有次数卡。
+不是文字聊天机器人，也不是网页弹窗。角色是舞台上的 VRM、MMD 或 GLB。一句回复会说出来、对上口型，并带上表情、动作、舞蹈和运镜。桌面程序也可以把她收成一个浮在桌面上的透明窗口。对话、记忆和语音权重在本机。界面和对话可以分别是中文、英语、日语、韩语。源码 Apache 2.0，允许商用。没有会员，没有次数卡。
 
 ### 看一眼
 
@@ -459,6 +460,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 - **对话表演**：LLM 流式输出里夹 `[emo:]` `[act:]` `[dance:]` `[cam:]` 标签，实时切表情、动作、舞蹈和运镜。没有 API Key 时走本地兜底，表演链路仍可用。
 - **镜头审查**：景别 × 运镜 × 站位 × 动作资产逐条打分，只让审过的组合进剧目，避免镜头穿模或动作错位。
 - **实时动捕**：摄像头直播，或选本地视频反复测。MediaPipe Holistic 在 Worker 里检全身、双手、面部，再驱动当前角色。求解思路参考 [Reze MiPo](https://github.com/AmyangXYZ/reze-mipo)。
+- **桌宠**：只在 Electron 窗口里。顶栏点「放到桌面」，整窗换成一块置顶的透明小窗。空白处点击会穿透到桌面；拖她的身体可以挪位置，拖角可以改大小。空闲时她自己走一走，你说话、她回复、或者你正在拖的时候会站住。头顶气泡用来打字和开麦。「回到舞台」恢复整窗。大小和位置会记住。浏览器开发页仍是完整舞台。
 
 #### 对话与声音
 
@@ -498,7 +500,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 | 语音前端 | Web Speech API、[@ricky0123/vad-web](https://github.com/ricky0123/vad)（Silero VAD）、AEC3 回声消除 |
 | 短片 | [mediabunny](https://github.com/Vanilagy/mediabunny) |
 
-引擎代码在 `companion/frontend/src/engine/`（舞台、角色、动作、表情、口型、镜头、闲置、`StagePlugin` 插件口）；功能模块在 `features/`（聊天、语音、表演、资产、角色、动捕、记忆、情境、证物、塔罗、镜头审查）。
+引擎代码在 `companion/frontend/src/engine/`（舞台、角色、动作、表情、口型、镜头、闲置、`StagePlugin` 插件口）；功能模块在 `features/`（聊天、语音、表演、资产、角色、动捕、记忆、情境、证物、塔罗、镜头审查、桌宠）。
 
 #### 后端（`companion/backend`）
 
@@ -513,7 +515,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 #### 桌面壳（`companion/desktop`、`build_exe.py`）
 
-Electron 自带 Chromium 窗口；PyInstaller 把启动器打成单文件 exe，同时拉起前后端。发行目录含 Python 运行时、后端字节码、前端压缩包、模型与语音权重，目标机不装 Chrome、不装 Python 也能双击开。
+Electron 自带 Chromium 窗口，可以是完整舞台，也可以是透明桌宠。PyInstaller 把启动器打成单文件 exe，同时拉起前后端。发行目录含 Python 运行时、后端字节码、前端压缩包、模型与语音权重，目标机不装 Chrome、不装 Python 也能双击开。网盘上 2026-10-11 的体验包还没有桌宠，这项在当前源码里。
 
 ### 快速开始
 
