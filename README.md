@@ -1,6 +1,6 @@
 # xiaoke.ai
 
-Open-source **3D AI companion** / desktop pet · 开源 3D AI 伴侣 / 本地 3D 陪玩 / 虚拟陪玩 / 透明桌宠
+Open-source **3D AI companion** / desktop pet · 开源3D AI伴侣 / 本地3D陪玩 / 虚拟陪玩 / 透明桌宠
 
 [English](#english) · [中文](#中文) · [xiaoke.ai](https://xiaoke.ai)
 
@@ -99,6 +99,7 @@ Newest first. The link above does not change when a new A is uploaded.
 
 | Date | Pack | What changed |
 |---|---|---|
+| 2026-10-12 | `xiaoke-ai-A-20261012184939.7z` | Desktop pet: in the Electron window she can leave the stage and float as a small transparent always-on-top window. Empty space clicks through; drag her body to move, drag the corner to resize. `xiaoke-ai-B.7z` was packed the same day; keep an older B if it already runs. |
 | 2026-10-11 | `xiaoke-ai-A-20261011203508.7z` | Interface language and speech language are separate: Simplified Chinese, English, Japanese, Korean. English stays a woman’s voice (Serena). Japanese is Ono Anna, Korean is Sohee. Settings, tarot, and scenes follow the language you pick. `xiaoke-ai-B.7z` was packed the same day; keep an older B if it already runs. |
 | 2026-09-04 | `xiaoke-ai-A-20260904233641.7z` | First published Windows A/B pack: desktop 3D companion, voice, lip-sync, motion, dance, camera, tarot, memory. |
 
@@ -112,7 +113,7 @@ Extract with [7-Zip](https://www.7-zip.org/). Do not nest A inside B or the othe
 
 ```
 D:\xiaoke\
-  xiaoke-ai-A-20261011203508\   ← double-click xiaoke-ai.exe here
+  xiaoke-ai-A-20261012184939\   ← double-click xiaoke-ai.exe here
     xiaoke-ai.exe
   xiaoke-ai-B\
     xiaoke-content.json
@@ -191,7 +192,7 @@ Engine code lives in `companion/frontend/src/engine/` (stage, character, motion,
 
 #### Desktop shell (`companion/desktop`, `build_exe.py`)
 
-Electron ships the Chromium window, either the full stage or a transparent desktop pet. PyInstaller builds a single-file launcher that starts frontend and backend. The release folder includes a Python runtime, backend bytecode, packed frontend, models, and speech weights. The target PC needs neither Chrome nor Python. The 2026-10-11 pack on the share link does not include the desktop pet yet; that is in the current source.
+Electron ships the Chromium window, either the full stage or a transparent desktop pet. PyInstaller builds a single-file launcher that starts frontend and backend. The release folder includes a Python runtime, backend bytecode, packed frontend, models, and speech weights. The target PC needs neither Chrome nor Python. The 2026-10-12 pack on the share link includes the desktop pet. The 2026-10-11 pack does not.
 
 ### Quick start
 
@@ -423,6 +424,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 | 日期 | 包 | 这一版 |
 |---|---|---|
+| 2026-10-12 | `xiaoke-ai-A-20261012184939.7z` | 桌宠：Electron 窗口里可以离开舞台，变成置顶的透明小窗浮在桌面上。空白处点击穿透；拖身体挪位置，拖角改大小。当天也重打了 `xiaoke-ai-B.7z`；旧 B 还能用就不用换。 |
 | 2026-10-11 | `xiaoke-ai-A-20261011203508.7z` | 界面语言和对话语言分开：简体中文、英语、日语、韩语。英语仍是女声（塞蕾娜）。日语小野安娜，韩语素熙。设置、塔罗、情境跟着所选语言走。当天也重打了 `xiaoke-ai-B.7z`；旧 B 还能用就不用换。 |
 | 2026-09-04 | `xiaoke-ai-A-20260904233641.7z` | 第一次放出的 Windows A/B 体验包：桌面 3D 陪玩，语音、口型、动作、舞蹈、运镜、塔罗、记忆。 |
 
@@ -436,7 +438,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 ```
 某盘:\xiaoke\
-  xiaoke-ai-A-20261011203508\   ← 双击这里的 xiaoke-ai.exe
+  xiaoke-ai-A-20261012184939\   ← 双击这里的 xiaoke-ai.exe
     xiaoke-ai.exe
   xiaoke-ai-B\
     xiaoke-content.json
@@ -515,7 +517,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 #### 桌面壳（`companion/desktop`、`build_exe.py`）
 
-Electron 自带 Chromium 窗口，可以是完整舞台，也可以是透明桌宠。PyInstaller 把启动器打成单文件 exe，同时拉起前后端。发行目录含 Python 运行时、后端字节码、前端压缩包、模型与语音权重，目标机不装 Chrome、不装 Python 也能双击开。网盘上 2026-10-11 的体验包还没有桌宠，这项在当前源码里。
+Electron 自带 Chromium 窗口，可以是完整舞台，也可以是透明桌宠。PyInstaller 把启动器打成单文件 exe，同时拉起前后端。发行目录含 Python 运行时、后端字节码、前端压缩包、模型与语音权重，目标机不装 Chrome、不装 Python 也能双击开。网盘上 2026-10-12 的体验包带桌宠。2026-10-11 那一版还没有。
 
 ### 快速开始
 
