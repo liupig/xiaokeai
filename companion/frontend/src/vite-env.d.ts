@@ -1,5 +1,17 @@
 /// <reference types="vite/client" />
 
+interface PetDisplay {
+  id: number;
+  index: number;
+  width: number;
+  height: number;
+  scaleFactor: number;
+  primary: boolean;
+  current: boolean;
+  internal: boolean;
+  label: string;
+}
+
 interface CompanionDesktop {
   isShell: true;
   pickFolder?: () => Promise<string>;
@@ -18,6 +30,11 @@ interface CompanionDesktop {
   }) => void;
   dragBy?: (dx: number, dy: number) => void;
   resizeBy?: (dx: number, dy: number) => void;
+  listDisplays?: () => Promise<PetDisplay[]>;
+  setPetDisplay?: (id: number) => Promise<PetDisplay[]>;
+  onDisplaysChanged?: (cb: () => void) => () => void;
+  getPetSpot?: () => Promise<{ x: number; y: number } | null>;
+  setPetSpot?: (spot: { x: number; y: number } | null) => void;
   minimize?: () => void;
   close?: () => void;
 }

@@ -9,6 +9,7 @@
 const { app, BrowserWindow, dialog, ipcMain, screen, session, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const petScreen = require('./petScreen');
 
 function isLocalHost(hostname) {
   return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1';
@@ -47,10 +48,16 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 // 桌面壳没有网页那种麦克风弹窗，不自动选默认设备的话 getUserMedia 会一直挂着。
 app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
 
-const shellState = { mode: 'stage', stage: null, pet: null };
+const shellState = { mode: 'stage', stage: null, pet: null, petScreen: null, petSpot: null };
 const roleOf = new WeakMap();
 let swapping = false;
 let saveTimer = null;
+let holdingFallback = false;
+let placingPet = false;
+let layingOut = false;
+let activePetDisplayId = 0;
+let petHopAt = 0;
+let displayTimer = null;
 
 function statePath() {
   return path.join(app.getPath('userData'), 'shell-mode.json');
@@ -62,6 +69,10 @@ function loadState() {
     if (raw.mode === 'pet' || raw.mode === 'stage') shellState.mode = raw.mode;
     if (raw.stage) shellState.stage = raw.stage;
     if (raw.pet) shellState.pet = raw.pet;
+    const savedScreen = petScreen.normalizeSavedScreen(raw.petScreen);
+    if (savedScreen) shellState.petScreen = savedScreen;
+    const spot = normalizeSpot(raw.petSpot);
+    if (spot) shellState.petSpot = spot;
   } catch { /* 第一次打开 */ }
 }
 
@@ -82,10 +93,29 @@ function boundsOf(win) {
   return { x: b.x, y: b.y, width: b.width, height: b.height };
 }
 
+function normalizeSpot(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const x = Number(raw.x);
+  const y = Number(raw.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return {
+    x: Math.max(-1, Math.min(1, x)),
+    y: Math.max(-1, Math.min(1, y)),
+  };
+}
+
+function sameFingerprint(a, b) {
+  if (!a || !b) return false;
+  return a.id === b.id && a.x === b.x && a.y === b.y
+    && a.width === b.width && a.height === b.height
+    && Number(a.scaleFactor) === Number(b.scaleFactor);
+}
+
 function remember(win, immediate) {
   const key = roleOf.get(win);
   if (!key || !win || win.isDestroyed()) return;
-  shellState[key] = boundsOf(win);
+  // 临时落在替补屏时，别把替补屏的矩形写成她原本的位置。
+  if (!(key === 'pet' && holdingFallback)) shellState[key] = boundsOf(win);
   if (immediate) {
     clearTimeout(saveTimer);
     saveState();
@@ -240,18 +270,174 @@ function createStageWindow() {
   return win;
 }
 
-function petWorkArea() {
-  return screen.getPrimaryDisplay().workArea;
+function plainDisplay(display) {
+  return {
+    id: display.id,
+    bounds: {
+      x: display.bounds.x,
+      y: display.bounds.y,
+      width: display.bounds.width,
+      height: display.bounds.height,
+    },
+    workArea: {
+      x: display.workArea.x,
+      y: display.workArea.y,
+      width: display.workArea.width,
+      height: display.workArea.height,
+    },
+    scaleFactor: display.scaleFactor || 1,
+    internal: !!display.internal,
+    label: typeof display.label === 'string' ? display.label : '',
+  };
 }
 
-function layoutPetWindow(win) {
-  if (!win || win.isDestroyed() || roleOf.get(win) !== 'pet') return;
-  const area = petWorkArea();
-  win.setBounds({ x: area.x, y: area.y, width: area.width, height: area.height });
+function allPlainDisplays() {
+  return screen.getAllDisplays().map(plainDisplay);
+}
+
+function planFor(win, fill) {
+  const displays = allPlainDisplays();
+  const primary = screen.getPrimaryDisplay();
+  return petScreen.placement({
+    displays,
+    primaryId: primary ? primary.id : (displays[0] && displays[0].id),
+    savedScreen: shellState.petScreen,
+    savedWindow: shellState.pet,
+    holdingFallback,
+    windowBounds: win && !win.isDestroyed() ? boundsOf(win) : null,
+    fill: !!fill,
+  });
+}
+
+function notifyDisplays() {
+  const wins = BrowserWindow.getAllWindows();
+  for (let i = 0; i < wins.length; i += 1) {
+    const w = wins[i];
+    if (w.isDestroyed() || roleOf.get(w) !== 'pet' || w.webContents.isDestroyed()) continue;
+    w.webContents.send('displays-changed');
+  }
+}
+
+function applyPlacement(win, plan) {
+  if (!plan || !win || win.isDestroyed()) return;
+  holdingFallback = plan.holdingFallback;
+  activePetDisplayId = plan.display.id;
+  let screenChanged = false;
+  if (plan.commit) {
+    const next = petScreen.fingerprint(plan.display);
+    screenChanged = !sameFingerprint(shellState.petScreen, next);
+    if (next) shellState.petScreen = next;
+  }
+  if (!petScreen.nearBounds(win.getBounds(), plan.bounds)) {
+    placingPet = true;
+    try { win.setBounds(plan.bounds); }
+    finally { placingPet = false; }
+  } else if (screenChanged) {
+    saveSoon();
+  }
+}
+
+function layoutPetWindow(win, fill) {
+  if (!win || win.isDestroyed() || roleOf.get(win) !== 'pet' || layingOut) return;
+  layingOut = true;
+  try {
+    const plan = planFor(win, fill);
+    if (!plan) return;
+    applyPlacement(win, plan);
+    notifyDisplays();
+  } finally {
+    layingOut = false;
+  }
+}
+
+function placeOnDisplay(win, display) {
+  if (!win || win.isDestroyed() || !display) return;
+  holdingFallback = false;
+  const fp = petScreen.fingerprint(plainDisplay(display));
+  if (fp) shellState.petScreen = fp;
+  layoutPetWindow(win, true);
+  saveState();
+}
+
+function schedulePetLayout() {
+  clearTimeout(displayTimer);
+  displayTimer = setTimeout(() => {
+    const win = petWindow();
+    if (win) layoutPetWindow(win);
+  }, 160);
+}
+
+function describeDisplays() {
+  const displays = allPlainDisplays();
+  const primary = screen.getPrimaryDisplay();
+  const win = petWindow();
+  const current = win ? petScreen.displayContaining(displays, boundsOf(win)) : null;
+  const sorted = displays.slice().sort((a, b) => {
+    const aPrimary = primary && a.id === primary.id;
+    const bPrimary = primary && b.id === primary.id;
+    if (aPrimary !== bPrimary) return aPrimary ? -1 : 1;
+    if (a.bounds.x !== b.bounds.x) return a.bounds.x - b.bounds.x;
+    return a.bounds.y - b.bounds.y;
+  });
+  return sorted.map((d, i) => ({
+    id: d.id,
+    index: i + 1,
+    width: Math.round(d.bounds.width),
+    height: Math.round(d.bounds.height),
+    scaleFactor: d.scaleFactor || 1,
+    primary: !!(primary && d.id === primary.id),
+    current: !!(current && d.id === current.id),
+    internal: !!d.internal,
+    label: d.label || '',
+  }));
+}
+
+function pullPetWindowInside(win) {
+  if (!win || win.isDestroyed() || placingPet || layingOut) return;
+  if (holdingFallback) {
+    layoutPetWindow(win);
+    return;
+  }
+  const displays = allPlainDisplays();
+  const b = boundsOf(win);
+  const hit = petScreen.displayContaining(displays, b);
+  if (!hit) {
+    layoutPetWindow(win);
+    return;
+  }
+  const area = petScreen.workBounds(hit);
+  if (!area) return;
+  const next = petScreen.clampInto(b, area);
+  const movedScreen = !shellState.petScreen || shellState.petScreen.id !== hit.id;
+  if (movedScreen) {
+    holdingFallback = false;
+    const fp = petScreen.fingerprint(hit);
+    if (fp) shellState.petScreen = fp;
+  }
+  if (next && !petScreen.nearBounds(b, next)) {
+    placingPet = true;
+    try { win.setBounds(next); }
+    finally { placingPet = false; }
+  } else if (movedScreen) {
+    saveSoon();
+  }
+}
+
+function maybeHopPetDisplay(win) {
+  if (!petRegion || !petRegion.pressed || !win || win.isDestroyed()) return;
+  if (Date.now() - petHopAt < 500) return;
+  const nextId = petScreen.hopTarget(allPlainDisplays(), activePetDisplayId, screen.getCursorScreenPoint());
+  if (!nextId || nextId === activePetDisplayId) return;
+  const display = screen.getAllDisplays().find((d) => d.id === nextId);
+  if (!display) return;
+  petHopAt = Date.now();
+  win.setIgnoreMouseEvents(false);
+  placeOnDisplay(win, display);
 }
 
 function createPetWindow() {
-  const area = petWorkArea();
+  const plan = planFor(null);
+  const area = plan ? plan.bounds : { x: 0, y: 0, width: 1280, height: 720 };
   const win = new BrowserWindow({
     x: area.x,
     y: area.y,
@@ -418,6 +604,7 @@ ipcMain.on('pet-drag', (e, delta) => {
   const { dx, dy } = petDelta(delta);
   const [x, y] = win.getPosition();
   win.setPosition(Math.round(x + dx), Math.round(y + dy));
+  pullPetWindowInside(win);
 });
 
 ipcMain.on('pet-resize', (e, delta) => {
@@ -432,6 +619,34 @@ ipcMain.on('pet-resize', (e, delta) => {
     width: Math.max(300, Math.round(b.width + dx)),
     height: Math.max(420, Math.round(b.height + dy)),
   });
+  pullPetWindowInside(win);
+});
+
+ipcMain.handle('list-displays', () => describeDisplays());
+
+ipcMain.handle('set-pet-display', (e, id) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (shellState.mode === 'pet' && win && !win.isDestroyed() && roleOf.get(win) === 'pet') {
+    const display = screen.getAllDisplays().find((d) => d.id === Number(id));
+    if (display) placeOnDisplay(win, display);
+  }
+  return describeDisplays();
+});
+
+ipcMain.handle('get-pet-spot', () => shellState.petSpot);
+
+ipcMain.on('set-pet-spot', (_e, raw) => {
+  if (raw == null) {
+    shellState.petSpot = null;
+    saveSoon();
+    return;
+  }
+  const spot = normalizeSpot(raw);
+  if (!spot) return;
+  const prev = shellState.petSpot;
+  if (prev && Math.abs(prev.x - spot.x) < 0.001 && Math.abs(prev.y - spot.y) < 0.001) return;
+  shellState.petSpot = spot;
+  saveSoon();
 });
 
 ipcMain.on('window-minimize', (e) => {
@@ -461,12 +676,12 @@ if (!gotLock) {
         petHot = false;
         return;
       }
+      maybeHopPetDisplay(win);
       applyPetPointer(win);
     }, 16);
-    screen.on('display-metrics-changed', () => {
-      const win = BrowserWindow.getAllWindows()[0];
-      if (win) layoutPetWindow(win);
-    });
+    screen.on('display-added', schedulePetLayout);
+    screen.on('display-removed', schedulePetLayout);
+    screen.on('display-metrics-changed', schedulePetLayout);
   });
   app.on('window-all-closed', () => {
     if (!swapping) app.quit();

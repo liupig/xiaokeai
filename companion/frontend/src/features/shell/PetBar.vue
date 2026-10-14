@@ -16,6 +16,7 @@ const message = useMessage();
 const text = ref('');
 const listening = ref(false);
 const open = ref(false);
+const screens = ref<PetDisplay[]>([]);
 const inputEl = ref<HTMLInputElement | null>(null);
 const dockStyle = ref<Record<string, string>>({
   left: '24px',
@@ -24,7 +25,29 @@ const dockStyle = ref<Record<string, string>>({
 });
 let voiceSent = false;
 let hideTimer = 0;
+let stopDisplays = () => {};
 const SHOW_MS = 30000;
+
+function screenTitle(d: PetDisplay) {
+  const bits = [`${d.width}×${d.height}`];
+  if (d.label) bits.push(d.label);
+  if (d.internal) bits.push(t('pet.screenBuiltIn'));
+  if (d.primary) bits.push(t('pet.screenPrimary'));
+  if (d.scaleFactor && Math.abs(d.scaleFactor - 1) > 0.05) bits.push(`@${d.scaleFactor}`);
+  return bits.join(' · ');
+}
+
+async function refreshScreens() {
+  const list = await window.companionDesktop?.listDisplays?.();
+  screens.value = Array.isArray(list) ? list : [];
+}
+
+async function pickScreen(id: number) {
+  const current = screens.value.find((d) => d.current);
+  if (current?.id === id) return;
+  const list = await window.companionDesktop?.setPetDisplay?.(id);
+  if (Array.isArray(list)) screens.value = list;
+}
 
 function placeDock() {
   const p = stage.petBubblePoint();
@@ -55,10 +78,15 @@ function onPetUi() {
 watch(listening, (on) => stage.director.setListening(on));
 watch(text, () => { if (open.value) bumpDock(); });
 
-onMounted(() => window.addEventListener('xiaoke-pet-ui', onPetUi));
+onMounted(() => {
+  window.addEventListener('xiaoke-pet-ui', onPetUi);
+  void refreshScreens();
+  stopDisplays = window.companionDesktop?.onDisplaysChanged?.(() => { void refreshScreens(); }) || (() => {});
+});
 onUnmounted(() => {
   window.removeEventListener('xiaoke-pet-ui', onPetUi);
   window.clearTimeout(hideTimer);
+  stopDisplays();
 });
 
 function onEnter(e: KeyboardEvent) {
@@ -135,6 +163,13 @@ function toggleMic() {
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M2 21 23 12 2 3v7l15 2-15 2v7Z" />
         </svg>
+      </button>
+    </div>
+    <div v-if="screens.length > 1" class="screens">
+      <button v-for="d in screens" :key="d.id" type="button"
+              :class="{ on: d.current }" :title="screenTitle(d)"
+              @click="pickScreen(d.id)">
+        {{ t('pet.screen', { n: d.index }) }}
       </button>
     </div>
     <div class="ops">
@@ -257,6 +292,34 @@ input::placeholder {
   justify-content: center;
   gap: 8px;
   padding: 0 6px 1px;
+}
+
+.screens {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.screens button {
+  border: none;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(244, 244, 251, 0.62);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.screens button.on {
+  color: #fff;
+  background: rgba(122, 120, 238, 0.45);
+}
+
+.screens button:hover {
+  color: #fff;
 }
 
 .ops i {

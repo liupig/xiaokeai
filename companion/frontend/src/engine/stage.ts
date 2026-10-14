@@ -163,6 +163,12 @@ export class Stage {
   private petPath: { x: number; y: number }[] = [];
   private petRay = new THREE.Vector3();
   private petTmp = new THREE.Vector3();
+  /** 归一化站位（-1..1）。模型还没好时先攒着，好了再放回去。 */
+  private petSpot: { x: number; y: number } | null = null;
+  private petSpotReady = false;
+  private petPlaced = false;
+  private petSpotClock = 0;
+  private lastSpotKey = '';
   private static readonly PET_SHOTS: CamShotId[] = ['threeQ', 'full'];
   private raycaster = new THREE.Raycaster();
   private pointerNdc = new THREE.Vector2();
@@ -208,6 +214,7 @@ export class Stage {
   init(container: HTMLElement) {
     this.host = container;
     this.petMode = document.documentElement.classList.contains('is-pet');
+    if (this.petMode) void this.preloadPetSpot();
     const dpr = fitPixelRatio(
       this.quality.pixelRatioCap, container.clientWidth, container.clientHeight);
     this.renderer = new THREE.WebGLRenderer({
@@ -871,7 +878,8 @@ export class Stage {
     }
     if (this.petMode) {
       this.layoutPetDesk();
-      this.seatPet();
+      if (!this.petPlaced) this.placePetInitially();
+      else this.seatPet();
     } else {
       this.camRig.set('full', true);
     }
@@ -1028,15 +1036,67 @@ export class Stage {
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
     this.controls.target.set(0, 1.85, 0);
+    if (this.modelRoot && !this.petFits(this.stand.x, this.stand.y, 'edge')) {
+      this.petPath = [];
+      const p = this.clampPet(this.stand.x, this.stand.y);
+      this.stand.placeXY(p.x, p.y);
+    }
   }
 
-  /** 换人之后把她放回画面中间 */
+  /** 换人之后把她放回画面中间，并忘掉上一只的站位 */
   private seatPet() {
     const p = this.clampPet(0, 0);
     this.stand.placeXY(p.x, p.y);
     if (this.modelRoot) {
       this.modelRoot.position.set(this.stand.x, this.stand.y, 0);
     }
+    this.petSpot = null;
+    this.lastSpotKey = '';
+    window.companionDesktop?.setPetSpot?.(null);
+  }
+
+  private async preloadPetSpot() {
+    try {
+      const spot = await window.companionDesktop?.getPetSpot?.();
+      if (spot && Number.isFinite(Number(spot.x)) && Number.isFinite(Number(spot.y))) {
+        this.petSpot = { x: Number(spot.x), y: Number(spot.y) };
+      }
+    } catch { /* 壳还没准备好 */ }
+    this.petSpotReady = true;
+    this.placePetInitially();
+  }
+
+  private placePetInitially() {
+    if (this.petPlaced || !this.petSpotReady || !this.modelRoot || !this.petMode) return;
+    this.petPlaced = true;
+    if (this.petSpot) this.applyPetSpot(this.petSpot);
+    else this.seatPet();
+  }
+
+  private applyPetSpot(spot: { x: number; y: number }) {
+    const ndcX = Math.max(-1, Math.min(1, spot.x));
+    const ndcY = Math.max(-1, Math.min(1, spot.y));
+    const raw = this.deskPoint(ndcX, ndcY);
+    const p = this.clampPet(raw.x, raw.y);
+    this.petPath = [];
+    this.stand.placeXY(p.x, p.y);
+    if (this.modelRoot) this.modelRoot.position.set(p.x, p.y, 0);
+    this.lastSpotKey = `${Math.round(ndcX * 1000) / 1000},${Math.round(ndcY * 1000) / 1000}`;
+  }
+
+  private notePetSpot(dt: number) {
+    if (!this.petMode || !this.petPlaced || this.petHeld || !this.modelRoot || !this.camera) return;
+    this.petSpotClock += dt;
+    if (this.petSpotClock < 1) return;
+    this.petSpotClock = 0;
+    const p = this.projectNdc(this.stand.x, this.stand.y, 0);
+    if (p.z > 1) return;
+    const x = Math.max(-1, Math.min(1, Math.round(p.x * 1000) / 1000));
+    const y = Math.max(-1, Math.min(1, Math.round(p.y * 1000) / 1000));
+    const key = `${x},${y}`;
+    if (key === this.lastSpotKey) return;
+    this.lastSpotKey = key;
+    window.companionDesktop?.setPetSpot?.({ x, y });
   }
 
   /** 鼠标射线打在 z=0 平面上，返回脚的高度（胸口在射线点下方 0.9） */
@@ -1209,6 +1269,7 @@ export class Stage {
   petRelease() {
     this.petHeld = false;
     this.petNextWalk = performance.now() + 4500 + Math.random() * 4000;
+    this.notePetSpot(1);
   }
 
   /** 走到站台直径 1/4（左）/ 1/2（中）/ 3/4（右），并用走路动作走过去 */
@@ -1399,7 +1460,10 @@ export class Stage {
     requestAnimationFrame(this.animate);
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const t = this.clock.elapsedTime;
-    if (this.petMode) this.controls.enabled = false;
+    if (this.petMode) {
+      this.controls.enabled = false;
+      this.notePetSpot(dt);
+    }
 
     this.stand.update(dt, this.modelRoot);
     if (!this.petMode) {
