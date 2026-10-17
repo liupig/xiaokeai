@@ -5,7 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Character
+from ..models import (
+    Character, ChatMessage, MemoryEpisode, MemoryExtractCursor, MemoryFact, PinnedMessage,
+)
 
 router = APIRouter(prefix="/api/characters", tags=["characters"])
 
@@ -44,6 +46,13 @@ def delete_character(char_id: int, session: Session = Depends(get_session)):
     char = session.get(Character, char_id)
     if not char:
         raise HTTPException(404, "角色不存在")
+    for model in (ChatMessage, MemoryFact, MemoryEpisode, PinnedMessage):
+        rows = session.exec(select(model).where(model.character_id == char_id)).all()
+        for row in rows:
+            session.delete(row)
+    cursor = session.get(MemoryExtractCursor, char_id)
+    if cursor is not None:
+        session.delete(cursor)
     session.delete(char)
     session.commit()
     return {"ok": True}

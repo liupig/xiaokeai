@@ -65,3 +65,64 @@ def drop_fact(character_id: int, fact_id: str,
     if not ok:
         raise HTTPException(404, "fact not found")
     return {"ok": True}
+
+
+class PinIn(BaseModel):
+    character_id: int
+    message_id: int
+
+
+@router.get("/pins/{character_id}")
+def get_pins(character_id: int, session: Session = Depends(get_session)) -> List[Dict[str, Any]]:
+    if not enabled(session, "memory"):
+        return []
+    try:
+        return memory_worker.list_pins(character_id)
+    except Exception as exc:
+        print(f"[memory] get_pins failed: {exc}")
+        return []
+
+
+@router.put("/pins")
+def put_pin(body: PinIn, session: Session = Depends(get_session)) -> Dict[str, Any]:
+    _guard(session)
+    try:
+        return memory_worker.pin_message(body.character_id, body.message_id)
+    except KeyError:
+        raise HTTPException(404, "message not found")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        print(f"[memory] put_pin failed: {exc}")
+        raise HTTPException(503, "记忆暂不可用") from exc
+
+
+@router.delete("/pins/{character_id}/{pin_id}")
+def drop_pin(character_id: int, pin_id: str,
+             session: Session = Depends(get_session)) -> Dict[str, bool]:
+    _guard(session)
+    ok = memory_worker.delete_pin(character_id, pin_id)
+    if not ok:
+        raise HTTPException(404, "pin not found")
+    return {"ok": True}
+
+
+@router.get("/episodes/{character_id}")
+def get_episodes(character_id: int, session: Session = Depends(get_session)) -> List[Dict[str, Any]]:
+    if not enabled(session, "memory"):
+        return []
+    try:
+        return memory_worker.list_episodes(character_id)
+    except Exception as exc:
+        print(f"[memory] get_episodes failed: {exc}")
+        return []
+
+
+@router.delete("/episodes/{character_id}/{episode_id}")
+def drop_episode(character_id: int, episode_id: str,
+                 session: Session = Depends(get_session)) -> Dict[str, bool]:
+    _guard(session)
+    ok = memory_worker.delete_episode(character_id, episode_id)
+    if not ok:
+        raise HTTPException(404, "episode not found")
+    return {"ok": True}

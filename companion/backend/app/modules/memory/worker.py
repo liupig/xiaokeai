@@ -160,6 +160,45 @@ def scene_hints(character_id: int) -> List[str]:
     return out if isinstance(out, list) else []
 
 
+def list_pins(character_id: int) -> List[Dict[str, Any]]:
+    try:
+        out = _rpc("list_pins", int(character_id))
+    except Exception as exc:
+        print(f"[memory] list_pins failed: {exc}")
+        return []
+    return out if isinstance(out, list) else []
+
+
+def pin_message(character_id: int, message_id: int) -> Dict[str, Any]:
+    out = _rpc("pin", {"character_id": int(character_id), "message_id": int(message_id)})
+    if not isinstance(out, dict):
+        raise RuntimeError("记忆暂不可用")
+    if out.get("error") == "missing":
+        raise KeyError("message not found")
+    if out.get("error"):
+        raise ValueError(str(out.get("error")))
+    if not out.get("id"):
+        raise RuntimeError("记忆暂不可用")
+    return out
+
+
+def delete_pin(character_id: int, pin_id: str) -> bool:
+    return bool(_rpc("unpin", (int(character_id), str(pin_id))))
+
+
+def list_episodes(character_id: int) -> List[Dict[str, Any]]:
+    try:
+        out = _rpc("list_episodes", int(character_id))
+    except Exception as exc:
+        print(f"[memory] list_episodes failed: {exc}")
+        return []
+    return out if isinstance(out, list) else []
+
+
+def delete_episode(character_id: int, episode_id: str) -> bool:
+    return bool(_rpc("delete_episode", (int(character_id), str(episode_id))))
+
+
 def reload() -> None:
     """换 embedding 后丢掉旧向量客户端，后台重建索引。事实文本仍在 SQLite。"""
     if _in_worker():

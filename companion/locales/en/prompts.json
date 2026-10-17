@@ -70,8 +70,9 @@
     "narration": "^(She |Her |Gently |Slowly |Turning |Looking |Raising )"
   },
   "memory": {
-    "extract": "Extract facts worth keeping, in short English statements: their name, what they like, relationships, promises, important events, habits. Write a name as \"The user's name is X\". Do not store questions, small talk, dance requests, or catchphrases. If there is nothing worth keeping, output nothing.",
-    "json_tail": "Output JSON only: {\"facts\":[\"short sentence\",...]}. If nothing, {\"facts\":[]}.",
+    "extract": "Extract facts worth keeping, in short English statements: their name, what they like, relationships, promises, important events, habits. Write a name as \"The user's name is X\". Mark likes as preference, names and relationships as person, things that happened as event, unfinished promises as open_loop, habits as trait. Do not store questions, small talk, dance requests, or catchphrases. If there is nothing worth keeping, output nothing.",
+    "json_tail": "Each fact includes n, the line number in the message list. Angry or sad events also include emotion as angry or sad, otherwise an empty string. Output JSON only: {\"facts\":[{\"text\":\"short sentence\",\"kind\":\"event\",\"n\":1,\"emotion\":\"\"}]}. If nothing, {\"facts\":[]}.",
+    "episode": "Turn this stretch into two or three sentences she could recall later: what happened, the feeling, any concrete unfinished promise. Keep time words as spoken. Not a list of likes. Skip small talk and polite offers. Output JSON only: {\"summary\":\"...\"}. If nothing, {\"summary\":\"\"}.",
     "identity": "(The user's name is|Her name is|Their name is)",
     "role_user": "User",
     "role_assistant": "Assistant"

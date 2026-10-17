@@ -170,7 +170,11 @@ watch(
   () => [characters.currentId, mods.value.memory] as const,
   ([id, on]) => {
     if (on && id) void refreshMemory(id);
-    else if (!on) memorySession.facts = [];
+    else if (!on) {
+      memorySession.facts = [];
+      memorySession.pins = [];
+      memorySession.episodes = [];
+    }
   },
   { immediate: true },
 );
@@ -328,6 +332,23 @@ async function record() {
 
 const recLeft = computed(() =>
   Math.max(0, Math.ceil(keepsakeSession.clipSec - keepsakeSession.recSec)));
+
+function pinnedMsg(id?: number) {
+  if (!id) return false;
+  return memorySession.pins.some((p) => p.message_id === id);
+}
+
+async function toggleMsgPin(id?: number) {
+  if (!id || !characters.currentId) return;
+  const hit = memorySession.pins.find((p) => p.message_id === id);
+  try {
+    if (hit) await api.unpinMessage(characters.currentId, hit.id);
+    else await api.pinMessage(characters.currentId, id);
+    await refreshMemory(characters.currentId);
+  } catch (e) {
+    message.error(String(e));
+  }
+}
 </script>
 
 <template>
@@ -353,6 +374,10 @@ const recLeft = computed(() =>
            class="bubble" :class="[m.role, m.kind && m.kind !== 'qa' ? m.kind : '']">
         <span v-if="friendlyWhen(m.when, m.created_at)" class="when">{{ friendlyWhen(m.when, m.created_at) }}</span>
         <p>{{ m.content || '…' }}</p>
+        <button v-if="mods.memory && m.id" type="button" class="pin-line" :class="{ on: pinnedMsg(m.id) }"
+                @click="toggleMsgPin(m.id)">
+          {{ pinnedMsg(m.id) ? t('mem.pinnedLine') : t('mem.pinLine') }}
+        </button>
         <div v-if="mods.rewrite && !chat.sending && (m.id || (isQaAssistant(m) && m === chat.lastQaAssistant() && m.content))" class="rw">
           <button v-if="isQaAssistant(m) && m === chat.lastQaAssistant() && m.content"
                   @click="chat.rerollLast()">{{ t('chat.reroll') }}</button>
@@ -535,6 +560,17 @@ const recLeft = computed(() =>
 }
 
 .bubble p { margin: 0; }
+.pin-line {
+  margin-top: 4px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.38);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0;
+}
+.pin-line.on { color: #fbbf24; }
+.pin-line:hover { color: #fff; }
 .bubble .when {
   display: block;
   font-size: 11px;

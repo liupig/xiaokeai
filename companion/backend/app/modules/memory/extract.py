@@ -1,14 +1,18 @@
-"""按历史窗口切 Mem0 抽取：满 9 轮新对话才抽，重叠 2 轮，游标只前进。"""
+"""按历史窗口切记忆抽取：满四轮新对话就抽，重叠两轮，游标只前进。"""
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlmodel import Session, select
 
 from ...conversation import EXTRACT_NEW_TURNS, EXTRACT_OVERLAP_TURNS, SIDE_KINDS
 from ...models import ChatMessage, MemoryExtractCursor, utc_now
 from ...services import settings_store
-from .service import llm_extract_facts, store_extracted_facts, strip_perf
+from .rank import parse_emotion
+from .service import (
+    llm_episode_summary, llm_extract_facts, save_episode,
+    store_extracted_facts, strip_perf,
+)
 
 
 def _qa_rows(session: Session, character_id: int) -> List[ChatMessage]:
@@ -41,7 +45,7 @@ def _save_cursor(session: Session, character_id: int, upto_id: int) -> None:
 
 def pick_extract_window(
     session: Session, character_id: int,
-) -> Optional[Tuple[List[Dict[str, str]], int, int]]:
+) -> Optional[Tuple[List[Dict[str, Any]], int, int]]:
     """返回 (messages, 新轮数, 游标应写到的 message id)。不够一轮窗口则 None。"""
     qa = _qa_rows(session, character_id)
     if not qa:
@@ -62,27 +66,46 @@ def pick_extract_window(
     overlap = older[-EXTRACT_OVERLAP_TURNS:] if EXTRACT_OVERLAP_TURNS else []
     start_id = int(overlap[0].id or first_new) if overlap else first_new
 
-    payload: List[Dict[str, str]] = []
+    payload: List[Dict[str, Any]] = []
     for m in qa:
         mid = int(m.id or 0)
         if mid < start_id or mid > end_id:
             continue
-        text = (m.content or "").strip()
+        raw = (m.content or "").strip()
+        emo, inten = "", 0.0
         if m.role == "assistant":
-            text = strip_perf(text)
+            emo, inten = parse_emotion(m.full_content or "")
+            if not emo:
+                emo, inten = parse_emotion(raw)
+            text = strip_perf(raw)
+        else:
+            text = raw
         if not text:
             continue
-        payload.append({"role": m.role or "user", "content": text[:1500]})
+        payload.append({
+            "role": m.role or "user",
+            "content": text[:1500],
+            "id": int(m.id or 0),
+            "emotion": emo,
+            "emotion_intensity": inten,
+        })
     if not any(x.get("role") == "user" for x in payload):
         return None
     return payload, len(chunk), end_id
+
+
+def _character_alive(session: Session, character_id: int) -> bool:
+    from ...models import Character
+    return session.get(Character, character_id) is not None
 
 
 def run_extract_job(character_id: int) -> None:
     from ...db import engine
 
     with Session(engine) as session:
-        for _ in range(4):
+        for _ in range(8):
+            if not _character_alive(session, character_id):
+                return
             picked = pick_extract_window(session, character_id)
             if not picked:
                 return
@@ -93,9 +116,24 @@ def run_extract_job(character_id: int) -> None:
             )
             conf = settings_store.get_all(session).get("llm") or {}
             facts = llm_extract_facts(conf, payload)
+            if not _character_alive(session, character_id):
+                return
+            stored: list[int] = []
             if facts:
-                n = store_extracted_facts(session, character_id, facts)
-                print(f"[memory] extract stored={n} facts={len(facts)}")
+                stored = store_extracted_facts(session, character_id, facts)
+                print(f"[memory] extract stored={len(stored)} facts={len(facts)}")
             else:
                 print("[memory] extract empty, cursor still advances")
+            if stored and _character_alive(session, character_id):
+                lines = [str(item.get("text") or "") for item in facts if isinstance(item, dict)]
+                user_lines = [m for m in payload if m.get("role") == "user"]
+                summary = llm_episode_summary(conf, user_lines or payload, lines)
+                if summary and _character_alive(session, character_id):
+                    try:
+                        save_episode(session, character_id, summary, stored)
+                        print(f"[memory] episode cid={character_id} facts={len(stored)}")
+                    except Exception as exc:
+                        print(f"[memory] episode save failed: {exc}")
+            if not _character_alive(session, character_id):
+                return
             _save_cursor(session, character_id, end_id)

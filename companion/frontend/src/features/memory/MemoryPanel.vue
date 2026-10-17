@@ -30,6 +30,9 @@ function kindText(kind: string) {
 }
 
 const facts = computed(() => memorySession.facts);
+const pins = computed(() => memorySession.pins);
+const episodes = computed(() => memorySession.episodes);
+const nothing = computed(() => !facts.value.length && !pins.value.length && !episodes.value.length);
 
 watch(() => characters.currentId, (id) => {
   if (id && memorySession.open) void refreshMemory(id);
@@ -89,6 +92,28 @@ async function commitEdit() {
   }
 }
 
+async function unpinLine(id: string) {
+  if (!characters.currentId) return;
+  busyId.value = `pin-${id}`;
+  try {
+    await api.unpinMessage(characters.currentId, id);
+    await refreshMemory(characters.currentId);
+  } finally {
+    busyId.value = null;
+  }
+}
+
+async function dropEpisode(id: string) {
+  if (!characters.currentId) return;
+  busyId.value = `ep-${id}`;
+  try {
+    await api.deleteEpisode(characters.currentId, id);
+    await refreshMemory(characters.currentId);
+  } finally {
+    busyId.value = null;
+  }
+}
+
 async function add() {
   const text = draft.value.trim();
   if (!text || !characters.currentId) return;
@@ -103,16 +128,40 @@ async function add() {
 <template>
   <div v-if="memorySession.open" class="mem">
     <div class="mem-head">
-      <span>{{ t('mem.title') }}{{ facts.length ? ` · ${facts.length}` : '' }}</span>
+      <span>{{ t('mem.title') }}{{ facts.length || pins.length ? ` · ${facts.length + pins.length}` : '' }}</span>
       <button class="x" @click="memorySession.open = false">{{ t('mem.close') }}</button>
     </div>
     <div class="mem-list">
-      <div v-if="memorySession.loading && !facts.length" class="empty">{{ t('mem.loading') }}</div>
-      <div v-else-if="!facts.length" class="empty">{{ t('mem.empty') }}</div>
+      <div v-if="memorySession.loading && nothing" class="empty">{{ t('mem.loading') }}</div>
+      <div v-else-if="nothing" class="empty">{{ t('mem.empty') }}</div>
+      <template v-if="pins.length">
+        <p class="group">{{ t('mem.quotes') }}</p>
+        <div v-for="p in pins" :key="`pin-${p.id}`" class="fact" :class="{ busy: busyId === `pin-${p.id}` }">
+          <div class="fact-top">
+            <span class="pin">{{ t('mem.pinnedLine') }}</span>
+            <span v-if="p.kind === 'rp'" class="tag">{{ t('mem.rp') }}</span>
+            <span class="grow" />
+            <button @click="unpinLine(p.id)">{{ t('mem.unpin') }}</button>
+          </div>
+          <p>{{ p.content }}</p>
+        </div>
+      </template>
+      <template v-if="episodes.length">
+        <p class="group">{{ t('mem.episodes') }}</p>
+        <div v-for="ep in episodes" :key="`ep-${ep.id}`" class="fact" :class="{ busy: busyId === `ep-${ep.id}` }">
+          <div class="fact-top">
+            <span class="tag">{{ t('mem.episodes') }}</span>
+            <span class="grow" />
+            <button @click="dropEpisode(ep.id)">{{ t('mem.forget') }}</button>
+          </div>
+          <p>{{ ep.summary }}</p>
+        </div>
+      </template>
       <div v-for="f in facts" :key="f.id" class="fact" :class="{ busy: busyId === f.id }">
         <div class="fact-top">
           <span class="tag">{{ kindText(f.kind) }}</span>
           <span v-if="f.pinned" class="pin">{{ t('mem.pin') }}</span>
+          <span v-if="f.emotion && (f.kind === 'event' || f.kind === 'open_loop')" class="tag">{{ f.emotion }}</span>
           <span class="grow" />
           <button @click="startEdit(f.id, f.content)">{{ t('mem.edit') }}</button>
           <button @click="pin(f.id, !f.pinned)">{{ f.pinned ? t('mem.unpin') : t('mem.pin') }}</button>
@@ -169,6 +218,12 @@ async function add() {
 .fact-top button:hover, .x:hover { color: #fff; }
 .mem-list { overflow: auto; padding: 8px 12px; flex: 1; }
 .empty { font-size: 12px; opacity: 0.5; line-height: 1.5; }
+.group {
+  margin: 2px 0 6px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  opacity: 0.45;
+}
 .fact { margin-bottom: 10px; }
 .fact.busy { opacity: 0.55; }
 .fact p { margin: 4px 0 0; font-size: 12px; line-height: 1.55; opacity: 0.9; }

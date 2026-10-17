@@ -57,16 +57,33 @@ class MemoryFact(SQLModel, table=True):
     importance: float = 0.5
     pinned: bool = False
     embedding: str = ""  # JSON float[]，可空
+    speaker: str = ""  # user | assistant | 空（手工或旧数据）
+    source_message_id: int = 0
+    emotion: str = ""  # 表演标签里的情绪名；偏好类留空
+    emotion_intensity: float = 0.0
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
 
 class MemoryEpisode(SQLModel, table=True):
-    """一次会话的短摘要。"""
+    """一段对话的短摘要。可被召回，不负责过滤事实。"""
     __tablename__ = "memory_episode"
     id: Optional[int] = Field(default=None, primary_key=True)
     character_id: int = Field(index=True)
     summary: str
+    key_events: str = "[]"  # JSON：这次记下的 memory_fact id
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class PinnedMessage(SQLModel, table=True):
+    """用户钉住的原句。快照独立于聊天记录，召回时不占事实名额。"""
+    __tablename__ = "pinned_message"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    character_id: int = Field(index=True)
+    message_id: int = 0
+    role: str = ""  # user | assistant
+    content: str = ""
+    kind: str = "qa"  # qa | rp | 其它消息种类
     created_at: datetime = Field(default_factory=utc_now)
 
 

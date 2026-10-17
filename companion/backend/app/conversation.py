@@ -5,8 +5,8 @@ HISTORY_TURNS = 10
 HISTORY_QA_MESSAGES = HISTORY_TURNS * 2
 HISTORY_FETCH = 80
 
-# 还差一轮滑出窗口时抽一次；重叠两轮给 Mem0 上下文，其它历史不再送。
-EXTRACT_NEW_TURNS = HISTORY_TURNS - 1
+# 四轮就抽。十轮窗口里还留着后面的话，抽取慢一点，开头也不会先被挤掉。
+EXTRACT_NEW_TURNS = 4
 EXTRACT_OVERLAP_TURNS = 2
 
 SIDE_KINDS = {"delayed", "proactive", "goodbye", "welcome", "aside"}

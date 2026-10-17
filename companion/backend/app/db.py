@@ -34,6 +34,25 @@ def _migrate_columns() -> None:
                 conn.execute(text(
                     'ALTER TABLE "character" ADD COLUMN boundary VARCHAR '
                     "DEFAULT 'strict'"))
+    if "memory_fact" in tables:
+        cols = {c["name"] for c in insp.get_columns("memory_fact")}
+        alters = {
+            "speaker": "VARCHAR DEFAULT ''",
+            "source_message_id": "INTEGER DEFAULT 0",
+            "emotion": "VARCHAR DEFAULT ''",
+            "emotion_intensity": "FLOAT DEFAULT 0",
+        }
+        for name, typedef in alters.items():
+            if name not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        f"ALTER TABLE memory_fact ADD COLUMN {name} {typedef}"))
+    if "memory_episode" in tables:
+        cols = {c["name"] for c in insp.get_columns("memory_episode")}
+        if "key_events" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE memory_episode ADD COLUMN key_events VARCHAR DEFAULT '[]'"))
 
 
 def get_session():

@@ -116,4 +116,28 @@ def _dispatch(kind: str, payload):
     if kind == "scene_hints":
         with Session(engine) as session:
             return service.scene_hints(session, int(payload))
+    if kind == "list_pins":
+        with Session(engine) as session:
+            return service.list_pins(session, int(payload))
+    if kind == "pin":
+        with Session(engine) as session:
+            try:
+                return service.pin_message(
+                    session, int(payload["character_id"]), int(payload["message_id"]),
+                )
+            except KeyError:
+                return {"error": "missing"}
+            except ValueError as exc:
+                return {"error": str(exc)}
+    if kind == "unpin":
+        cid, pin_id = payload
+        with Session(engine) as session:
+            return service.delete_pin(session, int(cid), str(pin_id))
+    if kind == "list_episodes":
+        with Session(engine) as session:
+            return service.list_episodes(session, int(payload))
+    if kind == "delete_episode":
+        cid, episode_id = payload
+        with Session(engine) as session:
+            return service.delete_episode(session, int(cid), str(episode_id))
     raise RuntimeError(f"unknown memory cmd {kind}")

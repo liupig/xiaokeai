@@ -120,8 +120,30 @@ export interface MemoryFact {
   content: string;
   importance: number;
   pinned: boolean;
+  speaker?: string;
+  source_message_id?: number;
+  emotion?: string;
+  emotion_intensity?: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface PinnedLine {
+  id: string;
+  character_id: number;
+  message_id: number;
+  role: string;
+  content: string;
+  kind: string;
+  created_at: string;
+}
+
+export interface MemoryEpisode {
+  id: string;
+  character_id: number;
+  summary: string;
+  key_events: number[];
+  created_at: string;
 }
 
 export interface SceneCard {
@@ -528,6 +550,25 @@ export const api = {
   },
   deleteMemory(characterId: number, factId: string) {
     return request(`/api/modules/memory/facts/${characterId}/${encodeURIComponent(factId)}`, { method: 'DELETE' });
+  },
+  listPins(characterId: number) {
+    return request<PinnedLine[]>(`/api/modules/memory/pins/${characterId}`);
+  },
+  pinMessage(characterId: number, messageId: number) {
+    return request<PinnedLine>('/api/modules/memory/pins', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, message_id: messageId }),
+    });
+  },
+  unpinMessage(characterId: number, pinId: string) {
+    return request(`/api/modules/memory/pins/${characterId}/${encodeURIComponent(pinId)}`, { method: 'DELETE' });
+  },
+  listEpisodes(characterId: number) {
+    return request<MemoryEpisode[]>(`/api/modules/memory/episodes/${characterId}`);
+  },
+  deleteEpisode(characterId: number, episodeId: string) {
+    return request(`/api/modules/memory/episodes/${characterId}/${encodeURIComponent(episodeId)}`, { method: 'DELETE' });
   },
 
   listScenes() {

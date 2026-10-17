@@ -1,7 +1,8 @@
-"""记忆：LLM 抽长期事实，网关向量召回后注入 prompt。"""
+"""记忆：LLM 抽长期事实，SQLite 为真相源，mem0 只做向量索引。"""
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import threading
@@ -12,10 +13,11 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import httpx
 from sqlmodel import Session, select
 
-from ...models import Character, MemoryFact, utc_now
+from ...models import Character, ChatMessage, MemoryEpisode, MemoryFact, PinnedMessage, utc_now
 from ...paths import MEM0_DIR
 from ...services import settings_store
 from . import embedder as embed_svc
+from . import rank
 from ...services.llm import _parse_json_blob
 
 os.environ["MEM0_TELEMETRY"] = "False"
@@ -27,8 +29,14 @@ KIND_CN = {
     "open_loop": "未完",
     "trait": "性格",
 }
+_EMO_CN = {
+    "angry": "生气",
+    "sad": "伤心",
+    "happy": "高兴",
+}
 VALID_KINDS = tuple(KIND_CN)
-MAX_INJECT = 8
+MAX_INJECT = rank.MAX_FACT_INJECT
+_CANDIDATES = 20
 _CAT_TO_KIND = {
     "user_preferences": "preference",
     "preferences": "preference",
@@ -47,9 +55,26 @@ _PERSONAL_CATS = {
 }
 _EXTRACT_HINT = (
     "用中文抽取值得长期记住的事实：对方姓名、称呼、偏好、关系、约定、重要经历、性格习惯。"
-    "写成短句陈述。姓名写成「用户的名字是X」。"
-    "不要记录问句、寒暄、跳舞点播、剧照短片、重复称呼、口头禅。"
+    "写成短句陈述。姓名写成「用户的名字是X」。宠物、称呼也标 person。"
+    "偏好标 preference，发生过的事标 event，性格习惯标 trait。"
+    "open_loop 只记双方说定、还没做的具体的事，时间地点照对方原话，不要改。"
+    "不要记问句、寒暄、跳舞点播、口头禅，也不要记「随时喊我」「想喝水」「去买奶茶」这种随口客套。"
+    "助手自己发挥、用户没说过的计划，不要记。"
     "没有可记的事实就不要输出。"
+)
+_EXTRACT_TAIL = (
+    "每条带来源句的序号 n（对应用户消息列表里的编号）。"
+    "生气或伤心的事件再加 emotion，只能是 angry 或 sad，没有就空字符串。"
+    "只输出 JSON："
+    '{"facts":[{"text":"短句","kind":"event","n":1,"emotion":""}]}。'
+    '没有可记的事实就 {"facts":[]}。'
+)
+_EPISODE_HINT = (
+    "把这段对话收成两三句以后能想起来的经历。"
+    "只写用户亲口说过的事、情绪和约定。时间词照原话。"
+    "助手接着添的安排不要写。不要补对方没说的星期和钟点。"
+    "不要写成偏好清单。发呆、喝水、无聊、随时喊我这类客套不要写进去。"
+    '只输出 JSON：{"summary":"两三句"}。没什么可记就 {"summary":""}。'
 )
 _PERF_TAG_RE = re.compile(r"\[(?:emo|act|dance|cam):[^\]]*\]")
 
@@ -69,7 +94,13 @@ def _extract_hint() -> str:
 def _extract_tail() -> str:
     from ...locale_pack import prompts
     mem = prompts().get("memory") or {}
-    return str(mem.get("json_tail") or '只输出 JSON：{"facts":["短句",...]}。没有可记的事实就 {"facts":[]}。')
+    return str(mem.get("json_tail") or _EXTRACT_TAIL)
+
+
+def _episode_hint() -> str:
+    from ...locale_pack import prompts
+    mem = prompts().get("memory") or {}
+    return str(mem.get("episode") or _EPISODE_HINT)
 
 
 def _identity_re():
@@ -512,6 +543,8 @@ def _index_fact(mem, row: MemoryFact) -> None:
             "pinned": bool(row.pinned),
             "importance": float(row.importance or 0.5),
             "sqlite_id": int(row.id),
+            "speaker": row.speaker or "",
+            "emotion": row.emotion or "",
             "source": "sqlite",
         },
     )
@@ -669,14 +702,19 @@ def fact_to_dict(item: Dict[str, Any], character_id: int) -> Dict[str, Any]:
 
 
 def _legacy_to_dict(row: MemoryFact) -> Dict[str, Any]:
+    kind = row.kind if row.kind in VALID_KINDS else "event"
     return {
         "id": str(row.id),
         "character_id": row.character_id,
-        "kind": row.kind,
-        "kind_cn": KIND_CN.get(row.kind, row.kind),
+        "kind": kind,
+        "kind_cn": KIND_CN.get(kind, kind),
         "content": row.content,
         "importance": row.importance,
         "pinned": bool(row.pinned),
+        "speaker": row.speaker or "",
+        "source_message_id": int(row.source_message_id or 0),
+        "emotion": row.emotion or "",
+        "emotion_intensity": float(row.emotion_intensity or 0),
         "created_at": row.created_at.isoformat() if row.created_at else "",
         "updated_at": row.updated_at.isoformat() if row.updated_at else "",
     }
@@ -715,33 +753,68 @@ def inject_memory(
 ) -> List[Dict[str, str]]:
     query = _last_user_text(messages)
     t0 = time.perf_counter()
+    pins = rank.select_message_pins(list_pins(session, character_id))
     picked = _retrieve(session, character_id, query)
+    episode = pick_episode(
+        session, character_id, query,
+        [row.get("id") for row in picked if not row.get("pinned")],
+    )
     ms = int((time.perf_counter() - t0) * 1000)
-    if not picked:
-        print(f"[memory] inject empty q={query[:40]!r} {ms}ms")
-        return messages
-    lines = []
+    parts: List[str] = []
+    if pins:
+        lines = []
+        for row in pins:
+            text = (row.get("content") or "").strip()
+            if not text:
+                continue
+            mark = "（扮演里钉住的原句）" if row.get("kind") == "rp" else ""
+            who = "她" if row.get("role") == "assistant" else "对方"
+            lines.append(f"- {who}{mark}：{text}")
+        if lines:
+            parts.append(
+                "钉住的原句（对方要求照原话记得，不参与筛选。问原话时，把冒号后的句子原样说出来，不要改人称）：\n"
+                + "\n".join(lines)
+            )
+    if episode and (episode.get("summary") or "").strip():
+        parts.append(
+            "一起经历过的一段（只是当时的气氛，话题擦到了才用，不要主动复述）：\n"
+            + str(episode.get("summary") or "").strip()[:180]
+        )
+    fact_lines = []
     seen = set()
-    for r in picked:
-        text = (r.get("content") or "").strip()
+    for row in picked:
+        text = (row.get("content") or "").strip()
         if not text or text in seen:
             continue
         seen.add(text)
-        pin = "（置顶）" if r.get("pinned") else ""
-        lines.append(f"- [{r.get('kind_cn') or r.get('kind')}]{pin}{text}")
-    block = (
-        "长期记忆（向量召回，比刚才几句对话更准；你若刚说过不知道，以这里为准）：\n"
-        + "\n".join(lines)
-        + "\n对方问起自己是谁、叫什么、以前聊过什么，用这些事实回答，不要让对方再说一遍。"
-        "不要把清单念出来。用户说「历史/记得」时，先当成你们的交往，不是古代史，除非在谈书。"
-    )
+        mark = "（置顶）" if row.get("pinned") else ""
+        peak = rank.emotion_peak(str(row.get("emotion") or ""), row.get("emotion_intensity") or 0)
+        emo = ""
+        if peak > 0 and row.get("kind") in rank.EVENT_KINDS:
+            label = _EMO_CN.get(str(row.get("emotion") or ""), str(row.get("emotion") or ""))
+            emo = f"（当时{label}）"
+        fact_lines.append(f"- [{row.get('kind_cn') or row.get('kind')}]{mark}{emo}{text}")
+    if fact_lines:
+        parts.append(
+            "长期记忆（比刚才几句对话更准；你若刚说过不知道，以这里为准）：\n"
+            + "\n".join(fact_lines)
+            + "\n对方问起自己是谁、叫什么、以前聊过什么，用这些事实回答，不要让对方再说一遍。"
+            "时间词只按事实里写的说。事实没写上周或以前，就不要自己补。昨天不要说成上周。"
+            "不要把清单念出来。用户说「历史/记得」时，先当成你们的交往，不是古代史，除非在谈书。"
+        )
+    if not parts:
+        print(f"[memory] inject empty q={query[:40]!r} {ms}ms")
+        return messages
+    block = "\n\n".join(parts)
     print(
-        "[memory] inject n="
-        + str(len(lines))
+        "[memory] inject pins="
+        + str(len(pins))
+        + " episode="
+        + str(1 if episode else 0)
+        + " facts="
+        + str(len(fact_lines))
         + f" {ms}ms q="
         + repr(query[:40])
-        + " -> "
-        + " | ".join(x[:18] for x in seen)
     )
     out = list(messages)
     insert_at = 1 if out and out[0].get("role") == "system" else 0
@@ -830,39 +903,97 @@ def _hydrate_hits(session: Session, character_id: int, items: List[Dict[str, Any
     return out
 
 
+def _hit_vector(item: Dict[str, Any]) -> float:
+    for key in ("score", "similarity"):
+        if item.get(key) is None:
+            continue
+        return rank.clamp_vector(item.get(key))
+    return 0.5
+
+
+def _scored_hits(session: Session, character_id: int, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows = _hydrate_hits(session, character_id, items)
+    by_id = {int(r.id): r for r in rows if r.id}
+    by_text = {(r.content or "").strip(): r for r in rows}
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for item in items:
+        md = _item_meta(item)
+        row = None
+        sid = md.get("sqlite_id")
+        if str(sid).isdigit():
+            row = by_id.get(int(sid))
+        if row is None:
+            row = by_text.get(_item_text(item))
+        if row is None or row.id in seen:
+            continue
+        score = _hit_vector(item)
+        if score < rank.VECTOR_FLOOR:
+            continue
+        seen.add(row.id)
+        fact = _legacy_to_dict(row)
+        fact["_vector"] = score
+        out.append(fact)
+    return out
+
+
+def _split_scored(pool: List[Dict[str, Any]], now: datetime) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    events: List[Dict[str, Any]] = []
+    stable: List[Dict[str, Any]] = []
+    for fact in pool:
+        kind = str(fact.get("kind") or "event")
+        vector = float(fact.get("_vector") or 0)
+        if kind in rank.EVENT_KINDS:
+            when = _parse_dt(fact.get("created_at"))
+            peak = rank.emotion_peak(str(fact.get("emotion") or ""), fact.get("emotion_intensity") or 0)
+            fact["_score"] = rank.event_score(
+                vector,
+                rank.recency_score(when, now),
+                peak,
+                float(fact.get("importance") or 0.5),
+            )
+            events.append(fact)
+        else:
+            fact["_score"] = vector
+            stable.append(fact)
+    events.sort(key=lambda row: float(row.get("_score") or 0), reverse=True)
+    stable.sort(key=lambda row: float(row.get("_score") or 0), reverse=True)
+    return events, stable
+
+
 def _retrieve(session: Session, character_id: int, query: str) -> List[Dict[str, Any]]:
     facts = [_legacy_to_dict(r) for r in _sqlite_rows(session, character_id)]
     if not facts:
         return []
     pinned = [r for r in facts if r.get("pinned")]
     mem = _client(session)
-    if mem is None:
-        return pinned[:MAX_INJECT]
     q = (query or "").strip() or "对方是谁，有什么偏好、约定和还没做完的事"
     conf = settings_store.get_all(session).get("llm") or {}
-    searched: List[Dict[str, Any]] = []
+    pool: List[Dict[str, Any]] = []
     try:
         with _lock:
-            if _cache.get("semantic"):
-                hits = _search(mem, q, _uid(character_id), top_k=MAX_INJECT)
-                searched = [_legacy_to_dict(r) for r in _hydrate_hits(session, character_id, hits)]
-            else:
-                searched = _llm_pick(conf, q, facts, MAX_INJECT)
+            if mem is not None and _cache.get("semantic"):
+                hits = _search(mem, q, _uid(character_id), top_k=_CANDIDATES)
+                pool = _scored_hits(session, character_id, hits)
+            elif mem is not None:
+                picked = _llm_pick(conf, q, facts, _CANDIDATES)
+                for i, fact in enumerate(picked):
+                    fact = dict(fact)
+                    fact["_vector"] = max(rank.VECTOR_FLOOR, 1.0 - i * 0.03)
+                    pool.append(fact)
     except Exception as exc:
         print(f"[memory] retrieve failed: {exc}")
-        return pinned[:MAX_INJECT]
-    picked: List[Dict[str, Any]] = []
-    seen = set()
-    for item in pinned + searched:
-        rid = str(item.get("id") or "")
-        text = (item.get("content") or "").strip()
-        if not rid or not text or rid in seen:
-            continue
-        picked.append(item)
-        seen.add(rid)
-        if len(picked) >= MAX_INJECT:
-            break
-    return picked
+        return rank.assemble_facts(pinned, [], [])
+    asked = (query or "").strip()
+    if asked:
+        pool = [
+            fact for fact in pool
+            if fact.get("pinned") or rank.relevant_enough(
+                float(fact.get("_vector") or 0), asked, fact.get("content") or "",
+            )
+        ]
+    events, stable = _split_scored(pool, _now())
+    return rank.assemble_facts(pinned, events, stable)
 
 
 def scene_hints(session: Session, character_id: int) -> List[str]:
@@ -892,28 +1023,131 @@ def strip_perf(text: str) -> str:
     return _PERF_TAG_RE.sub("", text or "").strip()
 
 
-def llm_extract_facts(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]) -> List[str]:
-    """只打抽取 LLM，不碰向量库。空结果也合法。"""
+def _parse_dt(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+
+
+def _role_labels() -> Tuple[str, str, str]:
+    role_user, role_asst = "用户", "助手"
+    try:
+        from ...locale_pack import prompts
+        mem = prompts().get("memory") or {}
+        role_user = str(mem.get("role_user") or role_user)
+        role_asst = str(mem.get("role_assistant") or role_asst)
+    except Exception:
+        pass
+    sep = ": " if role_user == "User" else "："
+    return role_user, role_asst, sep
+
+
+def _fill_emotion(
+    emotion: str,
+    intensity: float,
+    texts: Sequence[str],
+    model_emotion: str = "",
+) -> Tuple[str, float]:
+    """表演标签优先。没有标签时，用模型给的峰值，再用句子里的生气、伤心。"""
+    if rank.emotion_peak(emotion, intensity) > 0:
+        return emotion, intensity
+    model = (model_emotion or "").strip().lower()
+    if model in rank.PEAK_EMOS:
+        return model, 0.9
+    for text in texts:
+        name, level = rank.emotion_from_words(text)
+        if name:
+            return name, level
+    return "", 0.0
+
+
+def _coerce_extracted(item: Any, window: Optional[Sequence[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
+    """字符串或 {text,kind,n}。序号能对上窗口时，说话人和情绪由代码填。"""
+    window = list(window or [])
+    index = 0
+    if isinstance(item, str):
+        text = item.strip()
+        kind = "event"
+        src = {"speaker": "", "source_message_id": 0, "emotion": "", "emotion_intensity": 0.0}
+    elif isinstance(item, dict):
+        text = str(item.get("text") or item.get("fact") or item.get("content") or "").strip()
+        kind = str(item.get("kind") or "event").strip()
+        if kind not in VALID_KINDS:
+            kind = "event"
+        try:
+            index = int(item.get("n") or 0)
+        except (TypeError, ValueError):
+            index = 0
+        if index and window:
+            src = rank.attach_source(window, index)
+        else:
+            try:
+                mid = int(item.get("source_message_id") or 0)
+            except (TypeError, ValueError):
+                mid = 0
+            try:
+                intensity = float(item.get("emotion_intensity") or 0)
+            except (TypeError, ValueError):
+                intensity = 0.0
+            src = {
+                "speaker": str(item.get("speaker") or ""),
+                "source_message_id": mid,
+                "emotion": str(item.get("emotion") or ""),
+                "emotion_intensity": intensity,
+            }
+    else:
+        return None
+    if len(text) < 4:
+        return None
+    if kind not in rank.EVENT_KINDS:
+        src["emotion"] = ""
+        src["emotion_intensity"] = 0.0
+    else:
+        near = [text]
+        if index and window:
+            near.append(str(window[index - 1].get("content") or ""))
+            if index < len(window):
+                near.append(str(window[index].get("content") or ""))
+        model_emo = str(item.get("emotion") or "") if isinstance(item, dict) else ""
+        emo, level = _fill_emotion(
+            str(src.get("emotion") or ""),
+            float(src.get("emotion_intensity") or 0),
+            near,
+            model_emo,
+        )
+        src["emotion"] = emo
+        src["emotion_intensity"] = level
+    speaker = src.get("speaker") or ""
+    if speaker not in ("user", "assistant"):
+        speaker = ""
+    return {
+        "text": text[:400],
+        "kind": kind,
+        "speaker": speaker,
+        "source_message_id": int(src.get("source_message_id") or 0),
+        "emotion": str(src.get("emotion") or ""),
+        "emotion_intensity": float(src.get("emotion_intensity") or 0),
+    }
+
+
+def llm_extract_facts(llm_conf: Dict[str, Any], messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """只打抽取 LLM，不碰向量库。每条事实带回说话人、来源消息和情绪。空结果也合法。"""
     api_key = (llm_conf.get("api_key") or "").strip()
     base_url = (llm_conf.get("base_url") or "").rstrip("/")
-    if not api_key or not base_url or not messages:
+    window = [m for m in messages if (m.get("content") or "").strip()]
+    if not api_key or not base_url or not window:
         return []
+    role_user, role_asst, sep = _role_labels()
     lines = []
-    for m in messages:
-        role_user = "用户"
-        role_asst = "助手"
-        try:
-            from ...locale_pack import prompts
-            mem = prompts().get("memory") or {}
-            role_user = str(mem.get("role_user") or role_user)
-            role_asst = str(mem.get("role_assistant") or role_asst)
-        except Exception:
-            pass
+    for i, m in enumerate(window, start=1):
         role = role_user if m.get("role") == "user" else role_asst
-        content = (m.get("content") or "").strip()
-        if content:
-            sep = ": " if role_user == "User" else "："
-            lines.append(f"{role}{sep}{content}")
+        lines.append(f"{i}. {role}{sep}{(m.get('content') or '').strip()}")
     blob = "\n".join(lines)[:8000]
     if not blob.strip():
         return []
@@ -922,13 +1156,7 @@ def llm_extract_facts(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]) 
         "temperature": 0.1,
         "stream": False,
         "messages": [
-            {
-                "role": "system",
-                "content": (
-                    _extract_hint()
-                    + _extract_tail()
-                ),
-            },
+            {"role": "system", "content": _extract_hint() + _extract_tail()},
             {"role": "user", "content": blob},
         ],
     }
@@ -947,18 +1175,76 @@ def llm_extract_facts(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]) 
         facts = data.get("facts") if isinstance(data, dict) else data
         if not isinstance(facts, list):
             return []
-        out: List[str] = []
+        out: List[Dict[str, Any]] = []
         seen = set()
+        user_blob = "\n".join(
+            str(m.get("content") or "") for m in window if m.get("role") == "user"
+        )
         for item in facts:
-            fact = str(item or "").strip()
-            if len(fact) < 4 or fact in seen:
+            spec = _coerce_extracted(item, window)
+            if spec is None or spec["text"] in seen:
                 continue
-            seen.add(fact)
-            out.append(fact[:400])
+            if not rank.allow_extracted(spec["text"], spec["kind"], user_blob):
+                continue
+            if spec["kind"] == "open_loop" and not spec.get("source_message_id"):
+                continue
+            seen.add(spec["text"])
+            out.append(spec)
         return out
     except Exception as exc:
         print(f"[memory] extract llm failed: {exc}")
         return []
+
+
+def llm_episode_summary(
+    llm_conf: Dict[str, Any],
+    messages: List[Dict[str, Any]],
+    fact_lines: Sequence[str],
+) -> str:
+    """跟抽取同一次任务写摘要，不在回复的关键路径上。失败就当没有这段经历。"""
+    api_key = (llm_conf.get("api_key") or "").strip()
+    base_url = (llm_conf.get("base_url") or "").rstrip("/")
+    if not api_key or not base_url or not messages:
+        return ""
+    role_user, role_asst, sep = _role_labels()
+    lines = []
+    for m in messages:
+        role = role_user if m.get("role") == "user" else role_asst
+        content = (m.get("content") or "").strip()
+        if content:
+            lines.append(f"{role}{sep}{content}")
+    noted = "\n".join(f"- {line}" for line in fact_lines if line)
+    blob = "\n".join(lines)[:6000]
+    if noted:
+        blob += "\n\n刚记下的事实：\n" + noted
+    payload = {
+        "model": llm_conf.get("model") or "qwen-plus",
+        "temperature": 0.2,
+        "stream": False,
+        "messages": [
+            {"role": "system", "content": _episode_hint()},
+            {"role": "user", "content": blob},
+        ],
+    }
+    try:
+        with httpx.Client(timeout=httpx.Timeout(45, connect=8), trust_env=False) as client:
+            resp = client.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json=payload,
+            )
+        if resp.status_code != 200:
+            print(f"[memory] episode llm HTTP {resp.status_code}")
+            return ""
+        text = (resp.json()["choices"][0]["message"].get("content") or "").strip()
+        data = _parse_json_blob(text) or {}
+        summary = str((data.get("summary") if isinstance(data, dict) else "") or "").strip()
+        if len(summary) < 4:
+            return ""
+        return summary[:400]
+    except Exception as exc:
+        print(f"[memory] episode llm failed: {exc}")
+        return ""
 
 
 def _sync_index(session: Session, row: MemoryFact, *, old_content: str = "") -> None:
@@ -977,8 +1263,8 @@ def _sync_index(session: Session, row: MemoryFact, *, old_content: str = "") -> 
         print(f"[memory] index sync skip id={row.id}: {exc}")
 
 
-def store_extracted_facts(session: Session, character_id: int, facts: List[str]) -> int:
-    n = 0
+def store_extracted_facts(session: Session, character_id: int, facts: Sequence[Any]) -> List[int]:
+    ids: List[int] = []
     with _lock:
         have = {
             (r.content or "").strip()
@@ -987,22 +1273,43 @@ def store_extracted_facts(session: Session, character_id: int, facts: List[str])
             ).all()
         }
         for fact in facts:
-            text = (fact or "").strip()
-            if len(text) < 4 or text in have:
+            spec = _coerce_extracted(fact)
+            if spec is None or spec["text"] in have:
                 continue
-            identity = _is_identity_fact(text)
+            if not rank.allow_extracted(spec["text"], spec["kind"]):
+                continue
+            if any(rank.same_memory(spec["text"], old) for old in have):
+                continue
+            identity = _is_identity_fact(spec["text"])
+            kind = "person" if identity else spec["kind"]
+            emotion = ""
+            intensity = 0.0
+            peak = 0.0
+            if kind in rank.EVENT_KINDS:
+                emotion = spec["emotion"]
+                intensity = float(spec["emotion_intensity"] or 0)
+                peak = rank.emotion_peak(emotion, intensity)
+            importance = rank.importance_for(kind, peak, identity)
             out = _write_fact(
                 session, character_id, fact_id=None,
-                kind="person" if identity else "event",
-                content=text, importance=0.5,
+                kind=kind, content=spec["text"], importance=importance,
                 pinned=True if identity else False,
             )
-            have.add(text)
-            n += 1
+            have.add(spec["text"])
             row = session.get(MemoryFact, int(out["id"])) if out.get("id") else None
-            if row is not None:
-                _sync_index(session, row)
-    return n
+            if row is None:
+                continue
+            row.speaker = spec["speaker"]
+            row.source_message_id = int(spec["source_message_id"] or 0)
+            row.emotion = emotion
+            row.emotion_intensity = intensity
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            _sync_index(session, row)
+            if row.id:
+                ids.append(int(row.id))
+    return ids
 
 
 def upsert_fact(session: Session, character_id: int, *,
@@ -1101,6 +1408,136 @@ def delete_fact(session: Session, character_id: int, fact_id: str) -> bool:
             return True
         except Exception:
             return False
+
+
+def _pin_dict(row: PinnedMessage) -> Dict[str, Any]:
+    return {
+        "id": str(row.id),
+        "character_id": row.character_id,
+        "message_id": int(row.message_id or 0),
+        "role": row.role or "",
+        "content": row.content or "",
+        "kind": row.kind or "qa",
+        "created_at": row.created_at.isoformat() if row.created_at else "",
+    }
+
+
+def list_pins(session: Session, character_id: int) -> List[Dict[str, Any]]:
+    rows = session.exec(
+        select(PinnedMessage)
+        .where(PinnedMessage.character_id == character_id)
+        .order_by(PinnedMessage.id)
+    ).all()
+    return [_pin_dict(row) for row in rows]
+
+
+def pin_message(session: Session, character_id: int, message_id: int) -> Dict[str, Any]:
+    msg = session.get(ChatMessage, int(message_id))
+    if msg is None or int(msg.character_id) != int(character_id):
+        raise KeyError("message not found")
+    raw = (msg.content or "").strip() or (msg.full_content or "").strip()
+    text = strip_perf(raw)
+    if not text:
+        raise ValueError("empty message")
+    existing = session.exec(
+        select(PinnedMessage).where(
+            PinnedMessage.character_id == character_id,
+            PinnedMessage.message_id == int(message_id),
+        )
+    ).first()
+    if existing is not None:
+        return _pin_dict(existing)
+    row = PinnedMessage(
+        character_id=int(character_id),
+        message_id=int(message_id),
+        role=msg.role or "",
+        content=text[:800],
+        kind=msg.kind or "qa",
+        created_at=_now(),
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return _pin_dict(row)
+
+
+def delete_pin(session: Session, character_id: int, pin_id: str) -> bool:
+    if not str(pin_id).isdigit():
+        return False
+    row = session.get(PinnedMessage, int(pin_id))
+    if row is None or int(row.character_id) != int(character_id):
+        return False
+    session.delete(row)
+    session.commit()
+    return True
+
+
+def _episode_dict(row: MemoryEpisode) -> Dict[str, Any]:
+    raw = row.key_events or "[]"
+    try:
+        keys = json.loads(raw)
+    except (TypeError, ValueError):
+        keys = []
+    if not isinstance(keys, list):
+        keys = []
+    return {
+        "id": str(row.id),
+        "character_id": row.character_id,
+        "summary": row.summary or "",
+        "key_events": [int(x) for x in keys if str(x).isdigit()],
+        "created_at": row.created_at.isoformat() if row.created_at else "",
+    }
+
+
+def list_episodes(session: Session, character_id: int, limit: int = 12) -> List[Dict[str, Any]]:
+    rows = session.exec(
+        select(MemoryEpisode)
+        .where(MemoryEpisode.character_id == character_id)
+        .order_by(MemoryEpisode.id.desc())
+    ).all()
+    return [_episode_dict(row) for row in rows[:limit]]
+
+
+def save_episode(
+    session: Session,
+    character_id: int,
+    summary: str,
+    fact_ids: Sequence[int],
+) -> Dict[str, Any]:
+    text = (summary or "").strip()
+    if len(text) < 4:
+        raise ValueError("summary required")
+    row = MemoryEpisode(
+        character_id=int(character_id),
+        summary=text[:400],
+        key_events=json.dumps([int(i) for i in fact_ids if i]),
+        created_at=_now(),
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return _episode_dict(row)
+
+
+def delete_episode(session: Session, character_id: int, episode_id: str) -> bool:
+    if not str(episode_id).isdigit():
+        return False
+    row = session.get(MemoryEpisode, int(episode_id))
+    if row is None or int(row.character_id) != int(character_id):
+        return False
+    session.delete(row)
+    session.commit()
+    return True
+
+
+def pick_episode(
+    session: Session,
+    character_id: int,
+    query: str,
+    fact_ids: Optional[Sequence[Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    rows = list_episodes(session, character_id, limit=30)
+    return rank.pick_episode_row(rows, query, fact_ids)
 
 
 def add_event_note(session: Session, character_id: int, content: str) -> Dict[str, Any]:
