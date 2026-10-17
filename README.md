@@ -256,6 +256,9 @@ An empty stage is expected until you drop a PMX / VRM / GLB into the asset hub. 
 | [`companion/docs/tarot.md`](./companion/docs/tarot.md) | Tarot framing, compliance, ritual flow, how it meets the stage |
 | [`companion/docs/tarot-cards.md`](./companion/docs/tarot-cards.md) | Per-card design and art notes for the 80 faces |
 | [`companion/docs/songs/`](./companion/docs/songs) | Original Chinese-style lyrics used on stage |
+| [`companion/docs/features.md`](./companion/docs/features.md) | Feature catalog by category, with done / partial / won't-do |
+| [`companion/docs/TODO.md`](./companion/docs/TODO.md) | Backlog with history; each item marked done or not |
+| [`companion/docs/bugs.md`](./companion/docs/bugs.md) | Bug and fix log |
 
 Most of the docs above are in Chinese.
 
@@ -581,6 +584,9 @@ foreach ($port in 8600, 5175) {
 | [`companion/docs/tarot.md`](./companion/docs/tarot.md) | 塔罗定位、合规边界、仪式流程、与舞台的接法 |
 | [`companion/docs/tarot-cards.md`](./companion/docs/tarot-cards.md) | 80 张国风牌面的逐张设计与出图规范 |
 | [`companion/docs/songs/`](./companion/docs/songs) | 舞台用的原创国风歌词 |
+| [`companion/docs/features.md`](./companion/docs/features.md) | 按分类列出的功能说明，标明已完成 / 部分完成 / 不做 |
+| [`companion/docs/TODO.md`](./companion/docs/TODO.md) | 待办与历史，每条标了是否完成 |
+| [`companion/docs/bugs.md`](./companion/docs/bugs.md) | 缺陷与修复记录 |
 
 ### 致谢
 
