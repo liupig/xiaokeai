@@ -629,7 +629,7 @@ async function saveEmbedder(v: string) {
   }
 }
 
-async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'codewatch', on: boolean) {
+async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'codewatch' | 'touch', on: boolean) {
   const prev = settings.modules[key];
   settings.modules[key] = on;
   try {
@@ -736,6 +736,11 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
             <n-switch :value="settings.modules.codewatch" @update:value="(v: boolean) => toggleMod('codewatch', v)" />
           </div>
           <p class="hint">{{ t('set.mod.code') }}</p>
+          <div class="switch-row">
+            <span>{{ t('mod.touch') }}</span>
+            <n-switch :value="settings.modules.touch" @update:value="(v: boolean) => toggleMod('touch', v)" />
+          </div>
+          <p class="hint">{{ t('set.mod.touch') }}</p>
         </div>
       </n-tab-pane>
       <n-tab-pane name="ai" :tab="t('settings.ai')">

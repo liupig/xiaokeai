@@ -557,7 +557,7 @@ function applyPetPointer(win) {
   const x = cursor.x - bounds.x;
   const y = cursor.y - bounds.y;
   const pressed = !!(petRegion && petRegion.pressed);
-  const inside = pressed || regionHits(petRegion, x, y, 0);
+  const inside = pressed || regionHits(petRegion, x, y, 10);
   const next = inside || (!!petHot && regionHits(petRegion, x, y, 12));
   if (next !== petHot) {
     petHot = next;
@@ -581,7 +581,7 @@ ipcMain.on('pet-hit-region', (e, raw) => {
     ay: finite(src.ay, 0),
     bx: finite(src.bx, 0),
     by: finite(src.by, 0),
-    r: Math.max(0, Math.min(96, finite(src.r, 0))),
+    r: Math.max(0, Math.min(220, finite(src.r, 0))),
     rects,
     pressed: !!src.pressed,
     focus: !!src.focus,

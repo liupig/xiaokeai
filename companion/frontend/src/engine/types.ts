@@ -7,6 +7,10 @@ export type BoneKey =
 export type ExprKey = 'aa' | 'blink' | 'happy' | 'angry' | 'sad' | 'relaxed';
 export type EmotionKey = 'neutral' | 'happy' | 'angry' | 'sad' | 'relaxed';
 export type ActionKey = 'nod' | 'shake';
+/** 点在身上的区域。脸没有单独的骨，是头朝镜头的下半。 */
+export type TouchZone = 'head' | 'face' | 'chest' | 'waist' | 'hand';
+/** 触碰后叠在闲置姿态上的短动作。跳舞和动捕时不写骨骼。 */
+export type TouchPose = 'squint' | 'fond' | 'shy' | 'dodge' | 'cover' | 'cold' | 'bored' | 'flinch';
 export type Axis = 'x' | 'y' | 'z';
 export type CamPreset = 'close' | 'half' | 'full';
 export type CamShotId =

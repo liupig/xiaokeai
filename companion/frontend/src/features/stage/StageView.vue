@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { NSpin } from 'naive-ui';
 import { stage } from '../../engine/stage';
 import { installMocap } from '../mocap';
@@ -10,7 +10,12 @@ const characters = useCharacterStore();
 
 onMounted(() => {
   installMocap(stage);
-  if (container.value) stage.init(container.value);
+  if (!container.value) return;
+  const rebuilt = stage.init(container.value);
+  if (rebuilt && characters.currentId) void characters.switchTo(characters.currentId);
+});
+onBeforeUnmount(() => {
+  stage.dispose();
 });
 </script>
 

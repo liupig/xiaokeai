@@ -23,6 +23,7 @@ import { featureOn } from './i18n';
 import { isPetShell } from './features/shell/mode';
 import { installPetPointer } from './features/shell/petPointer';
 import { installPetWander } from './features/shell/petWander';
+import { installTouch } from './features/touch';
 import PetBar from './features/shell/PetBar.vue';
 
 const QuickPanel = defineAsyncComponent(() => import('./features/hud/QuickPanel.vue'));
@@ -70,6 +71,7 @@ const settings = useSettingsStore();
 const chat = useChatStore();
 
 onMounted(async () => {
+  installTouch();
   if (isPetShell) {
     installPetPointer();
     installPetWander();
@@ -137,7 +139,7 @@ onMounted(async () => {
         <LiveBeatHud v-if="!isPetShell && !tarotLayerOn && (!activePanel || activePanel === 'characters')" />
         <MocapOverlay v-if="!isPetShell" />
         <SpeechCaption />
-        <TarotLayer v-if="!isPetShell && tarotLayerOn" />
+        <TarotLayer v-if="tarotLayerOn" />
         <CodewatchHud v-if="!isPetShell && settings.modules.codewatch" />
         <QuickPanel :show="activePanel === 'quick'"
                     @update:show="(v: boolean) => setPanel('quick', v)" />

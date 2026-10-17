@@ -15,6 +15,7 @@ import { caster } from './caster';
 import { parseMotionCat, playAssetMotion, stripCatPrefix } from '../assets/motionMeta';
 import { applyEmotion, parseEmotionMap } from './emotionMap';
 import { shots } from './shotConductor';
+import { asksForDance, danceIntent, danceWeight, isDanceYes, noteDancePlayed, sampleDance } from './dancePick';
 import { repertoire, type ApprovedBeat } from './repertoire';
 import type { SidecarKind } from './caster';
 
@@ -39,7 +40,7 @@ const CAM_ALIASES: Record<string, CamShotId> = {
   wave: 'half',
 };
 export function userAskedDance(text: string) {
-  return /跳.{0,6}舞|来一段|来一支|再跳|换一支|跳一个|dance/i.test(text);
+  return asksForDance(text);
 }
 
 export class Orchestrator {
@@ -55,6 +56,10 @@ export class Orchestrator {
   private fillerTimer: ReturnType<typeof setTimeout> | null = null;
   private lastUserAsk = '';
   private lastDanceName = '';
+  /** 这一轮已经按用户的话开过舞。模型再点熟舞不再覆盖；点到没跳过的可以换成嘴上那支 */
+  private danceThisTurn = '';
+  /** 用户用「好的」答应的那支 */
+  private acceptedName = '';
 
   private clearFillerDelay() {
     if (this.fillerTimer != null) {
@@ -69,7 +74,7 @@ export class Orchestrator {
   }
 
   /** 每轮对话开始前调用：停语音，进入思考，并立刻按用户话选角 */
-  beginTurn(userText = '') {
+  beginTurn(userText = '', prevAssistant = '') {
     this.splitter.reset();
     this.turnText = '';
     this.ttsStarted = false;
@@ -79,12 +84,18 @@ export class Orchestrator {
     this.sidecarKind = 'qa';
     this.clearFillerDelay();
     this.lastUserAsk = userText;
+    this.danceThisTurn = '';
+    this.acceptedName = '';
+    const offered = isDanceYes(userText) ? this.offeredDance(prevAssistant) : undefined;
+    if (offered) this.acceptedName = offered.name;
+    const danceNow = asksForDance(userText) || !!offered;
     speechPlayer.beginNewQa();
     speechPlayer.streamOpen = true;
     stage.director.notifyThinking();
-    caster.beginTurn(userText);
-    if (userAskedDance(userText)) {
+    caster.beginTurn(userText, { keepDance: danceNow });
+    if (danceNow) {
       if (this.playDance('')) caster.markDance();
+      else caster.releaseDance();
     }
   }
 
@@ -266,21 +277,36 @@ export class Orchestrator {
         : undefined);
 
     const ask = this.lastUserAsk;
-    const wantAnother = /再来|再跳|换一|另一|继续|别的|不一样|一支别/.test(ask);
-    const namedThis = !!(motion && (
-      ask.includes(bare(motion)) || ask.toLowerCase().includes(norm(motion.name))
-    ));
-    const last = this.lastDanceName;
-    if (motion && last && norm(motion.name) === norm(last) && dances.length > 1 && (wantAnother || !namedThis)) {
-      const others = dances.filter((m) => norm(m.name) !== norm(last));
-      if (others.length) motion = others[Math.floor(Math.random() * others.length)];
+    const named = this.acceptedName
+      ? dances.find((m) => norm(m.name) === norm(this.acceptedName))
+      : this.danceNamedIn(ask, dances, bare, norm);
+    const intent = named ? 'named' : danceIntent(ask);
+    const tagged = motion;
+    const freshTag = !!(tagged && danceWeight(tagged.name) >= 0.5
+      && norm(tagged.name) !== norm(this.lastDanceName));
+    if (this.danceThisTurn && intent !== 'named') {
+      if (freshTag && norm(tagged!.name) !== norm(this.danceThisTurn)) {
+        motion = tagged;
+      } else {
+        return true;
+      }
+    } else if (named) {
+      motion = named;
+    } else if (intent === 'repeat') {
+      const again = dances.find((m) => norm(m.name) === norm(this.lastDanceName));
+      motion = again ?? sampleDance(dances, (m) => m.name, 'open') ?? motion;
+    } else if (freshTag && intent === 'switch') {
+      motion = tagged;
+    } else {
+      motion = sampleDance(dances, (m) => m.name, intent) ?? motion;
     }
     if (!motion) {
       const beat = repertoire.pick({ dancing: true, allowWalk: true, preferStand: stage.standSlot, varyCam: true });
       if (this.launchDance(beat)) return true;
-      const pick = dances[Math.floor(Math.random() * dances.length)];
-      return this.launchDanceAsset(pick);
+      const pick = sampleDance(dances, (m) => m.name, 'open');
+      return pick ? this.launchDanceAsset(pick) : false;
     }
+    if (this.danceThisTurn && norm(this.danceThisTurn) === norm(motion.name)) return true;
     const beat = repertoire.allowsAsset(motion.name)
       ? repertoire.pick({
           dancing: true,
@@ -298,10 +324,14 @@ export class Orchestrator {
   private launchDance(beat: ApprovedBeat | null): boolean {
     if (!beat?.assetName) return false;
     this.lastDanceName = beat.assetName;
+    this.danceThisTurn = beat.assetName;
+    noteDancePlayed(beat.assetName);
+    stage.holdDance();
     shots.beginDance(beat.assetName);
     shots.syncFromBeat(beat);
     void repertoire.perform(beat, {
       once: true,
+      stand: false,
       onMotionEnded: () => shots.endDance(),
     });
     return true;
@@ -310,12 +340,44 @@ export class Orchestrator {
   private launchDanceAsset(motion: AssetItem): boolean {
     if (!motion?.name) return false;
     this.lastDanceName = motion.name;
+    this.danceThisTurn = motion.name;
+    noteDancePlayed(motion.name);
+    stage.holdDance();
     shots.beginDance(motion.name);
     void playAssetMotion(motion, {
       once: true,
       onEnded: () => shots.endDance(),
     });
     return true;
+  }
+
+  /** 上一句嘴里点到的舞。用户说好的，就跳这支。 */
+  private offeredDance(text: string) {
+    const assets = useAssetsStore();
+    const dances = assets.motions.filter((m) => parseMotionCat(m) === 'dance');
+    if (!dances.length || !text.trim()) return undefined;
+    const norm = (s: string) => s.replace(/\.vmd$/i, '').trim().toLowerCase();
+    const bare = (m: { label: string; name: string }) => stripCatPrefix(m.label).trim() || m.name;
+    return this.danceNamedIn(text, dances, bare, norm);
+  }
+
+  /** 用户话里点到的舞名。最长的名字优先，避免短词误撞。 */
+  private danceNamedIn(
+    ask: string,
+    dances: { label: string; name: string }[],
+    bare: (m: { label: string; name: string }) => string,
+    norm: (s: string) => string,
+  ) {
+    const text = ask || '';
+    const low = text.toLowerCase();
+    const hits = dances.filter((m) => {
+      const label = bare(m);
+      const file = norm(m.name);
+      return (label.length >= 2 && text.includes(label))
+        || (file.length >= 2 && low.includes(file));
+    });
+    hits.sort((a, b) => bare(b).length - bare(a).length);
+    return hits[0];
   }
 
   private playMotionByName(nameOrLabel: string, opts?: { fullCam?: boolean; once?: boolean }) {

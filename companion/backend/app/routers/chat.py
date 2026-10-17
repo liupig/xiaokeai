@@ -92,9 +92,16 @@ def _msg_out(m: ChatMessage) -> Dict[str, Any]:
     }
 
 
+def _prompt_leak(text: str) -> bool:
+    """模型把导演提示念进回复后，下一轮会顺着这段自言自语继续乱。"""
+    t = text or ""
+    return "按照要求" in t or "先看指令" in t or "【这一轮任务】" in t
+
+
 def _prompt_history(rows: List[ChatMessage]) -> List[Dict[str, str]]:
     """欢迎/告别太多会把真聊天挤出窗口。prompt 里优先留 QA。"""
     chrono = list(reversed(rows))
+    chrono = [m for m in chrono if not (m.role == "assistant" and _prompt_leak(m.content))]
     qa = [m for m in chrono if (m.kind or "qa") not in SIDE_KINDS]
     side = [m for m in chrono if (m.kind or "qa") in SIDE_KINDS]
     keep = qa[-HISTORY_QA_MESSAGES:] + side[-2:]
@@ -138,7 +145,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     ).all()
     history: List[Dict[str, str]] = _prompt_history(history_rows)
     mode = (req.mode or "user").lower()
-    sidecar = mode in ("continue", "proactive", "goodbye", "welcome", "codewatch")
+    sidecar = mode in ("continue", "proactive", "goodbye", "welcome", "codewatch", "touch")
     if not sidecar and not req.reroll:
         history.append({"role": "user", "content": req.text})
 
@@ -269,16 +276,21 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     if hint:
         messages = messages + [{"role": "system", "content": hint}]
     messages = hooks.after_messages(session, req.character_id, mode, messages, extra)
+    if mode == "touch" and module_on(session, "touch"):
+        from ..modules.touch.speak import hint_for as touch_hint
+        messages = messages + [{"role": "system", "content": touch_hint(req.text or "")}]
+    touch_off = mode == "touch" and not module_on(session, "touch")
     unit_kind = {
         "continue": "delayed",
         "proactive": "proactive",
         "goodbye": "goodbye",
         "welcome": "welcome",
         "codewatch": "proactive",
+        "touch": "proactive",
     }.get(mode, "body")
     body_cmd = dx["body_cmd"]
     delayed_sec = 0 if sidecar else dx["delayed_sec"]
-    if mode == "codewatch":
+    if mode == "codewatch" or mode == "touch":
         body_cmd = "queue"
         delayed_sec = 0
     if tarot_now and mode in ("user", "continue"):
@@ -292,6 +304,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         "goodbye": "goodbye",
         "welcome": "welcome",
         "codewatch": "aside",
+        "touch": "aside",
     }.get(mode, "rp" if isolate else "qa")
 
     async def event_stream():
@@ -301,8 +314,9 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         llm_ms = speech_ms = None
         if tarot_ev:
             yield f"data: {json.dumps(tarot_ev, ensure_ascii=False)}\n\n"
-        if tarot_silent:
-            print(f"[tarot] skip extra continue cid={req.character_id}")
+        if tarot_silent or touch_off:
+            if tarot_silent:
+                print(f"[tarot] skip extra continue cid={req.character_id}")
             yield f"data: {json.dumps({'type': 'done', 'full_text': ''})}\n\n"
             meta = {"type": "meta", "user_id": user_row_id, "message_id": None}
             yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
@@ -366,6 +380,9 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         meta = {"type": "meta", "user_id": user_row_id, "message_id": assistant_id}
         yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
 
+    # 流式回复要等模型说完。这条数据库连接不放开的话，下一次对话会卡到锁超时，变成 500。
+    session.commit()
+    session.close()
     return StreamingResponse(event_stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 

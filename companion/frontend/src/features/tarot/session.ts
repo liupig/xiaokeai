@@ -4,7 +4,7 @@ import { stage } from '../../engine/stage';
 import { shots } from '../performance/shotConductor';
 import { speechPlayer } from '../voice/tts';
 import { dancingNow } from '../desk/activity';
-import { openTarotLayer, tarotLive } from './gate';
+import { closeTarotLayer, openTarotLayer, tarotLive } from './gate';
 import { canWakeTarot } from './intent';
 import type { DrawnView } from './plugin';
 
@@ -564,6 +564,7 @@ export async function playDismiss() {
     synthBeats = 0;
     speechPlayer.tarotHold = false;
     unlockCam();
+    closeTarotLayer();
     try {
       const { useChatStore } = await import('../../stores/chat');
       useChatStore().cancelTarotNext();

@@ -85,7 +85,7 @@ export class PerformanceCaster {
   }
 
   /** 一轮对话开始：立刻根据用户话反应，不等 LLM */
-  beginTurn(userText: string) {
+  beginTurn(userText: string, opts?: { keepDance?: boolean }) {
     this.ensureIndex();
     this.userText = userText;
     this.motionThisTurn = false;
@@ -96,10 +96,12 @@ export class PerformanceCaster {
     this.sidecarKind = 'qa';
     this.sidecarGesture = false;
     shots.setIdleMode('chat');
-    const wantDance = /跳.{0,6}舞|来一段|来一支|再跳|换一支|跳一个|dance/i.test(userText);
+    const wantDance = !!opts?.keepDance;
     if (!wantDance) {
       shots.endDance();
       if (wasDance) stage.stopMotion();
+    } else if (wasDance) {
+      this.danceThisTurn = true;
     }
     shots.cover({
       beat: 'open',
@@ -111,7 +113,13 @@ export class PerformanceCaster {
       intents: stage.director.sceneIntent ? [stage.director.sceneIntent] : undefined,
       dancing: wantDance,
     });
-    this.reactToUser(userText);
+    if (!wantDance) this.reactToUser(userText);
+  }
+
+  /** 这轮以为要跳舞，结果没开成 */
+  releaseDance() {
+    if (!this.danceThisTurn) return;
+    this.danceThisTurn = false;
   }
 
   /** 欢迎 / 续聊 / 告别：不重选角、不掐正在跳的舞 */

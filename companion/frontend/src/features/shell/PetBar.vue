@@ -10,23 +10,43 @@ import XkIcon from '../icons/XkIcon.vue';
 import { t } from '../../i18n';
 import { setShellMode } from './mode';
 
+const ORB = 46;
+const MARGIN = 10;
+const IDLE_MS = 30_000;
+const ORB_KEY = 'companion.pet.orb';
+
 const chat = useChatStore();
 const settings = useSettingsStore();
 const message = useMessage();
 const text = ref('');
 const listening = ref(false);
 const open = ref(false);
+const speaking = ref(false);
+const below = ref(false);
+const parked = ref(true);
+const draggingOrb = ref(false);
 const screens = ref<PetDisplay[]>([]);
 const inputEl = ref<HTMLInputElement | null>(null);
+const orbStyle = ref<Record<string, string>>({ left: '10px', top: '120px' });
 const dockStyle = ref<Record<string, string>>({
-  left: '24px',
-  top: '24px',
+  left: '10px',
+  top: '10px',
   '--tail': '160px',
 });
 let voiceSent = false;
-let hideTimer = 0;
 let stopDisplays = () => {};
-const SHOW_MS = 30000;
+let side: 'left' | 'right' = 'right';
+let home: { x: number; y: number } | null = null;
+let pos = { x: MARGIN, y: 120 };
+let idleTimer = 0;
+let speakTimer = 0;
+let sideTimer = 0;
+let drag = false;
+let dragMoved = false;
+let dragX = 0;
+let dragY = 0;
+let originX = 0;
+let originY = 0;
 
 function screenTitle(d: PetDisplay) {
   const bits = [`${d.width}×${d.height}`];
@@ -49,43 +69,171 @@ async function pickScreen(id: number) {
   if (Array.isArray(list)) screens.value = list;
 }
 
-function placeDock() {
+function clampPoint(x: number, y: number) {
+  return {
+    x: Math.max(MARGIN, Math.min(window.innerWidth - ORB - MARGIN, x)),
+    y: Math.max(MARGIN, Math.min(window.innerHeight - ORB - MARGIN, y)),
+  };
+}
+
+function edgePoint(which: 'left' | 'right') {
+  const y = Math.round(window.innerHeight * 0.42 - ORB / 2);
+  const x = which === 'left' ? MARGIN : window.innerWidth - ORB - MARGIN;
+  return clampPoint(x, y);
+}
+
+/** 停在她对面的那条边，避免盖住身体。窗口就是她所在的那块屏。 */
+function sideBesideHer(): 'left' | 'right' {
   const p = stage.petBubblePoint();
-  const width = Math.min(320, window.innerWidth - 32);
-  if (!p) return;
-  const left = Math.min(window.innerWidth - width - 12, Math.max(12, p.x - width / 2));
-  const top = Math.max(12, p.y - 118);
-  const tail = Math.min(width - 22, Math.max(22, p.x - left));
-  dockStyle.value = { left: `${left}px`, top: `${top}px`, '--tail': `${tail}px` };
+  if (!p) return side;
+  return p.x < window.innerWidth * 0.5 ? 'right' : 'left';
 }
 
-function bumpDock() {
-  window.clearTimeout(hideTimer);
-  hideTimer = window.setTimeout(() => { open.value = false; }, SHOW_MS);
+function layout() {
+  const left = pos.x;
+  const top = pos.y;
+  orbStyle.value = { left: `${left}px`, top: `${top}px` };
+  const width = Math.min(320, window.innerWidth - 20);
+  const panelLeft = Math.min(window.innerWidth - width - 10, Math.max(10, left + ORB / 2 - width / 2));
+  const above = top - 128;
+  below.value = above < 10;
+  const panelTop = below.value ? top + ORB + 12 : above;
+  const tail = Math.min(width - 22, Math.max(22, left + ORB / 2 - panelLeft));
+  dockStyle.value = { left: `${panelLeft}px`, top: `${panelTop}px`, '--tail': `${tail}px` };
 }
 
-function showDock() {
-  placeDock();
-  open.value = true;
-  bumpDock();
-  requestAnimationFrame(() => inputEl.value?.focus());
+function setPos(x: number, y: number) {
+  pos = clampPoint(x, y);
+  layout();
 }
 
-function onPetUi() {
-  showDock();
+function persist() {
+  try {
+    localStorage.setItem(ORB_KEY, JSON.stringify({ side, home }));
+  } catch { /* 隐私模式 */ }
 }
 
-watch(listening, (on) => stage.director.setListening(on));
-watch(text, () => { if (open.value) bumpDock(); });
+function restoreOrb() {
+  try {
+    const raw = localStorage.getItem(ORB_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as { side?: string; home?: { x?: number; y?: number } };
+    if (parsed.side === 'left' || parsed.side === 'right') side = parsed.side;
+    const hx = Number(parsed.home?.x);
+    const hy = Number(parsed.home?.y);
+    if (Number.isFinite(hx) && Number.isFinite(hy)) home = { x: hx, y: hy };
+  } catch { /* 坏数据就用默认贴边 */ }
+}
+
+function park(remember: boolean) {
+  if (open.value || listening.value || drag) return;
+  if (remember && !parked.value) home = { x: pos.x, y: pos.y };
+  side = sideBesideHer();
+  parked.value = true;
+  const edge = edgePoint(side);
+  setPos(edge.x, edge.y);
+  persist();
+}
+
+function armIdle() {
+  window.clearTimeout(idleTimer);
+  idleTimer = window.setTimeout(() => park(true), IDLE_MS);
+}
+
+function toggleChat() {
+  open.value = !open.value;
+  window.clearTimeout(idleTimer);
+  if (open.value) requestAnimationFrame(() => inputEl.value?.focus());
+  else armIdle();
+}
+
+function onOrbDown(e: PointerEvent) {
+  if (e.button !== 0) return;
+  drag = true;
+  draggingOrb.value = true;
+  dragMoved = false;
+  dragX = e.clientX;
+  dragY = e.clientY;
+  originX = pos.x;
+  originY = pos.y;
+  window.clearTimeout(idleTimer);
+  (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+}
+
+function onOrbMove(e: PointerEvent) {
+  if (!drag) return;
+  const dx = e.clientX - dragX;
+  const dy = e.clientY - dragY;
+  if (Math.hypot(dx, dy) > 5) dragMoved = true;
+  if (!dragMoved) return;
+  parked.value = false;
+  setPos(originX + dx, originY + dy);
+}
+
+function onOrbUp(e: PointerEvent) {
+  if (!drag) return;
+  drag = false;
+  draggingOrb.value = false;
+  try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId); } catch { /* 已经松开 */ }
+  if (dragMoved) {
+    home = { x: pos.x, y: pos.y };
+    persist();
+    armIdle();
+    return;
+  }
+  if (parked.value && home) {
+    const edge = edgePoint(side);
+    if (Math.hypot(home.x - edge.x, home.y - edge.y) > 24) {
+      parked.value = false;
+      setPos(home.x, home.y);
+      armIdle();
+      return;
+    }
+  }
+  toggleChat();
+}
+
+function onResize() {
+  if (parked.value) {
+    const edge = edgePoint(side);
+    setPos(edge.x, edge.y);
+    return;
+  }
+  setPos(pos.x, pos.y);
+}
+
+watch(listening, (on) => {
+  stage.director.setListening(on);
+  window.clearTimeout(idleTimer);
+  if (!on && !open.value) armIdle();
+});
 
 onMounted(() => {
-  window.addEventListener('xiaoke-pet-ui', onPetUi);
+  restoreOrb();
+  side = sideBesideHer();
+  parked.value = true;
+  setPos(edgePoint(side).x, edgePoint(side).y);
+  armIdle();
+  speakTimer = window.setInterval(() => {
+    speaking.value = speechPlayer.isSpeaking();
+  }, 200);
+  window.addEventListener('resize', onResize);
+  sideTimer = window.setTimeout(() => {
+    if (!parked.value || drag) return;
+    const next = sideBesideHer();
+    if (next === side) return;
+    side = next;
+    setPos(edgePoint(side).x, edgePoint(side).y);
+    persist();
+  }, 1600);
   void refreshScreens();
   stopDisplays = window.companionDesktop?.onDisplaysChanged?.(() => { void refreshScreens(); }) || (() => {});
 });
 onUnmounted(() => {
-  window.removeEventListener('xiaoke-pet-ui', onPetUi);
-  window.clearTimeout(hideTimer);
+  window.clearTimeout(idleTimer);
+  window.clearTimeout(sideTimer);
+  window.clearInterval(speakTimer);
+  window.removeEventListener('resize', onResize);
   stopDisplays();
 });
 
@@ -148,7 +296,16 @@ function toggleMic() {
 </script>
 
 <template>
-  <div v-show="open" class="pet-dock" data-pet-hit :style="dockStyle">
+  <button type="button" class="pet-orb" data-pet-hit
+          :class="{ open, live: speaking, parked, drag: draggingOrb }"
+          :style="orbStyle" :title="t('pet.chat')"
+          @pointerdown="onOrbDown" @pointermove="onOrbMove"
+          @pointerup="onOrbUp" @pointercancel="onOrbUp">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 6.5A3.5 3.5 0 0 1 8.5 3h7A3.5 3.5 0 0 1 19 6.5v6a3.5 3.5 0 0 1-3.5 3.5H11l-3.6 2.7a.8.8 0 0 1-1.3-.6V16A3.5 3.5 0 0 1 5 12.5v-6Z" />
+    </svg>
+  </button>
+  <div v-show="open" class="pet-dock" data-pet-hit :class="{ below }" :style="dockStyle">
     <div class="row">
       <button v-if="micAvailable(settings.stt.engine === 'sensevoice' ? 'sensevoice' : 'browser')"
               type="button" class="mic" :class="{ live: listening }"
@@ -184,6 +341,56 @@ function toggleMic() {
 </template>
 
 <style scoped>
+.pet-orb {
+  position: absolute;
+  z-index: 21;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  transition: left 0.28s ease, top 0.28s ease;
+  color: #fff;
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.28), transparent 42%),
+    linear-gradient(180deg, rgba(122, 120, 238, 0.92), rgba(62, 58, 150, 0.9));
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.pet-orb svg {
+  width: 20px;
+  height: 20px;
+  fill: #fff;
+}
+
+.pet-orb.open {
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.22), transparent 42%),
+    linear-gradient(180deg, rgba(72, 70, 120, 0.92), rgba(28, 28, 48, 0.92));
+}
+
+.pet-orb.live {
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.28),
+    0 0 0 5px rgba(168, 160, 255, 0.28);
+}
+
+.pet-orb.drag {
+  cursor: grabbing;
+  transition: none;
+}
+
+.pet-orb:hover {
+  filter: brightness(1.08);
+}
+
 .pet-dock {
   position: absolute;
   width: min(320px, calc(100vw - 32px));
@@ -215,6 +422,15 @@ function toggleMic() {
   border-right: 1px solid rgba(255, 255, 255, 0.14);
   border-bottom: 1px solid rgba(255, 255, 255, 0.14);
   pointer-events: none;
+}
+
+.pet-dock.below .tail {
+  bottom: auto;
+  top: -5px;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(48, 48, 72, 0.92);
 }
 
 .row {

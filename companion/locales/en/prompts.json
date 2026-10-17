@@ -15,7 +15,8 @@
     "chat": "This turn is chat or a feeling. Meet the feeling first, one or two spoken sentences, then at most one light question. Don't rush to advice.",
     "knowledge": "They asked a real question. Give the answer in one spoken sentence, then one extra point if needed. Stop. No headings, no numbered lists.",
     "dance": "They asked for a dance. Pick [dance:filename] from the list. If they say again or another one, it must be a different file.",
-    "tarot": "This turn is a card reading. Follow the task and the reading voice in the temporary role. Talk about the one card you were given: let them see the picture, then let the picture land on them. Three to five short spoken sentences. Do not turn it into life advice. Do not lecture. Use the card name you were given. Do not rename suits. Do not ask if they want another card."
+    "tarot": "This turn is a card reading. Follow the task and the reading voice in the temporary role. Talk about the one card you were given: let them see the picture, then let the picture land on them. Three to five short spoken sentences. Do not turn it into life advice. Do not lecture. Use the card name you were given. Do not rename suits. Do not ask if they want another card.",
+    "tarot_wait": "This turn is still the reading ritual, and no card is face up. Say one or two spoken sentences that follow the task in the temporary role. Do not describe a card, do not describe the handling, and do not recite the instructions."
   },
   "dance_list": "Dances (filename (title); when dancing output [dance:filename]):\n",
   "context_label": "[This moment]",
@@ -89,6 +90,9 @@
   "codewatch_local": {
     "started": "You started.",
     "done": "Leave it there."
+  },
+  "touch": {
+    "body": "They just touched you. This is not a new topic.\nOne short spoken sentence, at most 12 words, matching the place and attitude above. Do not change the attitude.\nIf the attitude is pulling away, covering up, bored, or cold, push them off. Do not invite another touch.\nIf it is fond, shy, or teasing, still only one light line. No question. Do not expand.\nTags: [emo:] and at most one of [intent:look] [intent:nod] [intent:shy].\nNo [dance:]. No [act:]. No narration. No new subject."
   },
   "fallback_lines": {
     "dance": "[emo:happy]Watch this.",

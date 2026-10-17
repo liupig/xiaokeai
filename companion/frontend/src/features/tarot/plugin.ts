@@ -6,6 +6,7 @@ import type { TarotCard } from '../../api/client';
 import { composeFront, disposeTarotTextures, loadArtTexture, loadBackTexture } from './textures';
 import { api } from '../../api/client';
 import { cardScale, clarifierOffset, slotOf, type TarotLayout } from './layout';
+import { bindTarotHit, clearTarotHit } from './gate';
 
 const RING_N = 26;
 const CARD_W = 0.172;
@@ -377,6 +378,7 @@ class TarotPlugin {
   }
 
   private startLoop() {
+    bindTarotHit(() => this.screenRect(), (x, y) => this.owns(x, y));
     if (this.raf) return;
     this.lastTick = performance.now();
     const loop = (now: number) => {
@@ -389,8 +391,52 @@ class TarotPlugin {
   }
 
   private stopLoop() {
+    clearTarotHit();
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
+  }
+
+  /** 牌在屏幕上占的一块，桌宠用来把点击从穿透里捞回来。 */
+  private screenRect() {
+    const cam = this.stage.threeCamera;
+    const el = this.stage.canvas;
+    if (!cam || !el || !this.rig.visible || this.phase === 'off') return null;
+    const rec = el.getBoundingClientRect();
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    const mark = (obj: THREE.Object3D) => {
+      if (!obj.visible) return;
+      obj.getWorldPosition(this.tmp);
+      this.tmp.project(cam);
+      if (this.tmp.z < -1 || this.tmp.z > 1) return;
+      const x = (this.tmp.x * 0.5 + 0.5) * rec.width + rec.left;
+      const y = (-this.tmp.y * 0.5 + 0.5) * rec.height + rec.top;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    };
+    for (const g of this.ring) mark(g);
+    for (const d of this.drawn) mark(d.mesh);
+    if (!Number.isFinite(minX)) return null;
+    const pad = 48;
+    return {
+      x: Math.round(minX - pad),
+      y: Math.round(minY - pad),
+      w: Math.round(Math.max(8, maxX - minX + pad * 2)),
+      h: Math.round(Math.max(8, maxY - minY + pad * 2)),
+    };
+  }
+
+  private owns(x: number, y: number) {
+    if (!this.rig.visible || this.phase === 'off' || this.phase === 'leave') return false;
+    if (this.phase === 'cut') {
+      const r = this.screenRect();
+      return !!r && x >= r.x && y >= r.y && x <= r.x + r.w && y <= r.y + r.h;
+    }
+    return !!this.hitAny({ clientX: x, clientY: y } as PointerEvent);
   }
 
   private step(dt: number) {

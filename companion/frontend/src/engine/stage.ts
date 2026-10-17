@@ -13,7 +13,7 @@ import { Lipsync } from './lipsync';
 import { GLB_BONES, GLB_MORPHS, MMD_BONES, MMD_MORPHS } from './mappings';
 import { MotionPlayer } from './motion';
 import { StandController, type StandSlot } from './stand';
-import type { ActionKey, Avatar, CamPreset, CamShotId, EmotionKey, QualityOptions } from './types';
+import type { ActionKey, Avatar, BoneKey, CamPreset, CamShotId, EmotionKey, QualityOptions, TouchZone } from './types';
 
 export type { StandSlot };
 
@@ -33,6 +33,14 @@ function fitPixelRatio(cap: number, w: number, h: number) {
   const want = Math.min(window.devicePixelRatio || 1, Math.max(1, cap || 1));
   const area = Math.max(1, w * h);
   return Math.max(1, Math.min(want, Math.sqrt(PIXEL_BUDGET / area)));
+}
+
+function loseCanvas(canvas: HTMLCanvasElement) {
+  try {
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+  } catch { /* 上下文已经没了 */ }
+  canvas.remove();
 }
 
 function disposeGpu(root: THREE.Object3D) {
@@ -140,6 +148,8 @@ export class Stage {
   private modelKind = '';
   private phyAcc = 0;
   private disposed = false;
+  /** 每次拆掉画布加一，旧的渲染循环看到对不上就停 */
+  private loopGen = 0;
   private loadSeq = 0;
   private bgSeq = 0;
   private bgUrl = '';
@@ -211,14 +221,27 @@ export class Stage {
     return false;
   }
 
-  init(container: HTMLElement) {
+  /** 返回 true 表示旧画布已经拆掉、这次是重建，调用方需要重新加载模型 */
+  init(container: HTMLElement): boolean {
+    if (this.renderer && !this.disposed && this.renderer.domElement.isConnected) {
+      if (this.host !== container) {
+        container.appendChild(this.renderer.domElement);
+        this.host = container;
+      }
+      return false;
+    }
+    const rebuilt = !!this.renderer || this.disposed;
+    container.querySelectorAll('canvas').forEach((node) => loseCanvas(node as HTMLCanvasElement));
+    this.releaseGl();
+    this.disposed = false;
+    this.pageVisible = document.visibilityState !== 'hidden';
     this.host = container;
     this.petMode = document.documentElement.classList.contains('is-pet');
     if (this.petMode) void this.preloadPetSpot();
-    const dpr = fitPixelRatio(
-      this.quality.pixelRatioCap, container.clientWidth, container.clientHeight);
+    const cap = this.petMode ? 1 : this.quality.pixelRatioCap;
+    const dpr = fitPixelRatio(cap, container.clientWidth, container.clientHeight);
     this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: !this.petMode,
       alpha: this.petMode,
       premultipliedAlpha: true,
       preserveDrawingBuffer: false,
@@ -319,7 +342,7 @@ export class Stage {
     if (!this.renderer || !this.host) return;
     const w = this.host.clientWidth || window.innerWidth;
     const h = this.host.clientHeight || window.innerHeight;
-    const cap = this.petMode ? Math.min(1.25, this.quality.pixelRatioCap) : this.quality.pixelRatioCap;
+    const cap = this.petMode ? 1 : this.quality.pixelRatioCap;
     this.renderer.setPixelRatio(fitPixelRatio(cap, w, h));
   }
 
@@ -1178,6 +1201,18 @@ export class Stage {
     void this.startWalkLocomotion();
   }
 
+  /** 脚边的屏幕坐标，桌宠塔罗按钮跟着人走 */
+  petFeetPoint(): { x: number; y: number } | null {
+    if (!this.petMode || !this.renderer || !this.camera) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.petRay.set(this.stand.x, this.stand.y + 0.02, 0).project(this.camera);
+    if (this.petRay.z > 1) return null;
+    return {
+      x: rect.left + (this.petRay.x * 0.5 + 0.5) * rect.width,
+      y: rect.top + (-this.petRay.y * 0.5 + 0.5) * rect.height,
+    };
+  }
+
   /** 头顶附近的屏幕坐标，给字幕跟着人走 */
   petBubblePoint(): { x: number; y: number } | null {
     if (!this.petMode || !this.renderer || !this.camera) return null;
@@ -1383,7 +1418,13 @@ export class Stage {
    * 桌宠改成按身体范围判断，点和拖都落在看得见的人身上。
    */
   petHitBody(): { ax: number; ay: number; bx: number; by: number; r: number } | null {
-    if (!this.petMode || !this.modelRoot || !this.renderer || !this.camera) return null;
+    if (!this.petMode) return null;
+    return this.bodyCapsule();
+  }
+
+  /** 头到脚的屏幕胶囊。桌宠用来决定点击穿透，舞台射线漏点时也用它接一下。 */
+  private bodyCapsule(): { ax: number; ay: number; bx: number; by: number; r: number } | null {
+    if (!this.modelRoot || !this.renderer || !this.camera) return null;
     const rect = this.renderer.domElement.getBoundingClientRect();
     if (rect.width < 2 || rect.height < 2) return null;
     const headBone = this.avatar?.bone('head');
@@ -1398,14 +1439,14 @@ export class Stage {
     const foot = this.clientOfWorld(this.stand.x, this.stand.y + 0.02, 0, rect);
     const body = Math.hypot(head.x - foot.x, head.y - foot.y);
     if (body < 8) return null;
-    let r = Math.max(18, body * 0.17);
-    const cap = Math.max(r, body * 0.28);
+    let r = Math.max(28, body * 0.26);
+    const cap = Math.max(r, body * 0.48);
     for (const key of ['leftUpperArm', 'rightUpperArm'] as const) {
       const bone = this.avatar?.bone(key);
       if (!bone) continue;
       bone.getWorldPosition(this.petTmp);
       const p = this.clientOfWorld(this.petTmp.x, this.petTmp.y, this.petTmp.z, rect);
-      r = Math.max(r, distToSeg(p.x, p.y, head.x, head.y, foot.x, foot.y) + 6);
+      r = Math.max(r, distToSeg(p.x, p.y, head.x, head.y, foot.x, foot.y) + 16);
     }
     return { ax: head.x, ay: head.y, bx: foot.x, by: foot.y, r: Math.min(r, cap) };
   }
@@ -1423,6 +1464,103 @@ export class Stage {
     const hit = this.petHitBody();
     if (!hit) return false;
     return distToSeg(clientX, clientY, hit.ax, hit.ay, hit.bx, hit.by) <= hit.r;
+  }
+
+  /**
+   * 这一下点在哪。先打到网格上，头发缝漏了再按骨骼在屏幕上的位置分。
+   * 舞台上没点到人就没有反应；桌宠胶囊里总会给出一块。
+   */
+  probeTouch(clientX: number, clientY: number): TouchZone | null {
+    if (!this.modelRoot || !this.camera || !this.renderer || !this.avatar) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return null;
+    this.pointerNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointerNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointerNdc, this.camera);
+    const hits = this.raycaster.intersectObject(this.modelRoot, true);
+    if (hits.length) {
+      const zone = this.zoneOfPoint(hits[0].point);
+      if (zone) return zone;
+    }
+    const cap = this.bodyCapsule();
+    if (cap && distToSeg(clientX, clientY, cap.ax, cap.ay, cap.bx, cap.by) <= cap.r) {
+      return this.zoneOnScreen(clientX, clientY, rect);
+    }
+    return null;
+  }
+
+  private boneAt(key: BoneKey, out: THREE.Vector3) {
+    const bone = this.avatar?.bone(key);
+    if (!bone) return null;
+    return bone.getWorldPosition(out);
+  }
+
+  private zoneOfPoint(point: THREE.Vector3): TouchZone | null {
+    const head = this.boneAt('head', new THREE.Vector3());
+    if (!head) return null;
+    const chest = this.boneAt('chest', new THREE.Vector3());
+    const spine = this.boneAt('spine', new THREE.Vector3());
+    const hips = this.boneAt('hips', new THREE.Vector3());
+    const la = this.boneAt('leftUpperArm', new THREE.Vector3());
+    const ra = this.boneAt('rightUpperArm', new THREE.Vector3());
+    const dist = (p: THREE.Vector3 | null) => (p ? point.distanceTo(p) : 99);
+    const armD = Math.min(dist(la), dist(ra));
+    const torsoD = Math.min(dist(chest), dist(spine), dist(hips), dist(head));
+    if (armD < 0.22 && armD + 0.05 < torsoD) return 'hand';
+    if (dist(head) <= dist(chest) && dist(head) < 0.3) {
+      return point.y > head.y + 0.05 ? 'head' : 'face';
+    }
+    if (chest && dist(chest) <= dist(spine) && dist(chest) <= dist(hips)) return 'chest';
+    return 'waist';
+  }
+
+  private zoneOnScreen(clientX: number, clientY: number, rect: DOMRect): TouchZone {
+    const spot = (key: BoneKey) => {
+      const bone = this.avatar?.bone(key);
+      if (!bone) return null;
+      bone.getWorldPosition(this.petTmp);
+      return this.clientOfWorld(this.petTmp.x, this.petTmp.y, this.petTmp.z, rect);
+    };
+    const head = spot('head');
+    const chest = spot('chest');
+    const hips = spot('hips') ?? spot('spine');
+    const la = spot('leftUpperArm');
+    const ra = spot('rightUpperArm');
+    const marks: { zone: TouchZone; x: number; y: number }[] = [];
+    if (head && chest) {
+      marks.push({
+        zone: 'head',
+        x: head.x + (head.x - chest.x) * 0.35,
+        y: head.y + (head.y - chest.y) * 0.35,
+      });
+      marks.push({
+        zone: 'face',
+        x: head.x + (chest.x - head.x) * 0.28,
+        y: head.y + (chest.y - head.y) * 0.28,
+      });
+    } else if (head) {
+      marks.push({ zone: 'head', x: head.x, y: head.y - 18 });
+      marks.push({ zone: 'face', x: head.x, y: head.y + 16 });
+    }
+    if (chest) marks.push({ zone: 'chest', x: chest.x, y: chest.y });
+    if (hips) marks.push({ zone: 'waist', x: hips.x, y: hips.y });
+    if (la) marks.push({ zone: 'hand', x: la.x, y: la.y });
+    if (ra) marks.push({ zone: 'hand', x: ra.x, y: ra.y });
+    if (!marks.length) return 'waist';
+    let best = marks[0];
+    let bestD = Infinity;
+    for (const m of marks) {
+      const d = Math.hypot(clientX - m.x, clientY - m.y);
+      if (d < bestD) {
+        best = m;
+        bestD = d;
+      }
+    }
+    if (best.zone === 'hand' && chest) {
+      const torso = Math.hypot(clientX - chest.x, clientY - chest.y);
+      if (torso < bestD * 1.15) return 'chest';
+    }
+    return best.zone;
   }
 
   get avatarRoot() {
@@ -1443,21 +1581,40 @@ export class Stage {
 
   dispose() {
     this.disposed = true;
-    if (this.onResize) window.removeEventListener('resize', this.onResize);
-    if (this.onVis) document.removeEventListener('visibilitychange', this.onVis);
-    this.unloadModel();
-    this.dropBackgroundTex();
-    this.disposePlatform();
+    this.releaseGl();
     for (const tex of this.platformTexCache.values()) tex.dispose();
     this.platformTexCache.clear();
-    this.renderer?.dispose();
-    this.renderer?.domElement.remove();
+  }
+
+  /** 停掉渲染循环并丢掉 WebGL 上下文。透明全屏窗口不丢掉的话，GPU 进程会一直留着旧画布。 */
+  private releaseGl() {
+    this.loopGen += 1;
+    if (this.onResize) window.removeEventListener('resize', this.onResize);
+    if (this.onVis) document.removeEventListener('visibilitychange', this.onVis);
+    this.onResize = null;
+    this.onVis = null;
+    if (this.scene) {
+      try { this.unloadModel(); } catch { /* 模型可能已经卸过 */ }
+      try { this.dropBackgroundTex(); } catch { /* */ }
+      try { this.disposePlatform(); } catch { /* */ }
+    }
+    try { this.controls?.dispose(); } catch { /* */ }
+    const gl = this.renderer;
+    if (!gl) return;
+    try { gl.forceContextLoss(); } catch { /* */ }
+    try { gl.dispose(); } catch { /* */ }
+    loseCanvas(gl.domElement);
+    this.renderer = null as unknown as THREE.WebGLRenderer;
   }
 
   // ---------- 主循环 ----------
   private animate = () => {
     if (this.disposed || !this.pageVisible) return;
-    requestAnimationFrame(this.animate);
+    const gen = this.loopGen;
+    requestAnimationFrame(() => {
+      if (gen !== this.loopGen || this.disposed) return;
+      this.animate();
+    });
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const t = this.clock.elapsedTime;
     if (this.petMode) {
@@ -1509,7 +1666,7 @@ export class Stage {
 
     this.emit('onFrame', dt);
 
-    this.renderer.render(this.scene, this.camera);
+    if (this.renderer) this.renderer.render(this.scene, this.camera);
   };
 
   /** 当场再渲一帧后导出 JPEG，不改主循环的 preserveDrawingBuffer。 */
@@ -1613,5 +1770,8 @@ function recordClipMedia(
 
 /** 全局单例：UI 各处共享同一个舞台 */
 export const stage = new Stage();
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => stage.dispose());
+}
 // 调试入口（控制台可用）
 (window as any).__stage = stage;

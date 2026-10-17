@@ -55,8 +55,19 @@ def resolve_voice(engine: str, voice: str, saved: str = "") -> str:
     raise ValueError("未选择音色")
 
 
+def _edge_host() -> None:
+    """旧的 Bing 朗读地址从 2026-10 起只收 v2 令牌，当前 edge-tts 仍发 v1，握手会被 403。新主机还收旧令牌。"""
+    import edge_tts.communicate as cm
+    from edge_tts.constants import TRUSTED_CLIENT_TOKEN
+    cm.WSS_URL = (
+        "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
+        f"?Ocp-Apim-Subscription-Key={TRUSTED_CLIENT_TOKEN}"
+    )
+
+
 async def synthesize_edge(text: str, voice: str = "zh-CN-XiaoyiNeural",
                           rate: str = "+0%") -> AsyncGenerator[bytes, None]:
+    _edge_host()
     communicate = edge_tts.Communicate(text, voice, rate=rate)
     async for chunk in communicate.stream():
         if chunk["type"] == "audio":

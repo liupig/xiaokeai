@@ -759,7 +759,7 @@ export const api = {
   async streamChat(characterId: number, text: string,
                    onEvent: (ev: ChatEvent) => void, signal?: AbortSignal,
                    morphs: string[] = [],
-                   mode: 'user' | 'continue' | 'proactive' | 'goodbye' | 'welcome' | 'codewatch' = 'user',
+                   mode: 'user' | 'continue' | 'proactive' | 'goodbye' | 'welcome' | 'codewatch' | 'touch' = 'user',
                    extra: ChatExtra = {}) {
     const body = {
       character_id: characterId, text, morphs, mode,

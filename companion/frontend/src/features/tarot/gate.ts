@@ -13,3 +13,30 @@ export function closeTarotLayer() {
   tarotLayerOn.value = false;
   tarotLive.value = false;
 }
+
+export type TarotScreenRect = { x: number; y: number; w: number; h: number };
+
+let hitRect: (() => TarotScreenRect | null) | null = null;
+let hitOwns: ((x: number, y: number) => boolean) | null = null;
+
+/** 牌在场上时，桌宠用这块屏幕区域接点击，并让牌上的点击不要变成拖人。 */
+export function bindTarotHit(
+  rect: () => TarotScreenRect | null,
+  owns: (x: number, y: number) => boolean,
+) {
+  hitRect = rect;
+  hitOwns = owns;
+}
+
+export function clearTarotHit() {
+  hitRect = null;
+  hitOwns = null;
+}
+
+export function tarotCardRect() {
+  return hitRect?.() ?? null;
+}
+
+export function tarotPointerOwns(x: number, y: number) {
+  return hitOwns?.(x, y) ?? false;
+}

@@ -789,7 +789,10 @@ export const useChatStore = defineStore('chat', {
       touchLastChat(chars.currentId);
       touchLastUserChat(chars.currentId);
       this.armSceneRotate();
-      orchestrator.beginTurn(input);
+      const prevLine = [...this.messages].reverse().find(
+        (m) => m.role === 'assistant' && (m.fullContent || m.content || '').trim(),
+      );
+      orchestrator.beginTurn(input, prevLine?.fullContent || prevLine?.content || '');
 
       if (useSettingsStore().modules.tarot && chars.currentId) {
         try {
@@ -1077,6 +1080,72 @@ export const useChatStore = defineStore('chat', {
         speechPlayer.streamOpen = false;
       }
     },
+    /** 被碰到之后偶尔的一句。走和续聊同一条表演，不另开说话。 */
+    async touchSpeak(brief: string, line: string) {
+      if (useSettingsStore().modules.touch === false) return;
+      if (dancePlaying()) return;
+      const chars = useCharacterStore();
+      if (!chars.currentId) return;
+      if (this.sending || speechPlayer.streamOpen || speechPlayer.isSpeaking()) return;
+      sessionClosed = false;
+      this.sending = true;
+      const controller = new AbortController();
+      streamAbort = controller;
+      const assistant: Message = {
+        role: 'assistant', content: '', fullContent: '', kind: 'aside',
+        spokenLen: 0,
+        created_at: new Date().toISOString(),
+        when: localStamp(),
+      };
+      this.messages.push(assistant);
+      this.applyVoice();
+      orchestrator.beginContinue('proactive');
+      const bag = { speech: false };
+      let apiKeyMissing = false;
+      const onEvent = (ev: any) => {
+        if (ev.type === 'error') {
+          if (ev.code === 'no_api_key') apiKeyMissing = true;
+          else this.lastError = ev.message || this.lastError;
+          return;
+        }
+        if (ev.type === 'meta') {
+          if (ev.message_id) assistant.id = ev.message_id;
+          return;
+        }
+        applyBubbleEvent(assistant, ev, bag);
+        orchestrator.handle(ev);
+      };
+      const morphs = (chars.modelInfo?.morphNames ?? [])
+        .filter((n) => !BASE_MORPHS.has(n))
+        .slice(0, 50);
+      try {
+        await api.streamChat(
+          chars.currentId, brief, onEvent, controller.signal, morphs, 'touch', liveScenePack(),
+        );
+      } catch (e) {
+        if (!controller.signal.aborted) this.lastError = String(e);
+      }
+      if (controller.signal.aborted) {
+        if (streamAbort === controller) {
+          streamAbort = null;
+          this.sending = false;
+          speechPlayer.streamOpen = false;
+        }
+        if (!assistant.content && !assistant.fullContent) this.messages.pop();
+        return;
+      }
+      const silent = !bag.speech && !assistant.content;
+      if ((apiKeyMissing || silent) && !controller.signal.aborted) {
+        orchestrator.allowLocalSpeech();
+        emitLocal(line, onEvent);
+      }
+      if (!assistant.content && !assistant.fullContent) this.messages.pop();
+      if (streamAbort === controller) {
+        streamAbort = null;
+        this.sending = false;
+        speechPlayer.streamOpen = false;
+      }
+    },
     cancelTarotNext() {
       clearTarotNext();
     },
@@ -1190,7 +1259,10 @@ export const useChatStore = defineStore('chat', {
       silencePhase = 'delayed';
       this.rollGoodbyeDeadline();
       this.applyVoice();
-      orchestrator.beginTurn(lastU.content);
+      const prevLine = [...this.messages].reverse().find(
+        (m) => m !== lastA && m.role === 'assistant' && (m.fullContent || m.content || '').trim(),
+      );
+      orchestrator.beginTurn(lastU.content, prevLine?.fullContent || prevLine?.content || '');
       let apiKeyMissing = false;
       const bag = { speech: false };
       const onEvent = (ev: any) => {

@@ -1,9 +1,12 @@
 import { stage } from '../../engine/stage';
 import { speechPlayer } from '../voice/tts';
+import { noteBodyClick } from '../touch';
+import { tarotCardRect, tarotPointerOwns } from '../tarot/gate';
 
 /**
- * 桌宠点击：主进程按身体胶囊和对话条决定穿透。
- * 人身上的点击留给她，其余落到桌面。按住拖动时窗口一直接着鼠标。
+ * 桌宠点击：主进程按身体胶囊和浮球、会话条决定穿透。
+ * 人身上连点两下才是触碰，和舞台同一套。单击不摸。会话只在浮球上展开。
+ * 按住拖动时窗口一直接着鼠标。
  */
 export function installPetPointer() {
   const desktop = window.companionDesktop;
@@ -39,6 +42,8 @@ export function installPetPointer() {
   const publish = () => {
     const body = stage.petHitBody();
     const rects = chromeRects();
+    const cards = tarotCardRect();
+    if (cards && cards.w > 8 && cards.h > 8) rects.push(cards);
     const dock = document.querySelector<HTMLElement>('.pet-dock');
     const focus = !!dock && dock.getClientRects().length > 0;
     const region = {
@@ -59,8 +64,8 @@ export function installPetPointer() {
 
   const endPress = () => {
     if (pressed && !dragging) {
-      window.dispatchEvent(new CustomEvent('xiaoke-pet-ui'));
       stage.petReveal();
+      noteBodyClick(downX, downY);
     }
     if (dragging) stage.petRelease();
     pressed = false;
@@ -77,7 +82,7 @@ export function installPetPointer() {
     if (pressed && (e.buttons & 1) === 0) endPress();
     if (pressed && !dragging) {
       const dist = Math.hypot(e.clientX - downX, e.clientY - downY);
-      if (dist > 8) {
+      if (dist > 18) {
         dragging = true;
         stage.petGrab(downX, downY);
         publish();
@@ -94,6 +99,7 @@ export function installPetPointer() {
   const onDown = (e: MouseEvent) => {
     if (e.button !== 0 || pressed) return;
     if (overChrome(e.clientX, e.clientY)) return;
+    if (tarotPointerOwns(e.clientX, e.clientY)) return;
     if (!stage.hitsAvatar(e.clientX, e.clientY)) return;
     e.preventDefault();
     speechPlayer.unlock();

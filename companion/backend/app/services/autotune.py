@@ -296,7 +296,7 @@ def fallback_tts(reason: str) -> None:
         if (tts.get("engine") or "").strip().lower() in ("edge", "browser", "off"):
             return
         tts["engine"] = "edge"
-        from .locale_pack import default_voice, reply_of
+        from ..locale_pack import default_voice, reply_of
         tts["voice"] = default_voice("edge", reply_of(conf))
         hw = _hw_blob(conf)
         hw["failed"]["tts"] = reason[:400]

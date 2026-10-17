@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Avatar, CamShotId, EmotionKey } from './types';
+import type { Avatar, CamShotId, EmotionKey, TouchPose } from './types';
 import type { ExpressionController } from './expression';
 import type { Lipsync } from './lipsync';
 import type { MotionPlayer } from './motion';
@@ -56,6 +56,11 @@ export class PerformanceDirector {
   private speakBeatTimer = 0;
   private speakBeatNextAt = 2.4;
   private prevState: DirectorState = 'idle';
+  /** 被摸到的短姿态。播完自己收回，不抢 VMD。 */
+  private touchPlay: { pose: TouchPose; side: number; age: number; dur: number } | null = null;
+  private touchGoalV = new THREE.Vector3();
+  /** 躲开或护住时拧过上身，姿态结束要拧回来 */
+  private touchBent = false;
   /** 跳舞时说话中也继续换镜 */
   camLive = false;
   /**
@@ -87,6 +92,28 @@ export class PerformanceDirector {
   onIdleCam: (() => void) | null = null;
   /** 闲时补一条动作：走 Stage.playMotion，才会停掉上一支舞的配乐 */
   playIdleMotion: ((url: string) => void) | null = null;
+
+  /**
+   * 被摸到：叠一个短姿态。头低下、躲开、护住都在这里。
+   * 说话如果随后到来，仍走原来的表演，这里不负责开口。
+   */
+  playTouch(pose: TouchPose) {
+    const dur = pose === 'flinch' ? 0.55 : pose === 'cover' || pose === 'cold' ? 1.7 : 1.25;
+    this.touchPlay = { pose, side: Math.random() < 0.5 ? -1 : 1, age: 0, dur };
+    const mood: Record<TouchPose, [EmotionKey, number]> = {
+      squint: ['relaxed', 0.86],
+      fond: ['happy', 0.72],
+      shy: ['happy', 0.6],
+      dodge: ['relaxed', 0.4],
+      cover: ['relaxed', 0.58],
+      cold: ['angry', 0.5],
+      bored: ['relaxed', 0.22],
+      flinch: ['sad', 0.3],
+    };
+    const [key, intensity] = mood[pose];
+    this.setMood(key, intensity);
+    this.deps.expr.blinkNow();
+  }
 
   /** 设置情绪（0~1 强度），来源：LLM 标签 [emo:happy:0.8] 或 UI；之后自然衰减 */
   setMood(key: EmotionKey, intensity = 0.85) {
@@ -148,6 +175,8 @@ export class PerformanceDirector {
     this.camLive = false;
     this.idleLive = false;
     this.idleAlone = false;
+    this.touchPlay = null;
+    this.touchBent = false;
   }
 
   /** 每帧调用（Stage 主循环，位于 idle.update 之后、motion.update 之前的姿态叠加窗口） */
@@ -232,6 +261,24 @@ export class PerformanceDirector {
           this.lookAwayTimer = 3.2 + Math.random() * 4.5;
         }
     }
+    let armLift = 0;
+    let touchSide = 0;
+    let touchPose: TouchPose | null = null;
+    let touchEnv = 0;
+    if (this.touchPlay) {
+      this.touchPlay.age += dt;
+      const p = this.touchPlay.age / this.touchPlay.dur;
+      if (p >= 1) {
+        this.touchPlay = null;
+      } else {
+        touchEnv = Math.sin(Math.PI * p);
+        touchPose = this.touchPlay.pose;
+        touchSide = this.touchPlay.side;
+        this.headTarget.lerp(this.touchGoal(touchPose, touchSide), touchEnv);
+        if (touchPose === 'cover') armLift = touchEnv;
+        else if (touchPose === 'cold') armLift = touchEnv * 0.42;
+      }
+    }
     this.headCur.lerp(this.headTarget, 1 - Math.exp(-4.5 * dt));
 
     // ---- 应用姿态层（仅程序化闲置时；VMD / 动捕插件驱动时不抢骨骼） ----
@@ -245,6 +292,23 @@ export class PerformanceDirector {
       if (this.state === 'speaking') {
         const chest = av.bone('chest');
         if (chest) chest.rotation.x += mouth * 0.018 + this.nodImpulse * 0.3;
+      }
+      if (touchPose && touchEnv > 0) {
+        const spine = av.bone('spine');
+        if (spine && (touchPose === 'dodge' || touchPose === 'cover' || touchPose === 'cold')) {
+          spine.rotation.y = av.base(spine).y + touchSide * 0.12 * touchEnv;
+        } else if (spine) {
+          spine.rotation.y = av.base(spine).y;
+        }
+        const chest = av.bone('chest');
+        if (chest && touchPose === 'dodge') chest.rotation.x -= 0.07 * touchEnv;
+        if (chest && touchPose === 'cover') chest.rotation.x += 0.06 * touchEnv;
+        if (armLift > 0) this.liftArms(av, armLift);
+        this.touchBent = touchPose === 'dodge' || touchPose === 'cover' || touchPose === 'cold';
+      } else if (this.touchBent) {
+        const spine = av.bone('spine');
+        if (spine) spine.rotation.y = av.base(spine).y;
+        this.touchBent = false;
       }
     }
 
@@ -306,5 +370,33 @@ export class PerformanceDirector {
     // ---- 微运镜：说话时视野极缓收紧（呼吸感），停下缓慢恢复 ----
     const pushTarget = this.state === 'speaking' ? 1 : this.state === 'thinking' ? 0.25 : 0;
     this.camPush += (pushTarget - this.camPush) * Math.min(1, dt * 0.35);
+  }
+
+  private touchGoal(pose: TouchPose, side: number) {
+    const g = this.touchGoalV;
+    switch (pose) {
+      case 'squint': g.set(0.22, side * 0.04, 0.03); break;
+      case 'fond': g.set(0.12, side * 0.06, 0.04); break;
+      case 'shy': g.set(0.1, side * 0.32, 0.08); break;
+      case 'dodge': g.set(-0.04, side * 0.48, 0.02); break;
+      case 'cover': g.set(0.16, side * 0.42, 0.06); break;
+      case 'cold': g.set(0.02, side * 0.55, -0.04); break;
+      case 'bored': g.set(0.05, side * 0.3, 0); break;
+      default: g.set(-0.06, side * 0.34, 0); break;
+    }
+    return g;
+  }
+
+  /** 双手往胸前抬一截。idle 每帧会把胳膊放回下垂，所以这里每帧重写，不会越抬越高。 */
+  private liftArms(av: Avatar, amount: number) {
+    const lift = (key: 'leftUpperArm' | 'rightUpperArm', rig: Avatar['armL']) => {
+      const bone = av.bone(key);
+      if (!bone) return;
+      const axis = rig.axis;
+      const raised = av.base(bone)[axis] + rig.up * 0.46;
+      bone.rotation[axis] = THREE.MathUtils.lerp(bone.rotation[axis], raised, amount);
+    };
+    lift('leftUpperArm', av.armL);
+    lift('rightUpperArm', av.armR);
   }
 }

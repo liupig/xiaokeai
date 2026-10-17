@@ -7,6 +7,13 @@ import { shots } from '../features/performance/shotConductor';
 import { speechPlayer } from '../features/voice/tts';
 import { useAssetsStore } from './assets';
 
+let switchGen = 0;
+
+function staleLoad(err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes('已被更新的加载取代');
+}
+
 export const useCharacterStore = defineStore('character', {
   state: () => ({
     list: [] as CharacterItem[],
@@ -52,11 +59,14 @@ export const useCharacterStore = defineStore('character', {
         this.modelError = '没有可用的模型资产';
         return;
       }
+      const gen = ++switchGen;
       this.modelLoading = true;
       this.modelError = '';
       try {
-        this.modelInfo = await stage.loadModel(api.assetUrl(model));
-        caster.indexFrom(assets.motions, this.modelInfo.morphNames);
+        const info = await stage.loadModel(api.assetUrl(model));
+        if (gen !== switchGen) return;
+        this.modelInfo = info;
+        caster.indexFrom(assets.motions, info.morphNames);
         shots.indexFrom(assets.cameras);
         repertoire.idleFavorite = char.idle_motion || '';
         stage.director.idlePicker = () => caster.pickIdleUrl();
@@ -66,9 +76,11 @@ export const useCharacterStore = defineStore('character', {
         shots.setIdleMode('chat');
         shots.beginIdle();
       } catch (e) {
-        this.modelError = String(e);
+        if (gen !== switchGen || staleLoad(e)) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        this.modelError = msg;
       } finally {
-        this.modelLoading = false;
+        if (gen === switchGen) this.modelLoading = false;
       }
     },
     async save(char: CharacterItem) {

@@ -37,6 +37,14 @@ export class ExpressionController {
     for (const name of this.manualTargets.keys()) this.manualTargets.set(name, 0);
   }
 
+  /** 被碰到的这一下，补一次眨眼，不另开表情系统 */
+  blinkNow() {
+    if (this.blinkProgress < 0) {
+      this.blinkProgress = 0;
+      this.blinkTimer = 2.2 + Math.random() * 2;
+    }
+  }
+
   reset() {
     this.emotion = 'neutral';
     this.manualTargets.clear();
