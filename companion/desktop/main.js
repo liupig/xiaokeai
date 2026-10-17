@@ -51,6 +51,7 @@ app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
 const shellState = { mode: 'stage', stage: null, pet: null, petScreen: null, petSpot: null };
 const roleOf = new WeakMap();
 let swapping = false;
+let replacing = false;
 let saveTimer = null;
 let holdingFallback = false;
 let placingPet = false;
@@ -469,6 +470,24 @@ function openWindow() {
   return shellState.mode === 'pet' ? createPetWindow() : createStageWindow();
 }
 
+function retireWindow(win) {
+  if (!win || win.isDestroyed()) return;
+  try { win.removeAllListeners('close'); } catch { /* 已经在拆 */ }
+  // destroy skips the cancelable close path, so the renderer exits with the window.
+  win.destroy();
+}
+
+function replaceShellWindows() {
+  const existing = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+  for (let i = 0; i < existing.length; i += 1) remember(existing[i], false);
+  const created = openWindow();
+  for (let i = 0; i < existing.length; i += 1) {
+    if (existing[i] !== created) retireWindow(existing[i]);
+  }
+  saveState();
+  return created;
+}
+
 function focusExisting() {
   const win = BrowserWindow.getAllWindows()[0];
   if (win) focusWindow(win);
@@ -492,13 +511,48 @@ ipcMain.handle('set-shell-mode', (e, mode) => {
   const old = BrowserWindow.fromWebContents(e.sender);
   if (old && !old.isDestroyed()) remember(old, true);
   if (shellState.mode === next && old && !old.isDestroyed()) return next;
+  if (replacing) return shellState.mode;
   shellState.mode = next;
   saveState();
+  replacing = true;
   swapping = true;
-  const created = openWindow();
-  if (old && !old.isDestroyed() && old !== created) old.close();
-  swapping = false;
+  let created = null;
+  try {
+    created = openWindow();
+  } catch (err) {
+    console.error('[shell] switch window failed', err);
+    swapping = false;
+    replacing = false;
+    return shellState.mode;
+  }
+  const doomed = BrowserWindow.getAllWindows().filter((w) => w !== created);
+  setImmediate(() => {
+    try {
+      for (let i = 0; i < doomed.length; i += 1) retireWindow(doomed[i]);
+    } finally {
+      swapping = false;
+      replacing = false;
+    }
+  });
   return next;
+});
+
+ipcMain.handle('reload-shell', () => {
+  if (replacing) return false;
+  replacing = true;
+  swapping = true;
+  // Destroy the calling window only after this invoke returns, so the renderer is not killed mid-reply.
+  setImmediate(() => {
+    try {
+      replaceShellWindows();
+    } catch (err) {
+      console.error('[shell] reload failed', err);
+    } finally {
+      swapping = false;
+      replacing = false;
+    }
+  });
+  return true;
 });
 
 ipcMain.on('set-ignore-mouse', (e, ignore) => {

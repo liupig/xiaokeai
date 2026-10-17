@@ -34,7 +34,15 @@ def test_guess_provider() -> None:
     }) == "local"
     assert embed_svc.guess_provider({
         "base_url": "https://api.openai.com/v1",
-        "api_key": "not-sk",
+        "api_key": "sk-openai",
+    }) == "openai"
+    assert embed_svc.guess_provider({
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "api_key": "AIza",
+    }) == "gemini"
+    assert embed_svc.guess_provider({
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key": "sk-or",
     }) == "local"
 
 

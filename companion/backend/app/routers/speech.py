@@ -9,9 +9,14 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from ..db import get_session
-from ..services import asr, settings_store, tts
+from ..services import asr, asr_ali, asr_eleven, asr_gemini, asr_openai, asr_volc, settings_store, tts
+from ..services import cloud_key
 from ..services import tts_cosy
+from ..services import tts_eleven
+from ..services import tts_gemini
+from ..services import tts_openai
 from ..services import tts_qwen
+from ..services import tts_volc
 from .. import talk_log
 
 router = APIRouter(prefix="/api/speech", tags=["speech"])
@@ -54,13 +59,12 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
         raise HTTPException(400, str(exc)) from exc
     rate = req.rate or conf.get("rate") or "+0%"
     if engine == "cosy":
-        llm = settings_store.get_all(session).get("llm") or {}
-        api_key = (llm.get("api_key") or "").strip()
+        llm = settings_store.apply_llm_overlay(settings_store.get_all(session).get("llm") or {})
+        api_key = cloud_key.ali_key(llm)
         if not api_key.startswith("sk-"):
             raise HTTPException(
                 400,
-                "CosyVoice 需要阿里云百炼 API Key（sk- 开头）。"
-                "当前对话 Key 不能共用，请改用「edge-tts 流式」，或在 AI 对话里换成百炼 Key。",
+                "阿里合成需要百炼 API Key（sk-）。填在设置 → AI 对话，和识别、向量共用这一把。",
             )
         agen = tts_cosy.synthesize_pcm(req.text, voice, api_key)
         try:
@@ -81,6 +85,94 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
             headers={
                 "X-Audio-Format": "pcm_s16le",
                 "X-Audio-Rate": str(tts_cosy.SAMPLE_RATE),
+                "Cache-Control": "no-store",
+                "Access-Control-Expose-Headers": "X-Audio-Format, X-Audio-Rate",
+            },
+        )
+    if engine == "volc":
+        llm = settings_store.apply_llm_overlay(settings_store.get_all(session).get("llm") or {})
+        agen = tts_volc.synthesize_mp3(req.text, voice, cloud_key.volc_speech_key(llm))
+        try:
+            first = await anext(agen)
+        except StopAsyncIteration:
+            raise HTTPException(503, "火山合成未返回音频") from None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+        async def volc_gen():
+            yield first
+            async for chunk in agen:
+                yield chunk
+
+        return StreamingResponse(
+            volc_gen(),
+            media_type="audio/mpeg",
+            headers={
+                "X-Audio-Format": "mp3",
+                "X-Audio-Rate": str(tts_volc.SAMPLE_RATE),
+                "Cache-Control": "no-store",
+                "Access-Control-Expose-Headers": "X-Audio-Format, X-Audio-Rate",
+            },
+        )
+    if engine in ("openai", "eleven"):
+        llm = settings_store.apply_llm_overlay(settings_store.get_all(session).get("llm") or {})
+        if engine == "openai":
+            agen = tts_openai.synthesize_mp3(req.text, voice, cloud_key.openai_key(llm))
+            rate = tts_openai.SAMPLE_RATE
+            label = "OpenAI"
+        else:
+            agen = tts_eleven.synthesize_mp3(req.text, voice, cloud_key.eleven_key(llm))
+            rate = tts_eleven.SAMPLE_RATE
+            label = "ElevenLabs"
+        try:
+            first = await anext(agen)
+        except StopAsyncIteration:
+            raise HTTPException(503, f"{label}合成未返回音频") from None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+        async def mp3_gen():
+            yield first
+            async for chunk in agen:
+                yield chunk
+
+        return StreamingResponse(
+            mp3_gen(),
+            media_type="audio/mpeg",
+            headers={
+                "X-Audio-Format": "mp3",
+                "X-Audio-Rate": str(rate),
+                "Cache-Control": "no-store",
+                "Access-Control-Expose-Headers": "X-Audio-Format, X-Audio-Rate",
+            },
+        )
+    if engine == "gemini":
+        llm = settings_store.apply_llm_overlay(settings_store.get_all(session).get("llm") or {})
+        agen = tts_gemini.synthesize_pcm(req.text, voice, cloud_key.gemini_key(llm))
+        try:
+            first = await anext(agen)
+        except StopAsyncIteration:
+            raise HTTPException(503, "Gemini 合成未返回音频") from None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+        async def gemini_gen():
+            yield first
+            async for chunk in agen:
+                yield chunk
+
+        return StreamingResponse(
+            gemini_gen(),
+            media_type="application/octet-stream",
+            headers={
+                "X-Audio-Format": "pcm_s16le",
+                "X-Audio-Rate": str(tts_gemini.SAMPLE_RATE),
                 "Cache-Control": "no-store",
                 "Access-Control-Expose-Headers": "X-Audio-Format, X-Audio-Rate",
             },
@@ -155,15 +247,32 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
 
 
 @router.post("/stt")
-async def stt_endpoint(file: UploadFile = File(...)):
+async def stt_endpoint(file: UploadFile = File(...), session: Session = Depends(get_session)):
     data = await file.read()
     if not data:
         raise HTTPException(400, "音频为空")
+    engine = ((settings_store.get_all(session).get("stt") or {}).get("engine") or "").strip().lower()
+    llm = settings_store.apply_llm_overlay(settings_store.get_all(session).get("llm") or {})
     try:
-        text = await asyncio.to_thread(asr.transcribe, data)
+        if engine == "ali":
+            text = await asr_ali.transcribe(data, cloud_key.ali_key(llm))
+        elif engine == "volc":
+            text = await asr_volc.transcribe(data, cloud_key.volc_speech_key(llm))
+        elif engine == "openai":
+            text = await asr_openai.transcribe(data, cloud_key.openai_key(llm))
+        elif engine == "eleven":
+            text = await asr_eleven.transcribe(data, cloud_key.eleven_key(llm))
+        elif engine == "gemini":
+            text = await asr_gemini.transcribe(data, cloud_key.gemini_key(llm))
+        else:
+            text = await asyncio.to_thread(asr.transcribe, data)
     except Exception as exc:
         talk_log.write("asr", f"失败 {exc}")
-        raise HTTPException(503, f"本地 ASR 失败：{exc}") from exc
+        label = {
+            "ali": "阿里", "volc": "火山", "openai": "OpenAI",
+            "eleven": "ElevenLabs", "gemini": "Gemini",
+        }.get(engine, "本地")
+        raise HTTPException(503, f"{label} ASR 失败：{exc}") from exc
     shown = (text or "").strip()
     talk_log.write("asr", shown)
     return {"text": text}

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { useMessage } from 'naive-ui';
-import { micAvailable, speechInput } from '../voice/stt';
+import { isClipStt, micAvailable, speechInput } from '../voice/stt';
 import { stage } from '../../engine/stage';
 import { speechPlayer } from '../voice/tts';
 import { useChatStore } from '../../stores/chat';
@@ -258,8 +258,14 @@ function closePet() {
   window.companionDesktop?.close?.();
 }
 
+const canReload = typeof window.companionDesktop?.reload === 'function';
+
+function reloadPet() {
+  void window.companionDesktop?.reload?.();
+}
+
 function toggleMic() {
-  const engine = settings.stt.engine === 'sensevoice' ? 'sensevoice' : 'browser';
+  const engine = isClipStt(settings.stt.engine) ? settings.stt.engine : 'browser';
   if (!micAvailable(engine)) {
     message.warning(t('pet.micNo'));
     return;
@@ -267,7 +273,7 @@ function toggleMic() {
   speechPlayer.unlock();
   if (speechInput.opening) return;
   if (listening.value) {
-    if (engine === 'sensevoice') void speechInput.stopAndRecognize();
+    if (isClipStt(engine)) void speechInput.stopAndRecognize();
     else speechInput.stop();
     return;
   }
@@ -307,7 +313,7 @@ function toggleMic() {
   </button>
   <div v-show="open" class="pet-dock" data-pet-hit :class="{ below }" :style="dockStyle">
     <div class="row">
-      <button v-if="micAvailable(settings.stt.engine === 'sensevoice' ? 'sensevoice' : 'browser')"
+      <button v-if="micAvailable(isClipStt(settings.stt.engine) ? settings.stt.engine : 'browser')"
               type="button" class="mic" :class="{ live: listening }"
               :title="t('voice.hearing')" @click="toggleMic">
         <XkIcon name="mic" :size="15" />
@@ -332,6 +338,8 @@ function toggleMic() {
     <div class="ops">
       <button type="button" @click="setShellMode('stage')">{{ t('pet.back') }}</button>
       <i />
+      <button v-if="canReload" type="button" @click="reloadPet">{{ t('pet.reload') }}</button>
+      <i v-if="canReload" />
       <button type="button" @click="minimize">{{ t('pet.min') }}</button>
       <i />
       <button type="button" class="danger" @click="closePet">{{ t('pet.close') }}</button>

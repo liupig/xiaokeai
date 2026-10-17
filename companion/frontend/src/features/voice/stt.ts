@@ -20,7 +20,13 @@ async function loadMicVAD(): Promise<typeof import('@ricky0123/vad-web').MicVAD>
   return Ctor;
 }
 
-export type SttEngine = 'browser' | 'sensevoice';
+export type SttEngine = 'browser' | 'sensevoice' | 'ali' | 'volc' | 'openai' | 'eleven' | 'gemini';
+
+/** 浏览器切段后把 wav 交给后端。本地 SenseVoice、阿里、火山都走这条。 */
+export function isClipStt(engine: string): boolean {
+  return engine === 'sensevoice' || engine === 'ali' || engine === 'volc'
+    || engine === 'openai' || engine === 'eleven' || engine === 'gemini';
+}
 
 type SpeechRecognitionCtor = new () => any;
 
@@ -49,7 +55,7 @@ export function browserSttSupported(): boolean {
 }
 
 export function micAvailable(engine: SttEngine): boolean {
-  if (engine === 'sensevoice') {
+  if (isClipStt(engine)) {
     return Boolean(navigator.mediaDevices?.getUserMedia);
   }
   return browserSttSupported();
@@ -199,7 +205,7 @@ export class SpeechInput {
   }
 
   start(onResult: ResultCb, onEnd: EndCb, onSpeechStart?: () => void, onError?: (err: unknown) => void): boolean {
-    if (this.engine === 'sensevoice') {
+    if (isClipStt(this.engine)) {
       void this.startLocal(onResult, onEnd, onSpeechStart).catch((e) => {
         onError?.(e);
       });
@@ -299,7 +305,7 @@ export class SpeechInput {
 
   /** 用户再次点击麦克风：提交当前这段（如果有）并收麦 */
   async stopAndRecognize() {
-    if (this.engine !== 'sensevoice' || !this.listening) {
+    if (!isClipStt(this.engine) || !this.listening) {
       this.stop();
       return;
     }
@@ -558,7 +564,7 @@ export class SpeechInput {
         this.onResult?.(text, true);
       }
     } catch (e) {
-      console.warn('本地 ASR 失败', e);
+      console.warn('语音识别失败', e);
       if (this.gen !== gen) return;
       this.onResult?.('', true, { asrFail: true });
     } finally {

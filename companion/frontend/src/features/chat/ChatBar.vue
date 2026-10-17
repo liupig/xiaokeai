@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { defineAsyncComponent, computed, nextTick, ref, watch } from 'vue';
 import { NButton, NInput, NInputNumber, NPopover, useMessage } from 'naive-ui';
-import { micAvailable, speechInput } from '../voice/stt';
+import { isClipStt, micAvailable, speechInput } from '../voice/stt';
 import { speechPlayer } from '../voice/tts';
 import { stage } from '../../engine/stage';
 import { useChatStore } from '../../stores/chat';
@@ -190,17 +190,17 @@ function onChatEnter(e: KeyboardEvent) {
 }
 
 function toggleMic() {
-  const engine = settings.stt.engine === 'sensevoice' ? 'sensevoice' : 'browser';
+  const engine = isClipStt(settings.stt.engine) ? settings.stt.engine : 'browser';
   if (!micAvailable(engine)) {
-    message.warning(engine === 'sensevoice'
+    message.warning(isClipStt(engine)
       ? '浏览器不允许访问麦克风'
-      : '当前浏览器不支持在线语音识别，请改用 Chrome/Edge，或在设置里切到离线 ASR');
+      : '当前浏览器不支持在线语音识别，请改用 Chrome/Edge，或在设置里切到阿里 / 火山识别');
     return;
   }
   speechPlayer.unlock();
   if (speechInput.opening) return;
   if (listening.value) {
-    if (engine === 'sensevoice') void speechInput.stopAndRecognize();
+    if (isClipStt(engine)) void speechInput.stopAndRecognize();
     else speechInput.stop();
     return;
   }
@@ -261,7 +261,7 @@ function toggleMic() {
 }
 
 function warmupMic() {
-  if (settings.stt.engine !== 'sensevoice') return;
+  if (!isClipStt(settings.stt.engine)) return;
   void speechInput.warmupVad().catch(() => {});
 }
 
@@ -385,7 +385,7 @@ const recLeft = computed(() =>
       </div>
     </div>
     <div class="input-row">
-      <n-button v-if="micAvailable(settings.stt.engine === 'sensevoice' ? 'sensevoice' : 'browser')"
+      <n-button v-if="micAvailable(isClipStt(settings.stt.engine) ? settings.stt.engine : 'browser')"
                 quaternary circle size="small"
                 :type="listening ? 'error' : 'default'"
                 class="mic" @click="toggleMic" @pointerenter="warmupMic">

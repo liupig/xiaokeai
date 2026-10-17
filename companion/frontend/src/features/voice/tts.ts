@@ -20,10 +20,10 @@ export { DEFAULT_DUPLEX_REMAIN_SEC, normalizeDuplexCmd };
  * Pool + 播放器。
  * pushUnit 按 DuplexCmd 决定插队/排队/丢掉；真正拉 TTS 流只在决定要播之后。
  */
-export type TtsEngine = 'cosy' | 'edge' | 'qwen' | 'browser' | 'off';
+export type TtsEngine = 'cosy' | 'edge' | 'qwen' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'browser' | 'off';
 
-const STREAM_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen']);
-const VOICE_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen']);
+const STREAM_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'volc', 'openai', 'eleven', 'gemini']);
+const VOICE_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'volc', 'openai', 'eleven', 'gemini']);
 
 function isSidecarClip(clip: { duplexCmd?: DuplexCmd; kind?: string } | null): boolean {
   if (!clip) return false;

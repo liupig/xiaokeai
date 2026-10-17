@@ -33,24 +33,78 @@ const LLM_PRESETS: Record<string, { base: string; model: string }> = {
   openai: { base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
   gemini: { base: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.0-flash' },
   openrouter: { base: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini' },
+  anthropic: { base: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-5' },
+  groq: { base: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
+  mistral: { base: 'https://api.mistral.ai/v1', model: 'mistral-small-latest' },
+  xai: { base: 'https://api.x.ai/v1', model: 'grok-3' },
+  together: { base: 'https://api.together.xyz/v1', model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo' },
+  fireworks: { base: 'https://api.fireworks.ai/inference/v1', model: 'accounts/fireworks/models/llama-v3p3-70b-instruct' },
+  nvidia: { base: 'https://integrate.api.nvidia.com/v1', model: 'meta/llama-3.3-70b-instruct' },
+  cerebras: { base: 'https://api.cerebras.ai/v1', model: 'llama-3.3-70b' },
+  perplexity: { base: 'https://api.perplexity.ai', model: 'sonar' },
+  novita: { base: 'https://api.novita.ai/v3/openai', model: 'deepseek/deepseek-v3' },
+  comet: { base: 'https://api.cometapi.com/v1', model: 'gpt-4o-mini' },
+  featherless: { base: 'https://api.featherless.ai/v1', model: 'meta-llama/Llama-3.3-70B-Instruct' },
+  aihubmix: { base: 'https://aihubmix.com/v1', model: 'gpt-4o-mini' },
+  ai302: { base: 'https://api.302.ai/v1', model: 'gpt-4o-mini' },
+  siliconflow: { base: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
+  stepfun: { base: 'https://api.stepfun.com/v1', model: 'step-2-mini' },
+  baichuan: { base: 'https://api.baichuan-ai.com/v1', model: 'Baichuan4-Turbo' },
+  minimax: { base: 'https://api.minimaxi.com/v1', model: 'MiniMax-M2' },
+  modelscope: { base: 'https://api-inference.modelscope.cn/v1', model: 'Qwen/Qwen2.5-72B-Instruct' },
+  hunyuan: { base: 'https://api.hunyuan.cloud.tencent.com/v1', model: 'hunyuan-turbos-latest' },
+  mimo: { base: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2-flash' },
+  moonshot_intl: { base: 'https://api.moonshot.ai/v1', model: 'kimi-k2-turbo-preview' },
+  qwen_intl: { base: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+  ollama: { base: 'http://127.0.0.1:11434/v1', model: 'llama3.2' },
+  vllm: { base: 'http://127.0.0.1:8000/v1', model: 'default' },
+  sglang: { base: 'http://127.0.0.1:30000/v1', model: 'default' },
+  player2: { base: 'http://127.0.0.1:4315/v1', model: 'player2' },
   minicpm: { base: 'https://api.modelbest.cn/v1', model: 'MiniCPM-O-4.5-9B' },
 };
 const llmPresetOptions = computed(() => {
   settings.locale.ui;
   const all = [
     { label: t('set.llm.bailian'), value: 'bailian' },
+    { label: t('set.llm.qwen_intl'), value: 'qwen_intl' },
     { label: t('set.llm.volcano'), value: 'volcano' },
     { label: t('set.llm.volcano_character'), value: 'volcano_character' },
     { label: t('set.llm.minicpm'), value: 'minicpm' },
     { label: t('set.llm.deepseek'), value: 'deepseek' },
     { label: t('set.llm.moonshot'), value: 'moonshot' },
+    { label: t('set.llm.moonshot_intl'), value: 'moonshot_intl' },
     { label: t('set.llm.zhipu'), value: 'zhipu' },
+    { label: t('set.llm.siliconflow'), value: 'siliconflow' },
+    { label: t('set.llm.stepfun'), value: 'stepfun' },
+    { label: t('set.llm.baichuan'), value: 'baichuan' },
+    { label: t('set.llm.minimax'), value: 'minimax' },
+    { label: t('set.llm.modelscope'), value: 'modelscope' },
+    { label: t('set.llm.hunyuan'), value: 'hunyuan' },
+    { label: t('set.llm.mimo'), value: 'mimo' },
+    { label: t('set.llm.aihubmix'), value: 'aihubmix' },
+    { label: t('set.llm.ai302'), value: 'ai302' },
     { label: 'OpenAI', value: 'openai' },
+    { label: t('set.llm.anthropic'), value: 'anthropic' },
     { label: t('set.llm.gemini'), value: 'gemini' },
     { label: t('set.llm.openrouter'), value: 'openrouter' },
+    { label: t('set.llm.groq'), value: 'groq' },
+    { label: t('set.llm.mistral'), value: 'mistral' },
+    { label: t('set.llm.xai'), value: 'xai' },
+    { label: t('set.llm.together'), value: 'together' },
+    { label: t('set.llm.fireworks'), value: 'fireworks' },
+    { label: t('set.llm.nvidia'), value: 'nvidia' },
+    { label: t('set.llm.cerebras'), value: 'cerebras' },
+    { label: t('set.llm.perplexity'), value: 'perplexity' },
+    { label: t('set.llm.novita'), value: 'novita' },
+    { label: t('set.llm.comet'), value: 'comet' },
+    { label: t('set.llm.featherless'), value: 'featherless' },
+    { label: t('set.llm.ollama'), value: 'ollama' },
+    { label: t('set.llm.vllm'), value: 'vllm' },
+    { label: t('set.llm.sglang'), value: 'sglang' },
+    { label: t('set.llm.player2'), value: 'player2' },
   ];
   if (settings.locale.ui !== 'en') return all;
-  const front = new Set(['openai', 'gemini', 'openrouter']);
+  const front = new Set(['openai', 'anthropic', 'gemini', 'openrouter', 'groq', 'mistral', 'xai']);
   return [...all.filter((o) => front.has(o.value)), ...all.filter((o) => !front.has(o.value))];
 });
 const langOptions = computed(() => {
@@ -86,6 +140,10 @@ function applyLlmPreset(key: string) {
   settings.llm.base_url = p.base;
   settings.llm.model = p.model;
   if (key === 'volcano_character') settings.llm.thinking = 'off';
+  if ((key === 'ollama' || key === 'vllm' || key === 'sglang' || key === 'player2')
+      && !(settings.llm.api_key || '').trim()) {
+    settings.llm.api_key = 'ollama';
+  }
   if (key === 'minicpm') {
     settings.llm.thinking = 'off';
     settings.omni.chat_url = p.base;
@@ -460,9 +518,13 @@ const voiceOptions = computed(() =>
 const ttsEngineOptions = computed(() => {
   settings.locale.ui;
   return [
+    { label: t('set.tts.volcEngine'), value: 'volc' },
+    { label: t('set.tts.cosyEngine'), value: 'cosy' },
+    { label: t('set.tts.openaiEngine'), value: 'openai' },
+    { label: t('set.tts.elevenEngine'), value: 'eleven' },
+    { label: t('set.tts.geminiEngine'), value: 'gemini' },
     { label: t('set.tts.qwen'), value: 'qwen' },
     { label: t('set.tts.edge'), value: 'edge' },
-    { label: t('set.tts.cosyEngine'), value: 'cosy' },
     { label: t('set.tts.browser'), value: 'browser' },
     { label: t('set.tts.off'), value: 'off' },
   ];
@@ -497,6 +559,11 @@ const duplexCmdOptions = computed(() => {
 const asrEngineOptions = computed(() => {
   settings.locale.ui;
   return [
+    { label: t('set.asr.ali'), value: 'ali' },
+    { label: t('set.asr.volc'), value: 'volc' },
+    { label: t('set.asr.openai'), value: 'openai' },
+    { label: t('set.asr.eleven'), value: 'eleven' },
+    { label: t('set.asr.gemini'), value: 'gemini' },
     { label: t('set.asr.browser'), value: 'browser' },
     { label: t('set.asr.sense'), value: 'sensevoice' },
   ];
@@ -508,6 +575,8 @@ const embedderOptions = computed(() => {
     { label: t('set.embed.local'), value: 'local' },
     { label: t('set.embed.doubao'), value: 'doubao' },
     { label: t('set.embed.qwen'), value: 'qwen' },
+    { label: t('set.embed.openai'), value: 'openai' },
+    { label: t('set.embed.gemini'), value: 'gemini' },
   ];
 });
 const hwHint = computed(() => {
@@ -533,13 +602,17 @@ const hwHint = computed(() => {
   });
 });
 const ttsNeedsVoice = computed(() =>
-  settings.tts.engine === 'cosy' || settings.tts.engine === 'edge' || settings.tts.engine === 'qwen'
+  settings.tts.engine === 'cosy' || settings.tts.engine === 'edge'
+  || settings.tts.engine === 'qwen' || settings.tts.engine === 'volc'
+  || settings.tts.engine === 'openai' || settings.tts.engine === 'eleven'
+  || settings.tts.engine === 'gemini'
 );
 
 watch(() => settings.tts.engine, (eng) => {
   const list = settings.voices.filter((v) => v.engine === eng);
   if (list.length && !list.some((v) => v.id === settings.tts.voice)) {
-    settings.tts.voice = (eng === 'qwen' || eng === 'edge')
+    settings.tts.voice = (eng === 'qwen' || eng === 'edge' || eng === 'volc'
+      || eng === 'openai' || eng === 'eleven' || eng === 'gemini')
       ? defaultVoice(eng, settings.locale.reply)
       : '';
   }
@@ -619,7 +692,7 @@ function onPhysics(v: boolean) {
 
 async function saveEmbedder(v: string) {
   const prev = settings.memory.embedder;
-  settings.memory.embedder = (v === 'local' || v === 'doubao' || v === 'qwen' ? v : 'auto');
+  settings.memory.embedder = (v === 'local' || v === 'doubao' || v === 'qwen' || v === 'openai' || v === 'gemini' ? v : 'auto');
   try {
     await settings.save();
     message.success(t('set.embed.switched'));
@@ -746,7 +819,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
       <n-tab-pane name="ai" :tab="t('settings.ai')">
         <div class="form">
           <label>{{ t('set.llm.label') }}</label>
-          <n-select :value="currentPreset" :options="llmPresetOptions"
+          <n-select :value="currentPreset" :options="llmPresetOptions" filterable
                     :placeholder="t('set.llm.ph')"
                     @update:value="applyLlmPreset" />
           <label>{{ t('set.llm.url') }}</label>
@@ -826,6 +899,8 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <label>{{ t('set.asr.engine') }}</label>
           <n-select v-model:value="settings.stt.engine" :options="asrEngineOptions" />
           <p class="hint">{{ t('set.asr.hint') }}</p>
+          <p v-if="settings.stt.engine === 'ali' || settings.stt.engine === 'volc'" class="hint">{{ t('set.asr.cloud') }}</p>
+          <p v-if="settings.stt.engine === 'openai' || settings.stt.engine === 'eleven' || settings.stt.engine === 'gemini'" class="hint">{{ t('set.asr.cloudIntl') }}</p>
           <div v-if="settings.stt.engine === 'sensevoice'" class="speech-status">
             <p class="hint">{{ speechStatus?.asr.message || t('set.asr.status') }}</p>
             <n-button size="small" :loading="warmingAsr || !!speechStatus?.asr.downloading"
@@ -882,6 +957,10 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           </div>
           <p class="hint">{{ t('set.tts.duplexHint') }}</p>
           <p v-if="settings.tts.engine === 'cosy'" class="hint">{{ t('set.tts.cosy') }}</p>
+          <p v-if="settings.tts.engine === 'volc'" class="hint">{{ t('set.tts.volc') }}</p>
+          <p v-if="settings.tts.engine === 'openai'" class="hint">{{ t('set.tts.openai') }}</p>
+          <p v-if="settings.tts.engine === 'eleven'" class="hint">{{ t('set.tts.eleven') }}</p>
+          <p v-if="settings.tts.engine === 'gemini'" class="hint">{{ t('set.tts.gemini') }}</p>
           <div v-if="settings.tts.engine === 'qwen'" class="speech-status">
             <p class="hint">
               {{ speechStatus?.tts.message || t('set.asr.status') }}

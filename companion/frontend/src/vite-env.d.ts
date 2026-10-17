@@ -37,6 +37,7 @@ interface CompanionDesktop {
   setPetSpot?: (spot: { x: number; y: number } | null) => void;
   minimize?: () => void;
   close?: () => void;
+  reload?: () => Promise<boolean>;
 }
 
 interface Window {

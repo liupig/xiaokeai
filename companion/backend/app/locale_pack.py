@@ -36,6 +36,12 @@ QWEN_DEFAULT = {
     "ja": "Ono_Anna",
     "ko": "Sohee",
 }
+VOLC_DEFAULT = {
+    "zh-CN": "zh_female_vv_uranus_bigtts",
+    "en": "en_female_dacey_uranus_bigtts",
+    "ja": "ja_female_bv522_uranus_bigtts",
+    "ko": "ko_female_bv546_uranus_bigtts",
+}
 # 本地英语只有男声。英语默认用中文女声的音色，合成时把语言标成 English。
 _QWEN_EN_FEMALE = {"Serena", "Vivian"}
 _QWEN_LANG = {
@@ -243,9 +249,25 @@ def role_bad_head() -> str:
     return raw if isinstance(raw, str) else ""
 
 
+def _volc_lang(voice: str) -> str:
+    vid = (voice or "").strip()
+    low = vid.lower()
+    if low.startswith("zh_") or "_zh_" in low:
+        return "zh-CN"
+    if low.startswith("en_") or "_en_" in low:
+        return "en"
+    if low.startswith("ja_") or "_ja_" in low:
+        return "ja"
+    if low.startswith("ko_") or "_ko_" in low:
+        return "ko"
+    return ""
+
+
 def voice_lang(engine: str, voice: str) -> str:
     vid = (voice or "").strip()
     eng = (engine or "").strip().lower()
+    if eng == "volc":
+        return _volc_lang(vid)
     if eng == "qwen" or vid in _QWEN_LANG:
         return _QWEN_LANG.get(vid, "")
     if vid.startswith("zh-"):
@@ -264,6 +286,14 @@ def default_voice(engine: str, lang: str | None) -> str:
     eng = (engine or "").strip().lower()
     if eng == "qwen":
         return QWEN_DEFAULT.get(lang, "Serena")
+    if eng == "volc":
+        return VOLC_DEFAULT.get(lang, "zh_female_vv_uranus_bigtts")
+    if eng == "openai":
+        return "marin"
+    if eng == "eleven":
+        return "21m00Tcm4TlvDq8ikWAM"
+    if eng == "gemini":
+        return "Kore"
     return EDGE_DEFAULT.get(lang, "zh-CN-XiaoyiNeural")
 
 
@@ -287,6 +317,8 @@ def align_voice(engine: str, voice: str, lang: str | None) -> str:
     if voice_fits(engine, vid, lang):
         return vid
     if not voice_lang(engine, vid):
+        if (engine or "").strip().lower() == "volc" and "uranus" not in vid and not vid.startswith("ICL_"):
+            return default_voice(engine, lang)
         return vid
     return default_voice(engine, lang)
 

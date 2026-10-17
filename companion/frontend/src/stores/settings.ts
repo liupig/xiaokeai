@@ -25,7 +25,7 @@ export const useSettingsStore = defineStore('settings', {
       model: 'doubao-seed-character-260628', temperature: 0.85, top_p: 1.0,
       max_tokens: 0, thinking: 'off',
     },
-    tts: { engine: 'qwen' as 'cosy' | 'edge' | 'qwen' | 'browser' | 'off',
+    tts: { engine: 'qwen' as 'cosy' | 'edge' | 'qwen' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'browser' | 'off',
            voice: 'Serena', rate: '+0%', qwen_size: '0.6b' as '0.6b' | '1.7b',
            qwen_style: 'yujie' as string, qwen_instruct: '',
            duplex_cmd: 'interrupt_or_queue' as DuplexCmd,
@@ -36,7 +36,7 @@ export const useSettingsStore = defineStore('settings', {
            duplex_session_max_min: DEFAULT_DUPLEX_SESSION_MAX_MIN,
            duplex_filler: false, duplex_ingress: true,
            voice_by_lang: {} as Record<string, string> },
-    stt: { engine: 'sensevoice' as 'browser' | 'sensevoice' },
+    stt: { engine: 'sensevoice' as 'browser' | 'sensevoice' | 'ali' | 'volc' | 'openai' | 'eleven' | 'gemini' },
     omni: {
       chat_url: 'https://api.modelbest.cn/v1',
       realtime_host: 'https://minicpmo45.modelbest.cn',
@@ -58,7 +58,7 @@ export const useSettingsStore = defineStore('settings', {
       stage_texture: '', stage_opacity: 1,
     },
     modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, codewatch: true, touch: true },
-    memory: { embedder: 'auto' as 'auto' | 'local' | 'doubao' | 'qwen' },
+    memory: { embedder: 'auto' as 'auto' | 'local' | 'doubao' | 'qwen' | 'openai' | 'gemini' },
     hardware: {
       auto: false, tier: '', ram_gb: 0, vram_gb: 0, cores: 0,
       reason: '', fingerprint: '',
@@ -180,7 +180,7 @@ export const useSettingsStore = defineStore('settings', {
       const mem = (data as { memory?: { embedder?: string } }).memory;
       const emb = String(mem?.embedder || 'auto');
       this.memory = {
-        embedder: (emb === 'local' || emb === 'doubao' || emb === 'qwen' ? emb : 'auto'),
+        embedder: (emb === 'local' || emb === 'doubao' || emb === 'qwen' || emb === 'openai' || emb === 'gemini' ? emb : 'auto'),
       };
       const content = (data as { content?: Record<string, unknown> }).content;
       if (content && typeof content === 'object') {
@@ -201,7 +201,8 @@ export const useSettingsStore = defineStore('settings', {
         this.voices = v;
         if (!v.length) return;
         const ok = v.some((x) => x.engine === this.tts.engine && x.id === this.tts.voice);
-        if ((this.tts.engine === 'edge' || this.tts.engine === 'qwen') && !ok) {
+        if ((this.tts.engine === 'edge' || this.tts.engine === 'qwen' || this.tts.engine === 'volc'
+          || this.tts.engine === 'openai' || this.tts.engine === 'eleven' || this.tts.engine === 'gemini') && !ok) {
           this.tts.voice = defaultVoice(this.tts.engine, this.locale.reply);
         } else if (this.tts.engine === 'cosy' && !ok) {
           this.tts.voice = '';

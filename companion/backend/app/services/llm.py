@@ -116,6 +116,14 @@ def _conf(llm_conf: Dict[str, Any]) -> Dict[str, Any]:
     return apply_llm_overlay(llm_conf)
 
 
+def auth_headers(base_url: str, api_key: str) -> Dict[str, str]:
+    """OpenAI 兼容的 Bearer。Claude 官方兼容口还要带 anthropic-version。"""
+    headers = {"Authorization": f"Bearer {api_key}"}
+    if "api.anthropic.com" in (base_url or ""):
+        headers["anthropic-version"] = "2023-06-01"
+    return headers
+
+
 def build_payload(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]) -> Dict[str, Any]:
     """按设置组装请求体：采样参数 + 各服务商的思考开关方言。"""
     model = llm_conf.get("model") or "gpt-4o-mini"
@@ -164,7 +172,7 @@ async def test_connection(llm_conf: Dict[str, Any]) -> Dict[str, Any]:
                                      trust_env=False) as client:
             resp = await client.post(
                 f"{base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {llm_conf.get('api_key')}"},
+                headers=auth_headers(base_url, llm_conf.get("api_key") or ""),
                 json=payload,
             )
     except httpx.HTTPError as exc:
@@ -200,7 +208,7 @@ async def stream_chat(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]
                                      trust_env=False) as client:
             async with client.stream(
                 "POST", f"{base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers=auth_headers(base_url, api_key),
                 json=build_payload(llm_conf, messages),
             ) as resp:
                 if resp.status_code != 200:
@@ -252,7 +260,7 @@ async def complete_json(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]
                                      trust_env=False) as client:
             resp = await client.post(
                 f"{base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers=auth_headers(base_url, api_key),
                 json=payload,
             )
         if resp.status_code != 200:
@@ -306,7 +314,7 @@ async def embed_texts(llm_conf: Dict[str, Any], texts: List[str]) -> Optional[Li
             try:
                 resp = await client.post(
                     f"{base_url}/embeddings",
-                    headers={"Authorization": f"Bearer {api_key}"},
+                    headers=auth_headers(base_url, api_key),
                     json={"model": model, "input": texts},
                 )
             except httpx.HTTPError:

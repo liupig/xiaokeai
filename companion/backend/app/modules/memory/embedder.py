@@ -1,4 +1,4 @@
-"""记忆向量：显式选本地 MiniLM / 字节豆包 / 千问，不再静默探测网关。"""
+"""记忆向量：显式选本地 MiniLM / 豆包 / 千问 / OpenAI / Gemini。"""
 from __future__ import annotations
 
 import os
@@ -9,9 +9,11 @@ import httpx
 
 from .embed_local import probe as probe_local_minilm
 
-PROVIDERS = ("auto", "local", "doubao", "qwen")
+PROVIDERS = ("auto", "local", "doubao", "qwen", "openai", "gemini")
 DOUBAO_BASE = "https://ark.cn-beijing.volces.com/api/v3"
 QWEN_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+OPENAI_BASE = "https://api.openai.com/v1"
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
 QWEN_NATIVE = "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding"
 
 DOUBAO_MODELS = (
@@ -25,9 +27,18 @@ QWEN_MODELS = (
     "text-embedding-v4",
     "text-embedding-v2",
 )
+OPENAI_MODELS = (
+    "text-embedding-3-small",
+    "text-embedding-3-large",
+)
+GEMINI_MODELS = (
+    "gemini-embedding-001",
+)
 
 _VOLC_HINT = ("ark.cn-beijing.volces.com", "volces.com", "volcengine")
 _QWEN_HINT = ("dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com")
+_OPENAI_HINT = ("api.openai.com",)
+_GEMINI_HINT = ("generativelanguage.googleapis.com",)
 
 
 def normalize_provider(raw: Any) -> str:
@@ -57,6 +68,10 @@ def guess_provider(llm_conf: Dict[str, Any]) -> str:
         return "doubao"
     if any(h in base for h in _QWEN_HINT):
         return "qwen"
+    if any(h in base for h in _OPENAI_HINT):
+        return "openai"
+    if any(h in base for h in _GEMINI_HINT):
+        return "gemini"
     return "local"
 
 
@@ -79,6 +94,28 @@ def doubao_credentials(llm_conf: Dict[str, Any]) -> Tuple[str, str]:
     return "", ""
 
 
+def openai_credentials(llm_conf: Dict[str, Any]) -> Tuple[str, str]:
+    key = (llm_conf.get("api_key") or "").strip()
+    base = (llm_conf.get("base_url") or "").rstrip("/")
+    if key and any(h in base.lower() for h in _OPENAI_HINT):
+        return key, OPENAI_BASE
+    env_key = _env_key("OPENAI_API_KEY")
+    if env_key:
+        return env_key, OPENAI_BASE
+    return "", ""
+
+
+def gemini_credentials(llm_conf: Dict[str, Any]) -> Tuple[str, str]:
+    key = (llm_conf.get("api_key") or "").strip()
+    base = (llm_conf.get("base_url") or "").rstrip("/")
+    if key and any(h in base.lower() for h in _GEMINI_HINT):
+        return key, GEMINI_BASE
+    env_key = _env_key("GEMINI_API_KEY", "GOOGLE_API_KEY")
+    if env_key:
+        return env_key, GEMINI_BASE
+    return "", ""
+
+
 def qwen_credentials(llm_conf: Dict[str, Any]) -> Tuple[str, str]:
     key = (llm_conf.get("api_key") or "").strip()
     base = (llm_conf.get("base_url") or "").rstrip("/")
@@ -91,7 +128,7 @@ def qwen_credentials(llm_conf: Dict[str, Any]) -> Tuple[str, str]:
 
 
 class RemoteEmbedder:
-    """OpenAI 兼容 /embeddings。字节走方舟，千问走百炼兼容模式。"""
+    """OpenAI 兼容 /embeddings。豆包走方舟，千问走百炼，Gemini 走 AI Studio 兼容口。"""
 
     def __init__(self, api_key: str, base_url: str, model: str, dims: int, *,
                  provider: str, native: bool = False, input_list: bool = True,
@@ -245,6 +282,16 @@ def resolve(llm_conf: Dict[str, Any], choice: str) -> Tuple[Optional[Any], str]:
         emb = RemoteEmbedder.connect("qwen", key, base, QWEN_MODELS)
         if emb is None:
             note = "千问 embedding 不可用（需要百炼 sk- Key），改用本地 MiniLM"
+    elif want == "openai":
+        key, base = openai_credentials(llm_conf)
+        emb = RemoteEmbedder.connect("openai", key, base, OPENAI_MODELS)
+        if emb is None:
+            note = "OpenAI embedding 不可用（需要 OpenAI API Key），改用本地 MiniLM"
+    elif want == "gemini":
+        key, base = gemini_credentials(llm_conf)
+        emb = RemoteEmbedder.connect("gemini", key, base, GEMINI_MODELS)
+        if emb is None:
+            note = "Gemini embedding 不可用（需要 Gemini API Key），改用本地 MiniLM"
     elif want == "local":
         emb = _tag_local(probe_local_minilm())
         if emb is None:

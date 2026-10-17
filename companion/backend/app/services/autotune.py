@@ -272,7 +272,7 @@ def fallback_stt(reason: str) -> None:
     with Session(engine) as session:
         conf = settings_store.get_all(session)
         stt = dict(conf.get("stt") or {})
-        if (stt.get("engine") or "").strip().lower() == "browser":
+        if (stt.get("engine") or "").strip().lower() != "sensevoice":
             return
         stt["engine"] = "browser"
         hw = _hw_blob(conf)
@@ -293,7 +293,7 @@ def fallback_tts(reason: str) -> None:
     with Session(engine) as session:
         conf = settings_store.get_all(session)
         tts = dict(conf.get("tts") or {})
-        if (tts.get("engine") or "").strip().lower() in ("edge", "browser", "off"):
+        if (tts.get("engine") or "").strip().lower() != "qwen":
             return
         tts["engine"] = "edge"
         from ..locale_pack import default_voice, reply_of

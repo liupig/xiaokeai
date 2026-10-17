@@ -17,6 +17,11 @@ const characters = useCharacterStore();
 const settings = useSettingsStore();
 const currentName = computed(() => characters.current?.name ?? t('top.none'));
 const canPet = typeof window.companionDesktop?.setShellMode === 'function';
+const canReload = typeof window.companionDesktop?.reload === 'function';
+
+function reloadShell() {
+  void window.companionDesktop?.reload?.();
+}
 
 const tools = computed(() => {
   settings.locale.ui;
@@ -44,14 +49,18 @@ const tools = computed(() => {
     </div>
     <div class="toolbar glass">
       <MocapToolbar />
+      <n-tooltip v-if="canReload" :delay="300">
+        <template #trigger>
+          <button class="tool" type="button" @click="reloadShell">
+            <XkIcon name="reload" :size="22" />
+          </button>
+        </template>
+        {{ t('top.reload') }}
+      </n-tooltip>
       <n-tooltip v-if="canPet" :delay="300">
         <template #trigger>
           <button class="tool" type="button" @click="setShellMode('pet')">
-            <svg class="pet-ico" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-              <rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6" />
-              <path d="M8 20h8M12 16v4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-              <circle cx="12" cy="10" r="1.5" fill="currentColor" />
-            </svg>
+            <XkIcon name="pet" :size="22" />
           </button>
         </template>
         {{ t('top.pet') }}
@@ -145,10 +154,6 @@ const tools = computed(() => {
 .tool.active {
   background: #5b5bd6;
   color: #fff;
-}
-
-.pet-ico {
-  display: block;
 }
 
 .tool.rec {

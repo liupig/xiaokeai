@@ -113,6 +113,10 @@ const QWEN: Record<string, ReplyLang> = {
 
 export function voiceLang(id: string): ReplyLang | '' {
   if (QWEN[id]) return QWEN[id];
+  if (id.startsWith('zh_')) return 'zh-CN';
+  if (id.startsWith('en_')) return 'en';
+  if (id.startsWith('ja_')) return 'ja';
+  if (id.startsWith('ko_')) return 'ko';
   if (id.startsWith('zh-')) return 'zh-CN';
   if (id.startsWith('en-')) return 'en';
   if (id.startsWith('ja-')) return 'ja';
@@ -128,6 +132,15 @@ export function defaultVoice(engine: string, lang: string = reply): string {
     if (l === 'ko') return 'Sohee';
     return 'Serena';
   }
+  if (engine === 'volc') {
+    if (l === 'en') return 'en_female_dacey_uranus_bigtts';
+    if (l === 'ja') return 'ja_female_bv522_uranus_bigtts';
+    if (l === 'ko') return 'ko_female_bv546_uranus_bigtts';
+    return 'zh_female_vv_uranus_bigtts';
+  }
+  if (engine === 'openai') return 'marin';
+  if (engine === 'eleven') return '21m00Tcm4TlvDq8ikWAM';
+  if (engine === 'gemini') return 'Kore';
   if (l === 'en') return 'en-US-AriaNeural';
   if (l === 'ja') return 'ja-JP-NanamiNeural';
   if (l === 'ko') return 'ko-KR-SunHiNeural';
@@ -149,9 +162,24 @@ export function voiceFits(voice: string, lang: string, engine = ''): boolean {
   return want === 'en' && eng === 'qwen' && (voice === 'Serena' || voice === 'Vivian');
 }
 
+function volcLang(id: string): ReplyLang | '' {
+  const s = id.toLowerCase();
+  if (s.startsWith('zh_') || s.includes('_zh_')) return 'zh-CN';
+  if (s.startsWith('en_') || s.includes('_en_')) return 'en';
+  if (s.startsWith('ja_') || s.includes('_ja_')) return 'ja';
+  if (s.startsWith('ko_') || s.includes('_ko_')) return 'ko';
+  return '';
+}
+
 export function alignVoice(engine: string, voice: string, lang: string = reply): string {
   const vid = (voice || '').trim();
   const want = normalizeLang(lang);
+  if ((engine || '').toLowerCase() === 'volc') {
+    const have = volcLang(vid);
+    if (have === want) return vid;
+    if (!have && (vid.includes('uranus') || vid.startsWith('ICL_'))) return vid;
+    return defaultVoice(engine, want);
+  }
   if (!vid) return defaultVoice(engine, want);
   if (voiceFits(vid, want, engine)) return vid;
   if (!voiceLang(vid)) return vid;

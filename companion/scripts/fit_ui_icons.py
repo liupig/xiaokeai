@@ -149,6 +149,7 @@ def main() -> None:
         "settings": 2, "review": 2, "code": 2, "chevron": 0, "film": 1,
         "tarot": 1, "log": 0, "assets": 1, "mic": 1, "cam": 1, "snap": 0,
         "quick": 0, "keepsake": 1, "rec": 0, "send": 0,
+        "reload": 2, "pet": 1,
     }
     for src in sorted(RAW_DIR.glob("*.png")):
         icon = process_one(src, radius_of.get(src.stem, 3))

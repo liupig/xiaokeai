@@ -4,7 +4,11 @@ from typing import AsyncGenerator, Dict, List
 import edge_tts
 
 from . import tts_cosy
+from . import tts_eleven
+from . import tts_gemini
+from . import tts_openai
 from . import tts_qwen
+from . import tts_volc
 
 EDGE_VOICES = [
     {"id": "zh-CN-XiaoyiNeural", "label": "晓伊（活泼少女）"},
@@ -31,6 +35,14 @@ def list_voices(engine: str = "") -> List[Dict[str, str]]:
     for v in tts_qwen.QWEN_VOICES:
         items.append({"id": v["id"], "label": v["label"], "engine": "qwen"})
     for v in tts_cosy.list_voices():
+        items.append(v)
+    for v in tts_volc.list_voices():
+        items.append(v)
+    for v in tts_openai.list_voices():
+        items.append(v)
+    for v in tts_eleven.list_voices():
+        items.append(v)
+    for v in tts_gemini.list_voices():
         items.append(v)
     if engine:
         items = [x for x in items if x["engine"] == engine]

@@ -143,7 +143,7 @@ async function removeCurrent() {
         <label>{{ t('char.voice') }}</label>
         <n-select v-model:value="editing.voice" :options="voiceOptions" filterable
                   :fallback-option="false" :placeholder="t('char.voicePh')"
-                  :disabled="settings.tts.engine !== 'edge' && settings.tts.engine !== 'qwen' && settings.tts.engine !== 'cosy'" />
+                  :disabled="settings.tts.engine !== 'edge' && settings.tts.engine !== 'qwen' && settings.tts.engine !== 'cosy' && settings.tts.engine !== 'volc' && settings.tts.engine !== 'openai' && settings.tts.engine !== 'eleven' && settings.tts.engine !== 'gemini'" />
         <label>{{ t('char.boundary') }}</label>
         <n-select :value="editing.boundary || 'free'" :options="boundaryOptions"
                   @update:value="(v: string) => { if (editing) editing.boundary = v; }" />
