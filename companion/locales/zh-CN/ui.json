@@ -20,6 +20,8 @@
   "top.keepsake": "证物相册",
   "top.pet": "放到桌面",
   "top.reload": "重载窗口。后端刚启动或更新后数据是空的，就用这个：先关掉当前窗口，再开一个新的。",
+  "chrome.copy": "点击复制",
+  "chrome.copied": "已复制",
   "pet.chat": "会话",
   "pet.back": "回到舞台",
   "pet.min": "最小化",

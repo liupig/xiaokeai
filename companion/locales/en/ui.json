@@ -20,6 +20,8 @@
   "top.keepsake": "Keepsakes",
   "top.pet": "Float on desktop",
   "top.reload": "Reload the window. Use this when the backend was not ready and data stayed empty: the current window is closed, then a new one opens.",
+  "chrome.copy": "Click to copy",
+  "chrome.copied": "Copied",
   "pet.chat": "Chat",
   "pet.back": "Back to stage",
   "pet.min": "Minimize",

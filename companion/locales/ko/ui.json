@@ -20,6 +20,8 @@
   "top.keepsake": "간직",
   "top.pet": "바탕화면에 두기",
   "top.reload": "창을 다시 연다. 시작할 때 백엔드가 늦어 데이터가 비어 있으면, 지금 창을 닫고 새 창을 연다.",
+  "chrome.copy": "클릭하면 복사",
+  "chrome.copied": "복사됨",
   "pet.chat": "대화",
   "pet.back": "무대로",
   "pet.min": "최소화",

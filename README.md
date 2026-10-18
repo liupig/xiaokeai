@@ -664,6 +664,8 @@ foreach ($port in 8600, 5175) {
 
 QQ group · QQ 群 1124054481
 
+Discord · [https://discord.gg/xxvXxHP8T](https://discord.gg/xxvXxHP8T)
+
 <p align="center">
   <img src="./docs/community/qq-group.jpg" alt="QQ group" width="320" />
 </p>
