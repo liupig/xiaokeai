@@ -165,7 +165,7 @@ def step_electron(dist_dir: Path) -> None:
     if app_dir.exists():
         shutil.rmtree(app_dir)
     app_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("main.js", "preload.js", "package.json", "icon.png"):
+    for name in ("main.js", "preload.js", "petScreen.js", "package.json", "icon.png"):
         src_file = DESKTOP / name
         if src_file.is_file():
             shutil.copy2(src_file, app_dir / name)
@@ -614,6 +614,19 @@ def step_copy_payload(dist_dir: Path) -> None:
         robocopy(tarot, dist_dir / "assets" / "tarot")
     else:
         (dist_dir / "assets" / "tarot").mkdir(parents=True, exist_ok=True)
+
+    # The launcher points COMPANION_ROOT at pack A's exe directory. Spoken
+    # commands (tarot, cut, put the cards away) read locales from there. Without
+    # this pack, the pet hears "tarot" as ordinary chat.
+    loc = COMPANION / "locales"
+    dest_loc = dist_dir / "locales"
+    if dest_loc.exists():
+        shutil.rmtree(dest_loc)
+    if loc.is_dir():
+        shutil.copytree(loc, dest_loc)
+        print("  ok locales/（口头口令）")
+    else:
+        print("  skip locales（没有语言包，口头塔罗开不了局）")
 
     _copy_tools_7z(dist_dir)
 
