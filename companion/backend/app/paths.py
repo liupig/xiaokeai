@@ -17,6 +17,8 @@ from starlette.types import Receive, Scope, Send
 
 CONTENT_MARKER = "xiaoke-content.json"
 CONTENT_FILE = "content.path"
+# 在线包标记：有这个文件就表示 ASR / TTS / 向量都走云端，不带离线权重。
+ONLINE_MARKER = "xiaoke-online.json"
 
 
 def _detect() -> tuple[Path, Path, Path]:
@@ -106,6 +108,9 @@ def resolve_content_root(app_root: Path) -> Path | None:
     file_path = _read_content_file(app_root)
     if file_path:
         return file_path
+    # 在线包自带动作资产，旁边若还有 B 也不要自动挂上，否则会去加载离线语音和 PyTorch。
+    if (app_root / ONLINE_MARKER).is_file():
+        return app_root.resolve()
     sibling = _sibling_content(app_root)
     if sibling is not None:
         try:
@@ -237,7 +242,10 @@ def content_found() -> dict[str, bool]:
         "cameras": CAMERAS_DIR.is_dir() and any(CAMERAS_DIR.rglob("*.vmd")),
         "music": MUSIC_DIR.is_dir() and any(p.is_file() for p in MUSIC_DIR.rglob("*") if p.suffix.lower() in {".mp3", ".wav", ".m4a", ".ogg", ".flac"}),
         "speech": SPEECH_DIR.is_dir() and any(SPEECH_DIR.iterdir()),
-        "embed": MINILM_DIR.is_dir() or (FASTEMBED_DIR.is_dir() and any(FASTEMBED_DIR.iterdir())),
+        "embed": (
+            (MINILM_DIR.is_dir() and any(MINILM_DIR.iterdir()))
+            or (FASTEMBED_DIR.is_dir() and any(FASTEMBED_DIR.iterdir()))
+        ),
         "torch": ml_site_packages(CONTENT_DIR) is not None,
     }
 

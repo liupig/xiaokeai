@@ -1,15 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""xiaoke.ai 打包：A 程序包 + B 资源包。
+"""xiaoke.ai 打包：A 程序包 + B 资源包，以及完全在线包。
 
 用法（在 companion 目录，用后端 venv 的 Python）：
     python build_exe.py              # 只打 A（代码 + 运行时，日常迭代）
     python build_exe.py --content    # 只打 B（模型 / 动作 / 歌曲 / 语音权重）
     python build_exe.py --all        # A 和 B 都打
+    python build_exe.py --online     # 完全在线包：动作资产 + 云端语音/向量，无离线模型
     python build_exe.py --skip-7z    # 只出目录，不打 7z
 
 产物不进仓库：A 在 games 同级 xiaoke-ai-A-时间戳/，B 固定为 xiaoke-ai-B/。
 一体包（旧）：python build_exe.py --full  → xiaoke-ai-时间戳/（代码+资源打一起）。
+在线包：python build_exe.py --online → xiaoke-ai-online-时间戳/。
 """
 from __future__ import annotations
 
@@ -462,6 +464,65 @@ def _is_drop_name(name: str) -> bool:
     return False
 
 
+# 在线包不跑本地 ASR / TTS / 向量。这些库留着会多出数 GB，开机也可能去找本地权重。
+ONLINE_DROP_NAMES = {
+    "torch", "torchaudio", "torchvision", "torchgen", "triton", "functorch", "nvidia",
+    "qwen_tts", "qwen3_tts", "qwen3_tts_streaming",
+    "transformers", "tokenizers", "huggingface_hub", "safetensors", "accelerate",
+    "sherpa_onnx", "sherpa_onnx_core",
+    "fastembed", "onnxruntime", "onnxruntime_gpu",
+    "scipy", "scipy.libs", "numba", "llvmlite", "librosa", "soundfile",
+    "audioread", "pooch", "soxr", "resampy", "lazy_loader",
+    "sentence_transformers", "einops",
+}
+ONLINE_DROP_PREFIXES = (
+    "torch-", "torchaudio-", "torchvision-", "triton-", "nvidia",
+    "qwen_tts-", "qwen-tts-", "qwen3_tts", "qwen3-tts",
+    "transformers-", "tokenizers-", "huggingface_hub-", "safetensors-", "accelerate-",
+    "sherpa_onnx", "sherpa-onnx",
+    "fastembed-", "onnxruntime",
+    "scipy-", "numba-", "llvmlite-", "librosa-", "soundfile-",
+    "audioread-", "pooch-", "soxr-", "resampy-", "lazy_loader-",
+    "sentence_transformers-", "sentence-transformers-", "einops-",
+)
+
+
+def _is_online_drop(name: str) -> bool:
+    n = name.lower()
+    if n in ONLINE_DROP_NAMES:
+        return True
+    for pfx in ONLINE_DROP_PREFIXES:
+        if n == pfx or n.startswith(pfx):
+            return True
+    return False
+
+
+def strip_online_excluded(site_packages: Path) -> int:
+    """删掉只给离线语音 / 向量用的库。edge-tts、dashscope、mem0 留下。"""
+    if not site_packages.is_dir():
+        return 0
+    n = 0
+    freed = 0
+    for p in list(site_packages.iterdir()):
+        if not _is_online_drop(p.name):
+            continue
+        try:
+            if p.is_dir():
+                for f in p.rglob("*"):
+                    if f.is_file():
+                        freed += f.stat().st_size
+                shutil.rmtree(p, ignore_errors=True)
+            elif p.is_file():
+                freed += p.stat().st_size
+                p.unlink(missing_ok=True)
+            n += 1
+            print(f"  去掉离线库 {p.name}")
+        except OSError as exc:
+            print(f"  skip {p.name}（{exc}）")
+    print(f"  共去掉 {n} 项离线库（约 {freed / (1024 ** 3):.2f} GB）")
+    return n
+
+
 def strip_unused_site_packages(site_packages: Path) -> int:
     """删掉开发环境残留（gradio / opencv / sklearn 等），产品跑起来不需要。"""
     if not site_packages.is_dir():
@@ -578,6 +639,42 @@ def slim_a_runtime(dist_dir: Path) -> None:
     print(f"  A runtime 去掉编译文件 {junk} 个")
 
 
+def smoke_online_deps(dist_dir: Path) -> None:
+    """离线库必须不在，在线语音和记忆的依赖必须还在。"""
+    py = dist_dir / "runtime" / "python.exe"
+    if not py.is_file():
+        raise SystemExit("在线包没有 runtime/python.exe")
+    code = (
+        "import importlib.util\n"
+        "banned = ('torch', 'qwen_tts', 'sherpa_onnx', 'fastembed', 'transformers')\n"
+        "for name in banned:\n"
+        "    if importlib.util.find_spec(name) is not None:\n"
+        "        raise SystemExit('offline package still present: ' + name)\n"
+        "import edge_tts, dashscope, fastapi, mem0, numpy\n"
+        "print('ONLINE_DEPS_OK')\n"
+    )
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    print("  在线依赖冒烟…")
+    r = subprocess.run([str(py), "-c", code], env=env, capture_output=True, text=True)
+    out = (r.stdout or "") + "\n" + (r.stderr or "")
+    if r.returncode != 0 or "ONLINE_DEPS_OK" not in out:
+        raise SystemExit(f"在线包运行时不完整：\n{out[-2400:]}")
+    print("  ok 在线依赖冒烟")
+
+
+def slim_online_runtime(dist_dir: Path) -> None:
+    """在线包去掉 torch / CUDA 和离线 ASR、TTS、向量库。不写进 B。"""
+    print("\n[3b/8] 在线包精简运行时（去掉本地 ASR / TTS / 向量 / PyTorch）")
+    src_sp = dist_dir / "runtime" / "Lib" / "site-packages"
+    remove_ml_runtime(src_sp)
+    strip_unused_site_packages(src_sp)
+    strip_online_excluded(src_sp)
+    junk = strip_build_junk(dist_dir / "runtime")
+    print(f"  在线包 runtime 去掉编译文件 {junk} 个")
+    smoke_online_deps(dist_dir)
+
+
 def _copy_tools_7z(dist_dir: Path) -> None:
     tools = dist_dir / "tools"
     tools.mkdir(parents=True, exist_ok=True)
@@ -692,6 +789,84 @@ def step_copy_payload_full(dist_dir: Path) -> None:
         print("  skip fastembed cache")
 
 
+def step_copy_online_assets(dist_dir: Path) -> None:
+    """在线包自带角色、动作、镜头、歌曲。不带 SenseVoice / Qwen / MiniLM。"""
+    print("\n[5b/8] 在线包：拷动作资产（不含离线语音 / 向量 / PyTorch）")
+    for name in CONTENT_ASSET_DIRS:
+        src = COMPANION / "assets" / name
+        if src.exists():
+            robocopy(src, dist_dir / "assets" / name)
+        else:
+            print(f"  skip assets/{name}")
+    marker = {
+        "name": "xiaoke-ai-online",
+        "kind": "online",
+        "version": 1,
+        "asr": "volc",
+        "tts": "volc",
+        "embedder": "auto",
+    }
+    (dist_dir / "xiaoke-online.json").write_text(
+        json.dumps(marker, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print("  ok xiaoke-online.json")
+
+
+def seed_online_settings(db: Path) -> None:
+    """把识别、合成、向量写成云端默认。自动档看到这些记录就不会改回本地。"""
+    import sqlite3
+
+    from app.services.autotune import online_settings_patch
+
+    if not db.is_file():
+        print("  skip 在线默认引擎（没有 app.db，第一次打开会按标记写入）")
+        return
+    conn = sqlite3.connect(str(db))
+    try:
+        names = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        if "setting" not in names:
+            print("  skip 在线默认引擎（库里没有 setting 表）")
+            return
+        for key, value in online_settings_patch().items():
+            blob = json.dumps(value, ensure_ascii=False)
+            conn.execute(
+                "INSERT INTO setting (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, blob),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    print("  ok 默认引擎：识别/合成=火山，向量=自动（跟对话那把 Key）")
+
+
+def smoke_online_app(dist_dir: Path) -> None:
+    """用包里的 Python 导入打包后的后端，确认不依赖离线库也能起来。"""
+    py = dist_dir / "runtime" / "python.exe"
+    if not (dist_dir / "app").is_dir():
+        raise SystemExit("在线包还没有 app，无法做导入冒烟")
+    code = (
+        "import os, sys\n"
+        "sys.path.insert(0, os.environ['COMPANION_ROOT'])\n"
+        "import app.main\n"
+        "print('ONLINE_APP_OK')\n"
+    )
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["COMPANION_ROOT"] = str(dist_dir)
+    env["NO_PROXY"] = "*"
+    print("  在线包后端导入冒烟…")
+    r = subprocess.run([str(py), "-c", code], env=env, capture_output=True, text=True)
+    out = (r.stdout or "") + "\n" + (r.stderr or "")
+    if r.returncode != 0 or "ONLINE_APP_OK" not in out:
+        raise SystemExit(f"在线包后端无法导入：\n{out[-2400:]}")
+    print("  ok 后端导入冒烟")
+
+
 def step_copy_content(dist_dir: Path) -> None:
     """B 包：模型、动作、镜头、歌曲、ASR / TTS / embedding。"""
     print("\n[*] 复制资源包 B")
@@ -801,6 +976,36 @@ def write_readme_full(dist_dir: Path) -> None:
 聊天 Key 在设置面板填，或自己放 .env（参考 .env.example）。
 
 请勿删除 runtime、app、web、electron、assets、data。
+"""
+    (dist_dir / "使用说明.txt").write_text(text, encoding="utf-8")
+
+
+def write_readme_online(dist_dir: Path) -> None:
+    print("\n[7/8] 写使用说明（在线包）")
+    text = """xiaoke.ai 完全在线包
+======================
+
+这个包自带角色、动作、镜头和歌曲，双击就能开。
+语音识别、语音合成、记忆向量都走云端，没有 SenseVoice、Qwen TTS、
+MiniLM，也没有 PyTorch。不需要 NVIDIA 显卡，也不用再选资源包 B。
+
+双击 xiaoke-ai.exe 打开自带 Chromium 窗口：
+
+  前端  http://127.0.0.1:5211
+  后端  http://127.0.0.1:5201
+
+第一次用：设置 → AI 对话，填入火山方舟的 base_url / api_key / model。
+默认识别是豆包语音 2.0，合成是 seed-tts 2.0，记忆向量自动用豆包 embedding，
+三样和对话共用这一把 Key。
+
+改用阿里百炼时：对话地址改成百炼，识别改「阿里」，合成改 CosyVoice。
+改用 OpenAI 或 Gemini 时，识别、合成、向量也改成同一家。
+不想配语音 Key 时，识别可改浏览器 Web Speech，合成可改 edge-tts。
+
+设置里资源包一行：角色和动作是勾，语音 / 向量 / PyTorch 是横线，这是正常的。
+
+需要：Windows 10+，能访问对应云服务。
+请勿删除 runtime、app、web、electron、assets、xiaoke-online.json。
 """
     (dist_dir / "使用说明.txt").write_text(text, encoding="utf-8")
 
@@ -919,6 +1124,29 @@ def build_full(py: Path, skip_7z: bool) -> Path:
     return dist_dir
 
 
+def build_online(py: Path, skip_7z: bool) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    dist_dir = OUT_ROOT / f"xiaoke-ai-online-{stamp}"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    print(f"在线包输出: {dist_dir}")
+    step_frontend(py)
+    step_electron(dist_dir)
+    step_copy_runtime(dist_dir, py)
+    slim_online_runtime(dist_dir)
+    step_encrypt_app(dist_dir, py)
+    step_copy_payload(dist_dir)
+    step_copy_online_assets(dist_dir)
+    seed_online_settings(dist_dir / "data" / "app.db")
+    smoke_online_app(dist_dir)
+    step_pyinstaller(dist_dir, py)
+    write_readme_online(dist_dir)
+    archive = _archive(dist_dir, skip_7z)
+    print(f"  在线包目录  {dist_dir / EXE_NAME}")
+    if archive is not None:
+        print(f"  在线包压缩包 {archive}")
+    return dist_dir
+
+
 def build_b(skip_7z: bool) -> Path:
     dist_dir = OUT_ROOT / "xiaoke-ai-B"
     dist_dir.mkdir(parents=True, exist_ok=True)
@@ -934,14 +1162,31 @@ def build_b(skip_7z: bool) -> Path:
 
 def main() -> None:
     skip_7z = "--skip-7z" in sys.argv
-    want_full = "--full" in sys.argv
-    only_b = ("--content" in sys.argv or "--b" in sys.argv) and "--all" not in sys.argv and not want_full
-    want_b = only_b or "--all" in sys.argv
-    want_a = (not only_b and not want_full) or "--all" in sys.argv
-    if want_full:
+    want_online = "--online" in sys.argv
+    want_full = "--full" in sys.argv and not want_online
+    only_b = (
+        ("--content" in sys.argv or "--b" in sys.argv)
+        and "--all" not in sys.argv
+        and not want_full
+        and not want_online
+    )
+    want_b = (only_b or "--all" in sys.argv) and not want_online
+    want_a = (not only_b and not want_full and not want_online) or (
+        "--all" in sys.argv and not want_online
+    )
+    if want_full or want_online:
         want_a = False
         want_b = False
-    label = "一体包" if want_full else ("A+B" if want_a and want_b else "B" if want_b else "A")
+    if want_online:
+        label = "在线包"
+    elif want_full:
+        label = "一体包"
+    elif want_a and want_b:
+        label = "A+B"
+    elif want_b:
+        label = "B"
+    else:
+        label = "A"
     print("=" * 52)
     print("xiaoke.ai 打包  " + label)
     print("=" * 52)
@@ -949,6 +1194,8 @@ def main() -> None:
     print(f"Python: {py}")
     if skip_7z:
         print("本次跳过 7z 压缩包")
+    if want_online:
+        build_online(py, skip_7z)
     if want_full:
         build_full(py, skip_7z)
     if want_a:

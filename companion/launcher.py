@@ -340,6 +340,7 @@ def main() -> int:
     os.environ.setdefault("MODELSCOPE_OFFLINE", "1")
     os.environ["MEM0_TELEMETRY"] = "False"
     os.environ["PYTHONWARNINGS"] = "ignore:Failed to find:UserWarning"
+    online = (root / "xiaoke-online.json").is_file()
     content = (os.environ.get("COMPANION_CONTENT") or "").strip()
     if not content:
         marker = root / "content.path"
@@ -348,7 +349,8 @@ def main() -> int:
                 content = marker.read_text(encoding="utf-8").strip().strip('"').strip("'")
             except OSError:
                 content = ""
-    if not content:
+    # 在线包自带动作资产。旁边若还有 B，不要自动挂上，否则会去加载离线语音和 PyTorch。
+    if not content and not online:
         for cand in (root.parent / "xiaoke-ai-B", root / "xiaoke-ai-B"):
             if (cand / "xiaoke-content.json").is_file():
                 content = str(cand.resolve())
@@ -365,6 +367,8 @@ def main() -> int:
             print(f"资源包  {content}  （含本地推理库）")
         else:
             print(f"资源包  {content}")
+    elif online:
+        print("在线包：动作资产在本目录，识别、合成、向量走云端。")
     else:
         print("未指定资源包。设置里选 B 包目录后，关掉窗口再开。")
     os.environ["PYTHONPATH"] = os.pathsep.join(py_paths)

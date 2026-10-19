@@ -11,6 +11,7 @@ from .machine import probe as probe_machine
 
 EDGE_VOICE = "zh-CN-XiaoyiNeural"
 QWEN_VOICE = "Serena"
+ONLINE_REASON = "在线包：语音识别、语音合成、记忆向量都走云端，和 AI 对话同一把 Key"
 
 
 def _has_mod(name: str) -> bool:
@@ -57,6 +58,58 @@ def _hw_blob(conf: Dict[str, Any]) -> Dict[str, Any]:
             "tts": str(failed.get("tts") or ""),
             "memory": str(failed.get("memory") or ""),
         },
+    }
+
+
+def _online_marker() -> bool:
+    from ..paths import ONLINE_MARKER, ROOT_DIR
+    return (ROOT_DIR / ONLINE_MARKER).is_file()
+
+
+def online_settings_patch() -> Dict[str, Any]:
+    """在线包预写进数据库的引擎。识别、合成、向量走云端，开机不再改回本地。"""
+    from ..locale_pack import default_voice
+
+    modules = dict(settings_store.DEFAULTS["modules"])
+    modules["memory"] = True
+    tts = dict(settings_store.DEFAULTS["tts"])
+    tts["engine"] = "volc"
+    tts["voice"] = default_voice("volc", "zh-CN")
+    return {
+        "stt": {"engine": "volc"},
+        "tts": tts,
+        "memory": {"embedder": "auto"},
+        "modules": modules,
+        "hardware": {
+            "auto": False,
+            "tier": "online",
+            "ram_gb": 0,
+            "vram_gb": 0,
+            "cores": 0,
+            "reason": ONLINE_REASON,
+            "fingerprint": "",
+            "failed": {"stt": "", "tts": "", "memory": ""},
+        },
+    }
+
+
+def recommend_online(spec: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """在线包没有本地权重。记忆保持开，向量跟着对话那把 Key。"""
+    spec = spec or probe_machine()
+    ram = float(spec.get("ram_gb") or 0)
+    patch = online_settings_patch()
+    tts = patch["tts"]
+    return {
+        "tier": "online",
+        "stt_engine": patch["stt"]["engine"],
+        "tts_engine": tts["engine"],
+        "qwen_size": tts.get("qwen_size") or "0.6b",
+        "tts_voice": tts["voice"],
+        "memory": True,
+        "physics": False,
+        "pixel_ratio_cap": 2 if ram >= 8 else 1,
+        "reason": ONLINE_REASON,
+        **spec,
     }
 
 
@@ -178,7 +231,8 @@ def _apply_failed(rec: Dict[str, Any], failed: Dict[str, str]) -> Dict[str, Any]
 def apply_on_boot(session: Session) -> Dict[str, Any]:
     conf = settings_store.get_all(session)
     spec = probe_machine()
-    rec = recommend(spec)
+    online = _online_marker()
+    rec = recommend_online(spec) if online else recommend(spec)
     hw = _hw_blob(conf)
     if hw.get("fingerprint") and hw["fingerprint"] != spec.get("fingerprint"):
         hw["failed"] = {"stt": "", "tts": "", "memory": ""}
@@ -215,7 +269,7 @@ def apply_on_boot(session: Session) -> Dict[str, Any]:
         quality["physics"] = False
         quality["pixel_ratio_cap"] = 1
     hw.update({
-        "auto": True,
+        "auto": False if online else True,
         "tier": rec["tier"],
         "ram_gb": rec["ram_gb"],
         "vram_gb": rec["vram_gb"],
