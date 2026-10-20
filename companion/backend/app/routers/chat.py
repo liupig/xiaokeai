@@ -309,6 +309,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
 
     async def event_stream():
         full_text = ""
+        billed_tokens = 0
         dropped = False
         t0 = time.perf_counter()
         llm_ms = speech_ms = None
@@ -343,6 +344,11 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                     and ev.get("kind") != "filler"
                 ):
                     speech_ms = int((time.perf_counter() - t0) * 1000)
+                if kind == "usage":
+                    try:
+                        billed_tokens = max(billed_tokens, int(ev.get("total_tokens") or 0))
+                    except (TypeError, ValueError):
+                        pass
                 if kind == "done":
                     full_text = ev.get("full_text", "")
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
@@ -377,6 +383,12 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                            character_id=req.character_id, msg_kind=msg_kind)
             hooks.schedule_after_reply(
                 req.character_id, mode, req.text if not sidecar else "", full_text)
+            try:
+                from ..services import coins_box
+                prompt = "\n".join(str(item.get("content") or "") for item in messages)
+                coins_box.grant_talk(prompt, full_text, billed_tokens)
+            except Exception:
+                pass
         meta = {"type": "meta", "user_id": user_row_id, "message_id": assistant_id}
         yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
 

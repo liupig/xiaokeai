@@ -76,6 +76,8 @@ def _load_local_env() -> None:
                 continue
             key, _, val = line.partition("=")
             key, val = key.strip(), val.strip().strip('"').strip("'")
+            if key in ("COIN_BOX_PRIV", "COIN_BOX_PRIV2", "COIN_BOX_PEPPER", "COIN_BOX_PEPPER2"):
+                continue
             if key:
                 os.environ.setdefault(key, val)
 

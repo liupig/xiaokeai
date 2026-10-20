@@ -6,6 +6,8 @@ import { useSettingsStore } from '../../stores/settings';
 const QQ_NO = '1124054481';
 const DISCORD = 'https://discord.gg/xxvXxHP8T';
 const DISCORD_SHOWN = 'discord.gg/xxvXxHP8T';
+const GITHUB = 'https://github.com/liupig/xiaokeai';
+const GITHUB_SHOWN = 'github.com/liupig/xiaokeai';
 
 const show = Boolean(window.companionDesktop?.isShell);
 const settings = useSettingsStore();
@@ -19,6 +21,10 @@ const copiedHint = computed(() => {
 const copyTitle = computed(() => {
   settings.locale.ui;
   return t('chrome.copy');
+});
+const openTitle = computed(() => {
+  settings.locale.ui;
+  return t('chrome.open');
 });
 
 async function copy(text: string, which: 'qq' | 'discord') {
@@ -58,6 +64,10 @@ onUnmounted(() => window.clearTimeout(timer));
         <span>Discord</span>
         <span class="value" :class="{ on: copied === 'discord' }">{{ copied === 'discord' ? copiedHint : DISCORD_SHOWN }}</span>
       </button>
+      <a class="link" :href="GITHUB" target="_blank" rel="noopener" :title="openTitle">
+        <span>GitHub</span>
+        <span class="value">{{ GITHUB_SHOWN }}</span>
+      </a>
     </span>
   </div>
 </template>
@@ -115,6 +125,7 @@ onUnmounted(() => window.clearTimeout(timer));
   color: inherit;
   font: inherit;
   letter-spacing: 0.02em;
+  text-decoration: none;
   cursor: pointer;
   pointer-events: auto;
   -webkit-app-region: no-drag;

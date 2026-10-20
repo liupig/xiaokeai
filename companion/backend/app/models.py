@@ -128,3 +128,29 @@ class CamReview(SQLModel, table=True):
     combo_id: str = Field(primary_key=True)
     verdict: str = Field(index=True)  # ok | bad
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class CoinWallet(SQLModel, table=True):
+    """旧表。现行账本在加密的 wallet.seal 里，这张表不再记账。"""
+    __tablename__ = "coin_wallet"
+    id: int = Field(default=1, primary_key=True)
+    balance_milli: int = 0
+    streak_ms: int = 0
+    last_tick_ms: int = 0
+    seq: int = 0
+    nonce: int = 0
+    address: str = ""
+    mac: str = ""
+
+
+class CoinNote(SQLModel, table=True):
+    """旧表。转账记录现在封在加密账本里。"""
+    __tablename__ = "coin_note"
+    txid: str = Field(primary_key=True)
+    kind: str = ""  # out | in
+    sender: str = ""
+    recipient: str = ""
+    amount_milli: int = 0
+    nonce: int = 0
+    sig: str = ""
+    created_ms: int = 0

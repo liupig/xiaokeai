@@ -61,5 +61,8 @@
     "fan_mid": "真ん中|中央|\\bmiddle\\b|the center one|in the middle",
     "hint": "タロット|カードを引|一枚引|三枚|今日のカード|draw (?:a |one |three )?cards?|one card|three cards|daily card|yes or no|tarot|read my cards|celtic|a reading",
     "ritual": "カット|あなたが引|めくって|もう一枚|しまって|どういう意味|左|右|真ん中|過去|現在|未来|\\bcut\\b|you pick|you choose|flip|turn it over|another card|put the cards away|what does it mean|the left|the right|the middle|past|present|future"
+  },
+  "wish": {
+    "hint": "お願いしたい|願い事を|祈願して|もう一回願い|願いの池|make a wish|我要许愿|许个愿"
   }
 }

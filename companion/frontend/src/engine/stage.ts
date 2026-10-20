@@ -210,7 +210,12 @@ export class Stage {
   ) {
     for (const p of this.plugins) {
       const fn = p[name] as ((...a: typeof args) => unknown) | undefined;
-      if (fn) fn(...args);
+      if (!fn) continue;
+      try {
+        fn(...args);
+      } catch (err) {
+        console.error('[stage]', name, err);
+      }
     }
   }
 

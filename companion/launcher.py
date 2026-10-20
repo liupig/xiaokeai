@@ -128,6 +128,8 @@ def apply_dotenv(root: Path) -> int:
                 continue
             key, _, val = line.partition("=")
             key, val = key.strip(), val.strip().strip('"').strip("'")
+            if key in ("COIN_BOX_PRIV", "COIN_BOX_PRIV2", "COIN_BOX_PEPPER", "COIN_BOX_PEPPER2"):
+                continue
             if key and val and not (os.environ.get(key) or "").strip():
                 os.environ[key] = val
                 n += 1

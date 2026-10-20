@@ -263,6 +263,46 @@ export interface CodewatchSource {
   on?: boolean;
 }
 
+export interface CoinState {
+  balance_milli: number;
+  balance: number;
+  multiplier: number;
+  gpu?: number;
+  vram_gb?: number;
+  per_min: number;
+  streak_sec: number;
+  gained_milli: number;
+  wish_sec?: number;
+  wish_left?: number;
+  address?: string;
+}
+
+export interface CoinPayResult extends CoinState {
+  note: string;
+}
+
+export interface CoinRedeemResult extends CoinState {
+  from: string;
+  received_milli: number;
+}
+
+export interface CoinTier {
+  from_sec: number;
+  until_sec: number;
+  multiplier: number;
+  per_min: number;
+}
+
+export interface CoinPreview {
+  sec: number;
+  multiplier: number;
+  gpu?: number;
+  vram_gb?: number;
+  per_min: number;
+  earned_milli: number;
+  ladder: CoinTier[];
+}
+
 export interface CodewatchStatus {
   watching: boolean;
   phase: 'idle' | 'started' | 'working' | 'done';
@@ -881,6 +921,43 @@ export const api = {
     const buf = await resp.arrayBuffer();
     const type = resp.headers.get('Content-Type') || 'audio/wav';
     return new Blob([buf], { type });
+  },
+
+  coinHeartbeat() {
+    return request<CoinState>('/api/coins/heartbeat', { method: 'POST' });
+  },
+
+  coinPreview(sec: number) {
+    return request<CoinPreview>(`/api/coins/preview?sec=${Math.max(0, Math.round(sec))}`);
+  },
+
+  coinPay(to: string, amountMilli: number) {
+    return request<CoinPayResult>('/api/coins/pay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, amount_milli: amountMilli }),
+    });
+  },
+
+  coinRedeem(note: string) {
+    return request<CoinRedeemResult>('/api/coins/redeem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note }),
+    });
+  },
+
+  coinWish(characterId = 0) {
+    return request<CoinState & {
+      drop_milli: number;
+      throws?: { id: string; k: number; gag: boolean }[];
+      line?: string;
+      wish_times?: number;
+    }>('/api/coins/wish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
   },
 
   async stt(wav: Blob): Promise<{ text: string }> {

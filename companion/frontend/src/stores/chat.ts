@@ -711,7 +711,7 @@ export const useChatStore = defineStore('chat', {
       this.messages = [];
       resetSession();
     },
-    async send(text: string, opts: { fromHold?: boolean; scripted?: boolean; tarotRole?: string; fromVoice?: boolean; hideUser?: boolean } = {}) {
+      async send(text: string, opts: { fromHold?: boolean; scripted?: boolean; tarotRole?: string; fromVoice?: boolean; hideUser?: boolean; localLine?: string } = {}) {
       let input = text.trim();
       if (!input) return 'empty';
       let tarotLock = false;
@@ -794,7 +794,17 @@ export const useChatStore = defineStore('chat', {
       );
       orchestrator.beginTurn(input, prevLine?.fullContent || prevLine?.content || '');
 
-      if (useSettingsStore().modules.tarot && chars.currentId) {
+      let wishSpeak = opts.localLine || '';
+      if (!wishSpeak && !opts.scripted && !tarotLiveNow) {
+        try {
+          const wish = await import('../features/wish');
+          if (wish.canWakeWish(input)) wishSpeak = wish.beginWish().line;
+        } catch (e) {
+          console.warn('[wish]', e);
+        }
+      }
+
+      if (!wishSpeak && useSettingsStore().modules.tarot && chars.currentId) {
         try {
           const tarot = await import('../features/tarot');
           const live = tarot.tarotLive.value
@@ -837,11 +847,14 @@ export const useChatStore = defineStore('chat', {
       void (async () => {
         try {
           let quiet = '';
-          if (useSettingsStore().modules.tarot) {
+          if (!wishSpeak && useSettingsStore().modules.tarot) {
             const tarot = await import('../features/tarot');
             quiet = tarot.ritualQuietLine(opts.tarotRole || '');
           }
-          if (quiet) {
+          if (wishSpeak) {
+            orchestrator.allowLocalSpeech();
+            emitLocal(wishSpeak, onEvent);
+          } else if (quiet) {
             orchestrator.allowLocalSpeech();
             emitLocal(quiet, onEvent);
           } else {

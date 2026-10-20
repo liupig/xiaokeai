@@ -62,5 +62,8 @@
     "fan_mid": "가운데|중앙|\\bmiddle\\b|the center one|in the middle",
     "hint": "타로|카드 뽑|한 장|세 장|오늘의 카드|draw (?:a |one |three )?cards?|one card|three cards|daily card|yes or no|tarot|read my cards|celtic|a reading",
     "ritual": "컷|네가 뽑아|뒤집어|한 장 더|치워|무슨 뜻|왼쪽|오른쪽|가운데|과거|현재|미래|\\bcut\\b|you pick|you choose|flip|turn it over|another card|put the cards away|what does it mean|the left|the right|the middle|past|present|future"
+  },
+  "wish": {
+    "hint": "소원 빌|소원 하나|소원 연못|다시 빌어|make a wish|我要许愿|许个愿"
   }
 }

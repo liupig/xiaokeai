@@ -550,8 +550,12 @@ def strip_unused_site_packages(site_packages: Path) -> int:
 
 
 # qwen-tts → librosa 必依赖。开发机常靠 Anaconda 带一份，venv 里没有；
-# 打包运行时是独立 Python，不补上就会 ModuleNotFoundError。
-TTS_KEEP_PACKAGES = ("scipy", "numba", "llvmlite")
+# 在线包会把这些库删掉，A 若从在线包拷 runtime，不补上就会 ModuleNotFoundError。
+TTS_KEEP_PACKAGES = (
+    "scipy", "scipy.libs", "numba", "llvmlite", "llvmlite.libs",
+    "librosa", "audioread", "joblib", "lazy_loader", "msgpack", "pooch", "soxr", "einops",
+    "decorator.py", "soundfile.py", "_soundfile.py", "_soundfile_data",
+)
 
 
 def ensure_tts_python_deps(dest_sp: Path) -> None:
@@ -565,21 +569,28 @@ def ensure_tts_python_deps(dest_sp: Path) -> None:
     if prev is not None:
         cands.append(prev / "runtime" / "Lib" / "site-packages")
     for name in TTS_KEEP_PACKAGES:
-        if (dest_sp / name).is_dir():
+        dest = dest_sp / name
+        if dest.exists():
             print(f"  ok {name}")
             continue
-        src_root = next((sp for sp in cands if (sp / name).is_dir()), None)
+        src_root = next((sp for sp in cands if (sp / name).exists()), None)
         if src_root is None:
+            stem = Path(name).stem.lstrip("_")
             raise SystemExit(
                 f"A 运行时缺少 {name}，Qwen TTS 无法加载。"
-                f"请先执行：backend\\.venv\\Scripts\\pip install {name}"
+                f"请先执行：backend\\.venv\\Scripts\\pip install {stem}"
             )
-        robocopy(src_root / name, dest_sp / name)
-        for info in src_root.glob(f"{name}-*.dist-info"):
-            if info.is_dir():
+        src = src_root / name
+        if src.is_dir():
+            robocopy(src, dest)
+        else:
+            shutil.copy2(src, dest)
+        stem = Path(name).stem.lstrip("_")
+        for info in src_root.glob(f"{stem}-*.dist-info"):
+            if info.is_dir() and not (dest_sp / info.name).exists():
                 robocopy(info, dest_sp / info.name)
         print(f"  补上 {name} ← {src_root}")
-        if not (dest_sp / name).is_dir():
+        if not dest.exists():
             raise SystemExit(f"没能把 {name} 拷进 A 运行时")
 
 
@@ -604,9 +615,10 @@ def smoke_packed_tts_import(dist_dir: Path) -> None:
     )
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     print("  TTS import 冒烟…")
-    r = subprocess.run([str(py), "-c", code], env=env, capture_output=True, text=True)
-    out = (r.stdout or "") + "\n" + (r.stderr or "")
+    r = subprocess.run([str(py), "-c", code], env=env, capture_output=True)
+    out = (r.stdout or b"").decode("utf-8", "replace") + "\n" + (r.stderr or b"").decode("utf-8", "replace")
     if r.returncode != 0 or "TTS_IMPORT_OK" not in out:
         raise SystemExit(f"打包后 TTS 无法 import：\n{out[-2400:]}")
     print("  ok TTS import 冒烟")

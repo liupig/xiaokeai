@@ -486,6 +486,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 - **证物相册**：舞台截图和短片（mediabunny 编码），按角色归档。
 - **对话记录**：侧边抽屉回看本场对话与后端 talk log。
 - **Code 伴侣**：对话栏点「码」，看着 Cursor 开工、写着、写完，她跟着演。默认盯本机 transcript，可选装钩子。Codex 稍后。
+- **本机金币**：角色名旁边是余额。挂机按在线时长和显卡记成挖矿，聊天按 token 记。对她说许愿就开许愿池，一天 50 次：先扔三样正经或恶搞的东西，再从另一边下金币雨。不登录、不上传。细则在功能列表。
 
 #### 资产与角色
 

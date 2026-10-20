@@ -125,6 +125,9 @@ companion/assets/models/*
 companion/assets/motions/*
 !companion/assets/motions/.gitkeep
 !companion/assets/motions/README.txt
+
+# 本地动作试验（系数预览），不进仓库
+companion/motionlab/
 companion/assets/audio/*
 !companion/assets/audio/.gitkeep
 !companion/assets/audio/README.txt
@@ -145,6 +148,13 @@ companion-3d/public/motions/*
 
 music-api/downloads/*
 !music-api/downloads/.gitkeep
+
+# Coin-box compile keys stay on the official build machine.
+companion/backend/native/chain.key
+companion/backend/native/sealed/
+# *.py[cod] above also matches this extension. The server imports this build.
+# Private keys are not in the file; they stay in the gitignored .env.
+!companion/backend/app/services/coins_box.cp312-win_amd64.pyd
 
 # 桌面打包产物已改到 games 同级的 xiaoke-ai-*，这里只挡仓库内旧路径
 companion/CompanionStudio-*/

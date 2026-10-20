@@ -7,6 +7,7 @@ import { useCharacterStore } from '../../stores/character';
 import { useSettingsStore } from '../../stores/settings';
 import { t } from '../../i18n';
 import { setShellMode } from '../shell/mode';
+import CoinPill from '../coins/CoinPill.vue';
 
 type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake' | 'log';
 
@@ -41,11 +42,14 @@ const tools = computed(() => {
 
 <template>
   <div class="topbar">
-    <div class="left glass" :class="{ active: active === 'characters' }"
-         @click="emit('toggle', 'characters')">
-      <n-avatar round size="small" class="avatar">{{ currentName.slice(0, 1) }}</n-avatar>
-      <span class="name">{{ currentName }}</span>
-      <XkIcon name="chevron" :size="12" class="chev" />
+    <div class="left-group">
+      <div class="left glass" :class="{ active: active === 'characters' }"
+           @click="emit('toggle', 'characters')">
+        <n-avatar round size="small" class="avatar">{{ currentName.slice(0, 1) }}</n-avatar>
+        <span class="name">{{ currentName }}</span>
+        <XkIcon name="chevron" :size="12" class="chev" />
+      </div>
+      <CoinPill />
     </div>
     <div class="toolbar glass">
       <MocapToolbar />
@@ -89,6 +93,13 @@ const tools = computed(() => {
   justify-content: space-between;
   align-items: center;
   z-index: 10;
+  pointer-events: none;
+}
+
+.left-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   pointer-events: none;
 }
 

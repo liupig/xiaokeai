@@ -223,8 +223,18 @@ async def stream_chat(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]
                     if data == "[DONE]":
                         break
                     try:
-                        delta = json.loads(data)["choices"][0]["delta"].get("content") or ""
-                    except (json.JSONDecodeError, KeyError, IndexError):
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    usage = chunk.get("usage") if isinstance(chunk, dict) else None
+                    if isinstance(usage, dict) and usage.get("total_tokens"):
+                        try:
+                            yield {"type": "usage", "total_tokens": int(usage["total_tokens"])}
+                        except (TypeError, ValueError):
+                            pass
+                    try:
+                        delta = chunk["choices"][0]["delta"].get("content") or ""
+                    except (KeyError, IndexError, TypeError):
                         continue
                     if not delta:
                         continue

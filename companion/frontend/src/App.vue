@@ -19,12 +19,16 @@ import { useCharacterStore } from './stores/character';
 import { useChatStore } from './stores/chat';
 import { useSettingsStore } from './stores/settings';
 import { tarotLayerOn } from './features/tarot/gate';
+import { wishUi } from './features/wish';
 import { featureOn } from './i18n';
 import { isPetShell } from './features/shell/mode';
 import { installPetPointer } from './features/shell/petPointer';
 import { installPetWander } from './features/shell/petWander';
 import { installTouch } from './features/touch';
 import PetBar from './features/shell/PetBar.vue';
+import CoinPill from './features/coins/CoinPill.vue';
+import UserCenter from './features/coins/UserCenter.vue';
+import { startCoins } from './features/coins/session';
 
 const QuickPanel = defineAsyncComponent(() => import('./features/hud/QuickPanel.vue'));
 const AssetCenter = defineAsyncComponent(() => import('./features/assets/AssetCenter.vue'));
@@ -35,6 +39,7 @@ const CamReviewPanel = defineAsyncComponent(() => import('./features/review/CamR
 const KeepsakeGallery = defineAsyncComponent(() => import('./features/keepsake/KeepsakeGallery.vue'));
 const TranscriptPanel = defineAsyncComponent(() => import('./features/chat/TranscriptPanel.vue'));
 const TarotLayer = defineAsyncComponent(() => import('./features/tarot/Layer.vue'));
+const WishLayer = defineAsyncComponent(() => import('./features/wish/Layer.vue'));
 const CodewatchHud = defineAsyncComponent(() => import('./features/codewatch/Hud.vue'));
 
 /** 右侧面板互斥：同一时间只显示一个 */
@@ -71,6 +76,7 @@ const settings = useSettingsStore();
 const chat = useChatStore();
 
 onMounted(async () => {
+  startCoins();
   installTouch();
   if (isPetShell) {
     installPetPointer();
@@ -134,12 +140,15 @@ onMounted(async () => {
       <div class="layout">
         <StageView />
         <DeskChrome v-if="!isPetShell" />
+        <CoinPill v-if="isPetShell" class="pet-coin" />
+        <UserCenter />
         <ContentSetup />
         <TopBar v-if="!isPetShell" :active="activePanel" @toggle="togglePanel" />
-        <LiveBeatHud v-if="!isPetShell && !tarotLayerOn && (!activePanel || activePanel === 'characters')" />
+        <LiveBeatHud v-if="!isPetShell && !tarotLayerOn && !wishUi.on && (!activePanel || activePanel === 'characters')" />
         <MocapOverlay v-if="!isPetShell" />
         <SpeechCaption />
         <TarotLayer v-if="tarotLayerOn" />
+        <WishLayer v-if="wishUi.on" />
         <CodewatchHud v-if="!isPetShell && settings.modules.codewatch" />
         <QuickPanel :show="activePanel === 'quick'"
                     @update:show="(v: boolean) => setPanel('quick', v)" />
@@ -167,5 +176,13 @@ onMounted(async () => {
   /* provider 包裹层无高度，直接铺满视口 */
   position: fixed;
   inset: 0;
+}
+
+.pet-coin {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
 }
 </style>

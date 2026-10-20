@@ -47,6 +47,17 @@ def _migrate_columns() -> None:
                 with engine.begin() as conn:
                     conn.execute(text(
                         f"ALTER TABLE memory_fact ADD COLUMN {name} {typedef}"))
+    if "coin_wallet" in tables:
+        cols = {c["name"] for c in insp.get_columns("coin_wallet")}
+        alters = {
+            "nonce": "INTEGER DEFAULT 0",
+            "address": "VARCHAR DEFAULT ''",
+        }
+        for name, typedef in alters.items():
+            if name not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        f"ALTER TABLE coin_wallet ADD COLUMN {name} {typedef}"))
     if "memory_episode" in tables:
         cols = {c["name"] for c in insp.get_columns("memory_episode")}
         if "key_events" not in cols:
