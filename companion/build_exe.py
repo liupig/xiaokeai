@@ -724,6 +724,14 @@ def step_copy_payload(dist_dir: Path) -> None:
     else:
         (dist_dir / "assets" / "tarot").mkdir(parents=True, exist_ok=True)
 
+    # 许愿池、金币和道具牌面是小图，跟塔罗一样放在 A。漏掉的话道具只剩纯色块。
+    wish = COMPANION / "assets" / "wish"
+    if wish.is_dir():
+        robocopy(wish, dist_dir / "assets" / "wish")
+        print("  ok assets/wish")
+    else:
+        print("  skip assets/wish（没有许愿贴图）")
+
     # The launcher points COMPANION_ROOT at pack A's exe directory. Spoken
     # commands (tarot, cut, put the cards away) read locales from there. Without
     # this pack, the pet hears "tarot" as ordinary chat.

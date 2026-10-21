@@ -99,6 +99,7 @@ Newest first. The link above does not change when a new A is uploaded.
 
 | Date | Pack | What changed |
 |---|---|---|
+| 2026-10-21 | `xiaoke-ai-A-20261021090448.7z` | Coins and a wishing pool. Idle time, chat, and one wish a day mint coins. Say you want to make a wish and painted props drop into the pool, then coins rain beside it. The pool and prop art ship in A. `xiaoke-ai-B.7z` was packed the same day; keep an older B if it already runs. Also on [GitHub](https://github.com/liupig/xiaokeai/releases/tag/a-20261021). |
 | 2026-10-19 | `xiaoke-ai-A-20261019211256.7z` | The pet window opens: the screen helper ships in A. Spoken tarot works in the pet because the locale files sit next to the exe. Local Qwen TTS can load again. The title bar shows the QQ group and Discord invite; a click copies them. `xiaoke-ai-B.7z` was packed the same day; keep an older B if it already runs. |
 | 2026-10-17 | `xiaoke-ai-A-20261017202306.7z` | The pet remembers her screen and where she stood, and lands on a display that is still there if that screen is unplugged. Tarot controls follow her while she floats. Online speech vendors, a window reload, and memory that keeps pinned lines and emotional events after they leave the chat. Keep the 2026-10-12 B if it already runs. Also on [GitHub](https://github.com/liupig/xiaokeai/releases/tag/a-20261017). |
 | 2026-10-12 | `xiaoke-ai-A-20261012184939.7z` | Desktop pet: in the Electron window she can leave the stage and float as a small transparent always-on-top window. Empty space clicks through; drag her body to move, drag the corner to resize. `xiaoke-ai-B.7z` was packed the same day; keep an older B if it already runs. |
@@ -115,7 +116,7 @@ Extract with [7-Zip](https://www.7-zip.org/). Do not nest A inside B or the othe
 
 ```
 D:\xiaoke\
-  xiaoke-ai-A-20261019211256\   ← double-click xiaoke-ai.exe here
+  xiaoke-ai-A-20261021090448\   ← double-click xiaoke-ai.exe here
     xiaoke-ai.exe
   xiaoke-ai-B\
     xiaoke-content.json
@@ -429,6 +430,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 | 日期 | 包 | 这一版 |
 |---|---|---|
+| 2026-10-21 | `xiaoke-ai-A-20261021090448.7z` | 金币和许愿池。挂机、聊天、每天一次许愿会计金币。说「许愿」，道具会扔进池子，旁边再下一阵金币雨。许愿贴图在 A 里。当天也重打了 `xiaoke-ai-B.7z`；旧 B 还能用就不用换。GitHub 上也有这一份：[2026-10-21 · A 程序包](https://github.com/liupig/xiaokeai/releases/tag/a-20261021)。 |
 | 2026-10-19 | `xiaoke-ai-A-20261019211256.7z` | 桌宠窗口能开：屏幕助手打进了 A。语言包跟在 exe 旁边，桌宠里说「塔罗」能开局。本地 Qwen 语音又能加载。标题栏有 QQ 群和 Discord，点一下就复制。当天也重打了 `xiaoke-ai-B.7z`；旧 B 还能用就不用换。 |
 | 2026-10-17 | `xiaoke-ai-A-20261017202306.7z` | 桌宠记住屏幕和站位，屏幕拔掉后落到仍可见的工作区。塔罗操作跟着她。在线语音、窗口重载；钉住的句子和情绪事件离开对话窗后还在。B 仍用 10 月 12 日那份，这次没有重打。GitHub 上也有这一份：[2026-10-17 · A 程序包](https://github.com/liupig/xiaokeai/releases/tag/a-20261017)。 |
 | 2026-10-12 | `xiaoke-ai-A-20261012184939.7z` | 桌宠：Electron 窗口里可以离开舞台，变成置顶的透明小窗浮在桌面上。空白处点击穿透；拖身体挪位置，拖角改大小。当天也重打了 `xiaoke-ai-B.7z`；旧 B 还能用就不用换。 |
@@ -445,7 +447,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 ```
 某盘:\xiaoke\
-  xiaoke-ai-A-20261019211256\   ← 双击这里的 xiaoke-ai.exe
+  xiaoke-ai-A-20261021090448\   ← 双击这里的 xiaoke-ai.exe
     xiaoke-ai.exe
   xiaoke-ai-B\
     xiaoke-content.json
