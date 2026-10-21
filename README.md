@@ -1,6 +1,6 @@
 # xiaoke.ai
 
-Open-source **3D AI companion** / desktop pet · 开源3D AI伴侣 / 本地3D陪玩 / 虚拟陪玩 / 透明桌宠
+Open-source **3D AI companion** / desktop pet · weifu · awesome-ai · 开源3D AI伴侣 / 本地3D陪玩 / 虚拟陪玩 / 透明桌宠
 
 [English](#english) · [中文](#中文) · [xiaoke.ai](https://xiaoke.ai)
 
@@ -10,7 +10,7 @@ Open-source **3D AI companion** / desktop pet · 开源3D AI伴侣 / 本地3D陪
 
 **xiaoke.ai** (小可爱) is an open-source **3D AI companion**: a local desktop 3D virtual companion. A VRM, MMD (PMX), or GLB character sits across from you: voice chat, lip-sync, expression, motion, dance, and camera, with tarot and long-term memory kept on the machine. In the desktop app she can leave the stage and float as a transparent desktop pet. Interface language and speech language are separate: Simplified Chinese, English, Japanese, and Korean.
 
-Also called: open-source 3D AI companion, 3D AI companion, AI companion, local AI companion, transparent desktop pet, 开源 3D AI 伴侣, AI 伴侣, 本地 AI 伴侣, 开源 3D 陪玩, 虚拟陪玩, 本地桌宠, 透明桌宠, VRM chatbot, MMD desktop pet, AI VTuber.
+Also called: open-source 3D AI companion, 3D AI companion, AI companion, local AI companion, transparent desktop pet, weifu, awesome-ai, 开源 3D AI 伴侣, AI 伴侣, 本地 AI 伴侣, 开源 3D 陪玩, 虚拟陪玩, 本地桌宠, 透明桌宠, VRM chatbot, MMD desktop pet, AI VTuber.
 
 > **Open source · free · runs on your machine — someone who talks, moves, and remembers you, sitting across the desk.**
 
@@ -341,7 +341,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 **xiaoke.ai（小可爱）** 是开源 **3D AI 伴侣**，也是本地 **3D 陪玩 / 虚拟陪玩**。VRM、MMD（PMX）、GLB 角色坐在对面：语音聊天、口型、表情、动作、舞蹈、运镜，对面抽塔罗，长期记忆留在本机。桌面程序里还可以离开舞台，变成透明桌宠浮在桌面上。界面语言和对话语言分开，支持简体中文、英语、日语、韩语。
 
-别人会用这些词来找：开源 3D AI 伴侣、AI 伴侣、本地 AI 伴侣、3D AI companion、open-source AI companion、AI companion、开源 3D 陪玩、虚拟陪玩、本地桌宠、透明桌宠、VRM 聊天、MMD 陪玩、AI VTuber、虚拟主播。
+别人会用这些词来找：开源 3D AI 伴侣、AI 伴侣、本地 AI 伴侣、3D AI companion、open-source AI companion、AI companion、weifu、awesome-ai、开源 3D 陪玩、虚拟陪玩、本地桌宠、透明桌宠、VRM 聊天、MMD 陪玩、AI VTuber、虚拟主播。
 
 > **开源免费 · 本地运行 —— 让一个会说、会动、会记得你的她，坐到你对面。**
 
