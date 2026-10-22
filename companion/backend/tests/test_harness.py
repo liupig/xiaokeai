@@ -398,3 +398,69 @@ def test_skill_file_syncs_into_an_isolated_home(tmp_path: Path):
     skill.write_text("stale", encoding="utf-8")
     sync_skills(tmp_path)
     assert "name: chat" in skill.read_text(encoding="utf-8")
+
+
+def test_draw_key_stays_on_volc():
+    from app.modules.draw.service import draw_key
+
+    volc = {"api_key": "ark-chat", "base_url": "https://ark.cn-beijing.volces.com/api/v3"}
+    deepseek = {"api_key": "sk-deepseek", "base_url": "https://api.deepseek.com"}
+    assert draw_key(volc, env={}) == "ark-chat"
+    assert draw_key(deepseek, env={}) == ""
+    assert draw_key(deepseek, env={"ARK_API_KEY": "ark-env"}) == "ark-env"
+    assert draw_key({"api_key": "sk-other", "base_url": ""}, env={"VOLC_ARK_API_KEY": "ark-volc"}) == "ark-volc"
+
+
+class _Proc:
+    def __init__(self, code):
+        self.code = code
+
+    def poll(self):
+        return self.code
+
+
+class _Client:
+    def __init__(self, proc):
+        self._proc = proc
+
+
+class _Harness:
+    def __init__(self, proc, initialized=True):
+        self.client = _Client(proc)
+        self._initialized = initialized
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+class _TransportClosed(Exception):
+    pass
+
+
+_TransportClosed.__name__ = "TransportClosedError"
+
+
+def test_a_dead_runtime_is_dropped_and_a_live_one_stays():
+    from app.modules.harness.service import Runtime
+
+    runtime = Runtime()
+    dead = _Harness(_Proc(1))
+    runtime._harness = dead
+    runtime._open_ids.add("xiaoke-1")
+    runtime.retire_if_dead()
+    assert runtime._harness is None
+    assert dead.closed
+    assert runtime._open_ids == set()
+
+    live = _Harness(_Proc(None))
+    runtime._harness = live
+    runtime._open_ids.add("xiaoke-1")
+    runtime.retire_if_dead(RuntimeError("model said no"))
+    assert runtime._harness is live
+    assert not live.closed
+
+    runtime.retire_if_dead(_TransportClosed("stdout closed"))
+    assert runtime._harness is None
+    assert live.closed
+    assert runtime.running() is False

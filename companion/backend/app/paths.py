@@ -230,7 +230,6 @@ def current_speech_dir() -> Path:
 MINILM_DIR = EMBED_DIR / "minilm"
 FASTEMBED_DIR = EMBED_DIR / "fastembed"
 KEEPSAKES_DIR = DATA_DIR / "keepsakes"
-DRAWS_DIR = DATA_DIR / "draws"
 MEM0_DIR = DATA_DIR / "mem0"
 LOGS_DIR = DATA_DIR / "logs"
 LOCAL_ASSETS_DIR = ROOT_DIR / "assets"
@@ -306,6 +305,6 @@ def asset_static():
 for d in (
     MODELS_DIR, MOTIONS_DIR, CAMERAS_DIR, AUDIO_DIR, MUSIC_DIR,
     DATA_DIR, TMP_DIR, SPEECH_DIR, EMBED_DIR, MINILM_DIR, FASTEMBED_DIR,
-    KEEPSAKES_DIR, DRAWS_DIR, MEM0_DIR, LOGS_DIR, LOCAL_ASSETS_DIR / "tarot",
+    KEEPSAKES_DIR, MEM0_DIR, LOGS_DIR, LOCAL_ASSETS_DIR / "tarot",
 ):
     d.mkdir(parents=True, exist_ok=True)

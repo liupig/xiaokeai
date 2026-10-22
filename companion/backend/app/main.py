@@ -13,7 +13,7 @@ from sqlmodel import Session
 
 from .db import engine, init_db
 from .models import CamReview, Character, CoinNote, CoinWallet, SceneState  # noqa: F401 — register table
-from .paths import DRAWS_DIR, KEEPSAKES_DIR, resolve_asset_file
+from .paths import KEEPSAKES_DIR, resolve_asset_file
 from .routers import assets, characters, chat, coins, download, omni, review, settings, speech
 from .modules.memory.router import router as memory_router
 from .modules.scenes.router import router as scenes_router
@@ -66,7 +66,6 @@ def serve_asset(path: str):
 
 
 app.mount("/keepsakes", StaticFiles(directory=str(KEEPSAKES_DIR)), name="keepsakes")
-app.mount("/draws", StaticFiles(directory=str(DRAWS_DIR)), name="draws")
 
 
 @app.on_event("startup")

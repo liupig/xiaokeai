@@ -282,6 +282,16 @@ def session_missing(exc: BaseException) -> bool:
     return " not found" in text or "does not exist" in text
 
 
+# 管道断了就是子进程没了。名字对上就丢掉，下一句重新拉起。
+_DEAD_EXC = frozenset({
+    "TransportClosedError",
+    "BrokenPipeError",
+    "ConnectionResetError",
+    "ConnectionAbortedError",
+    "EOFError",
+})
+
+
 class Runtime:
     def __init__(self) -> None:
         self._harness = None
@@ -302,8 +312,56 @@ class Runtime:
     def running(self) -> bool:
         return self._harness is not None
 
+    def _child_alive(self) -> bool:
+        harness = self._harness
+        if harness is None:
+            return False
+        client = getattr(harness, "client", None)
+        if client is None:
+            client = getattr(harness, "_client", None)
+        proc = getattr(client, "_proc", None) if client is not None else None
+        if proc is None:
+            return not bool(getattr(harness, "_initialized", False))
+        poll = getattr(proc, "poll", None)
+        if poll is None:
+            return True
+        try:
+            return poll() is None
+        except Exception:
+            return False
+
+    def _take_if_dead(self, exc: BaseException | None = None):
+        """调用方持着锁。进程已经退出时取出旧对象，交给外面关掉。"""
+        if self._harness is None:
+            return None
+        crashed = exc is not None and type(exc).__name__ in _DEAD_EXC
+        if not crashed and self._child_alive():
+            return None
+        harness = self._harness
+        self._harness = None
+        self._open_ids.clear()
+        return harness
+
+    def retire_if_dead(self, exc: BaseException | None = None) -> None:
+        with self._turn:
+            stale = self._take_if_dead(exc)
+        if stale is None:
+            return
+        print("[harness] runtime exited, next turn starts a new one")
+        try:
+            stale.close()
+        except Exception as close_exc:
+            print(f"[harness] close failed: {close_exc}")
+
     def ensure(self, llm_conf: Dict[str, Any]):
         with self._turn:
+            stale = self._take_if_dead()
+            if stale is not None:
+                print("[harness] runtime exited, starting again")
+                try:
+                    stale.close()
+                except Exception as exc:
+                    print(f"[harness] close failed: {exc}")
             if self._harness is not None:
                 return self._harness
             if not sdk_installed():
@@ -391,23 +449,27 @@ class Runtime:
             if delta:
                 on_delta(delta)
 
-        with self._turn:
-            self._ensure_open(harness, session_id)
-            try:
-                result = harness.start_session(session_id).run(
-                    prompt,
-                    on_notification=on_notification,
-                )
-            except Exception as exc:
-                if session_id in self._open_ids or "already exists" not in str(exc):
-                    raise
-                harness.resume_session(session_id)
+        try:
+            with self._turn:
+                self._ensure_open(harness, session_id)
+                try:
+                    result = harness.start_session(session_id).run(
+                        prompt,
+                        on_notification=on_notification,
+                    )
+                except Exception as exc:
+                    if session_id in self._open_ids or "already exists" not in str(exc):
+                        raise
+                    harness.resume_session(session_id)
+                    self._open_ids.add(session_id)
+                    result = harness.start_session(session_id).run(
+                        prompt,
+                        on_notification=on_notification,
+                    )
                 self._open_ids.add(session_id)
-                result = harness.start_session(session_id).run(
-                    prompt,
-                    on_notification=on_notification,
-                )
-            self._open_ids.add(session_id)
+        except Exception as exc:
+            self.retire_if_dead(exc)
+            raise
         reason = getattr(result, "finish_reason", None)
         if reason == "error":
             raise HarnessError(_turn_error(getattr(result, "events", None)))

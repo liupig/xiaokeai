@@ -1,6 +1,7 @@
 """把 [draw:画面] 交给火山 Seedream，落成一张牌能贴的图。"""
 from __future__ import annotations
 
+import os
 import re
 import time
 import uuid
@@ -74,11 +75,18 @@ def _asked_for_a_scene(prior) -> bool:
     return False
 
 
-def _images_url(base_url: str) -> str:
-    base = (base_url or "").rstrip("/")
-    if "volces.com" in base or not base:
-        return IMAGES_URL
-    return f"{base}/images/generations"
+def draw_key(llm_conf: Dict[str, Any], env: Dict[str, str] | None = None) -> str:
+    """出图固定走火山。聊天地址是火山就用那把，否则只用 ARK_API_KEY。"""
+    if env is None:
+        from ...services.settings_store import _load_local_env
+
+        _load_local_env()
+        env = os.environ
+    base = str((llm_conf or {}).get("base_url") or "")
+    key = str((llm_conf or {}).get("api_key") or "").strip()
+    if key and ("volces.com" in base or "volcengine.com" in base):
+        return key
+    return (env.get("ARK_API_KEY") or env.get("VOLC_ARK_API_KEY") or "").strip()
 
 
 def _keep(character_id: int, raw: bytes, ext: str, caption: str, quote: str) -> str:
@@ -102,7 +110,7 @@ def _keep(character_id: int, raw: bytes, ext: str, caption: str, quote: str) -> 
 
 def render_card(prompt: str, llm_conf: Dict[str, Any], character_id: int) -> Dict[str, str]:
     """同步出图。图落进证物相册，返回相册地址和短标题。"""
-    key = (llm_conf.get("api_key") or "").strip()
+    key = draw_key(llm_conf)
     if not key:
         raise RuntimeError("没有绘图用的密钥")
     scene = re.sub(r"\s+", " ", re.sub(r"[\[\]]", "", prompt or "")).strip()[:_SCENE_LIMIT]
@@ -122,7 +130,7 @@ def render_card(prompt: str, llm_conf: Dict[str, Any], character_id: int) -> Dic
             body = dict(payload_base)
             body["size"] = size
             resp = client.post(
-                _images_url(str(llm_conf.get("base_url") or "")),
+                IMAGES_URL,
                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                 json=body,
             )

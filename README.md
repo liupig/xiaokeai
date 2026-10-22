@@ -162,7 +162,7 @@ Building from source: [`companion/README_BUILD.md`](./companion/README_BUILD.md)
 
 - **Asset hub**: import zip / rar / single files (extract, mojibake filename fix, auto-file PMX / VMD / audio); optional search and download from [aplaybox](https://www.aplaybox.com/).
 - **Character cards**: model + persona + voice + emotion-to-morph map + idle motion.
-- **Module toggles**: memory, scene, rewrite, keepsake, tarot, Code companion, touch, and Harness are on by default; off means that path is not used. Ordinary talk goes through the built-in dsh (`deepseek-harness-sdk`, installed with the backend). She can also draw a picture onto a card and look up weather, prices, and news. Keys stay in AI-chat settings or `ARK_API_KEY`. See [`companion/docs/features.md`](./companion/docs/features.md) and [`companion/docs/dsh施工图.md`](./companion/docs/dsh施工图.md).
+- **Module toggles**: memory, scene, rewrite, keepsake, tarot, Code companion, touch, and Harness are on by default; off means that path is not used. Ordinary talk goes through the built-in dsh (`deepseek-harness-sdk`, installed with the backend). She can also draw a picture onto a card and look up weather, prices, and news. Drawing always uses Volcengine: the chat key when chat is already there, otherwise `ARK_API_KEY`. See [`companion/docs/features.md`](./companion/docs/features.md) and [`companion/docs/dsh施工图.md`](./companion/docs/dsh施工图.md).
 
 Setup, tag protocol, and troubleshooting: [`companion/README.md`](./companion/README.md) (Chinese).
 
@@ -494,7 +494,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 - **资产中心**：本地导入 zip / rar / 单文件（解压、乱码文件名修复、PMX / VMD / 音频自动入库）；可对接[模之屋](https://www.aplaybox.com/)在线搜索下载。
 - **角色卡**：模型 + 人设 + 音色 + 情绪到形态键的映射 + 闲置动作。
-- **模块开关**：记忆、情境、重说、证物、塔罗、Code 伴侣、触碰、Harness 默认都开，关掉等于不走那条。正常说话走内置 dsh（`deepseek-harness-sdk`，跟后端依赖一起装）。也可以画画，牌固定在屏幕右侧，图进证物；也可以查天气、股价和新闻，检索词由她写。绘图和对话共用一把密钥，留空时用 `ARK_API_KEY`，代码里不写死。见 [`companion/docs/features.md`](./companion/docs/features.md) 和 [`companion/docs/dsh施工图.md`](./companion/docs/dsh施工图.md)。
+- **模块开关**：记忆、情境、重说、证物、塔罗、Code 伴侣、触碰、Harness 默认都开，关掉等于不走那条。正常说话走内置 dsh（`deepseek-harness-sdk`，跟后端依赖一起装）。也可以画画，牌固定在屏幕右侧，图进证物；也可以查天气、股价和新闻，检索词由她写。绘图固定走火山：聊天是火山就用那把密钥，否则用 `ARK_API_KEY`，代码里不写死。见 [`companion/docs/features.md`](./companion/docs/features.md) 和 [`companion/docs/dsh施工图.md`](./companion/docs/dsh施工图.md)。
 
 更细的配置、标签协议和排错见 [`companion/README.md`](./companion/README.md)。
 
