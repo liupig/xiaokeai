@@ -929,6 +929,10 @@ export const api = {
     return request<CoinState>('/api/coins/heartbeat', { method: 'POST' });
   },
 
+  coinBalance() {
+    return request<{ balance_milli: number }>('/api/coins/balance');
+  },
+
   coinPreview(sec: number) {
     return request<CoinPreview>(`/api/coins/preview?sec=${Math.max(0, Math.round(sec))}`);
   },

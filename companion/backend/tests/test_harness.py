@@ -400,6 +400,22 @@ def test_skill_file_syncs_into_an_isolated_home(tmp_path: Path):
     assert "name: chat" in skill.read_text(encoding="utf-8")
 
 
+def test_the_wallet_number_is_not_a_sum_of_wishes():
+    from app.services.coins import asks_purse, format_coins, purse_line, purse_say
+
+    assert format_coins(4000) == "4"
+    assert format_coins(1500) == "1.5"
+    assert format_coins(100500) == "100"
+    line = purse_line(19_000)
+    assert "19" in line
+    assert "不要把许愿落下的枚数加总" in line
+    assert asks_purse("你知道我现在有多少钱吗？")
+    assert asks_purse("我的所有金币是多少？")
+    assert not asks_purse("茅台现在多少钱")
+    assert not asks_purse("这次落下多少")
+    assert purse_say(4_000) == "你现在有 4 枚金币。"
+
+
 def test_draw_key_stays_on_volc():
     from app.modules.draw.service import draw_key
 

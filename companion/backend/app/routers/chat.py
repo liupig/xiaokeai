@@ -333,6 +333,12 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     if use_harness and module_on(session, "memory"):
         from .coins import latest_wish_note
         wish_note = latest_wish_note(session, req.character_id)
+    if use_harness:
+        from ..services.coins import purse_line
+
+        purse = purse_line()
+        if purse:
+            wish_note = f"{wish_note}\n\n{purse}".strip() if wish_note else purse
 
     async def event_stream():
         full_text = ""
@@ -349,7 +355,17 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
             meta = {"type": "meta", "user_id": user_row_id, "message_id": None}
             yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
             return
-        if use_harness:
+        from ..services.coins import asks_purse, purse_say
+
+        purse_answer = purse_say() if mode == "user" and asks_purse(req.text or "") else ""
+
+        async def purse_turns():
+            yield {"type": "text", "delta": purse_answer}
+            yield {"type": "done", "full_text": purse_answer}
+
+        if purse_answer:
+            source = prompt_stack.guard_refusal(purse_turns())
+        elif use_harness:
             from ..modules.harness.brief import dance_opening
             from ..modules.harness.service import stream_reply
 

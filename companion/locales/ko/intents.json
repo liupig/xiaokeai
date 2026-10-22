@@ -64,6 +64,6 @@
     "ritual": "컷|네가 뽑아|뒤집어|한 장 더|치워|무슨 뜻|왼쪽|오른쪽|가운데|과거|현재|미래|\\bcut\\b|you pick|you choose|flip|turn it over|another card|put the cards away|what does it mean|the left|the right|the middle|past|present|future"
   },
   "wish": {
-    "hint": "소원 빌|소원 하나|소원 연못|다시 빌어|make a wish|我要许愿|许个愿"
+    "hint": "소원 빌|소원 하나|소원 연못|다시 빌어|소원 하자|make a wish|我要许愿|许个愿"
   }
 }

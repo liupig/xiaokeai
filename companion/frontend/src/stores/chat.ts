@@ -796,10 +796,28 @@ export const useChatStore = defineStore('chat', {
       orchestrator.beginTurn(input, prevLine?.fullContent || prevLine?.content || '');
 
       let wishSpeak = opts.localLine || '';
+      if (!wishSpeak && !opts.scripted) {
+        try {
+          const { collectNote, payNote } = await import('../features/coins/session');
+          if (payNote(input)) wishSpeak = await collectNote(input);
+        } catch (e) {
+          console.warn('[coins]', e);
+        }
+      }
+      if (!wishSpeak && !opts.scripted && !tarotLiveNow) {
+        try {
+          const { asksPurse, purseSpeech } = await import('../features/coins/session');
+          if (asksPurse(input)) wishSpeak = await purseSpeech();
+        } catch (e) {
+          console.warn('[coins]', e);
+        }
+      }
       if (!wishSpeak && !opts.scripted && !tarotLiveNow) {
         try {
           const wish = await import('../features/wish');
-          if (wish.canWakeWish(input)) wishSpeak = wish.beginWish().line;
+          if (wish.canWakeWish(input, prevLine?.fullContent || prevLine?.content || '')) {
+            wishSpeak = wish.beginWish().line;
+          }
         } catch (e) {
           console.warn('[wish]', e);
         }

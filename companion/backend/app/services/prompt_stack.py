@@ -269,7 +269,9 @@ def context_slots(last_at: Optional[datetime]) -> str:
         )
     except (KeyError, IndexError, ValueError):
         line = clock
-    return f"{line}{_gap_text(last_at)}{tail}"
+    from .coins import purse_line
+
+    return f"{line}{_gap_text(last_at)}{purse_line()}{tail}"
 
 
 # ---------------------------------------------------------------------------
