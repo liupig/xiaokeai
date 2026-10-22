@@ -38,7 +38,7 @@ export interface Message {
   speakingTo?: number;
 }
 
-const PERF_TAG = /\[(emo|act|dance|cam|expr|intent|stand):[^\[\]]{1,80}\]/g;
+const PERF_TAG = /\[(?:(?:dance|draw):[^\[\]]{0,160}|(?:emo|act|cam|expr|intent|stand):[^\[\]]{1,80})\]/g;
 
 function stripPerfTags(s: string) {
   return (s || '')
@@ -205,7 +205,7 @@ function parseMsgTime(raw?: string): number {
 
 /** 把兜底回复文本按标签协议本地解析并逐段下发 */
 function emitLocal(text: string, onEvent: (ev: any) => void) {
-      const re = /\[(emo|act|dance|cam|expr|intent|stand):([^\[\]]{1,80})\]/g;
+      const re = /\[(?:(dance|draw):([^\[\]]{0,160})|(emo|act|cam|expr|intent|stand):([^\[\]]{1,80}))\]/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let plain = '';
@@ -215,7 +215,8 @@ function emitLocal(text: string, onEvent: (ev: any) => void) {
       plain += seg;
       onEvent({ type: 'text', delta: seg });
     }
-    onEvent({ type: m[1], value: m[2] });
+    const tag = m[1] || m[3];
+    if (tag !== 'draw') onEvent({ type: tag, value: (m[1] ? m[2] : m[4]) || '' });
     last = re.lastIndex;
   }
   if (last < text.length) {
@@ -1335,7 +1336,7 @@ export const useChatStore = defineStore('chat', {
           id: row.id,
           role: row.role as Message['role'],
           kind: row.kind === 'rp' ? 'qa' : (row.kind as Message['kind']) || 'qa',
-          content: row.content.replace(/\[(emo|act|dance|cam|expr|intent|stand):[^\[\]]{1,80}\]/g, '').trim(),
+          content: row.content.replace(/\[(?:(?:dance|draw):[^\[\]]{0,160}|(?:emo|act|cam|expr|intent|stand):[^\[\]]{1,80})\]/g, '').trim(),
         }));
       } catch (e) {
         this.lastError = String(e);

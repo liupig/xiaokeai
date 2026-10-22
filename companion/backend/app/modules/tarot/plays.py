@@ -240,6 +240,13 @@ def match_play_ordinal(text: str) -> Optional[str]:
     t = (text or "").strip()
     if not t:
         return None
+    bare = re.fullmatch(r"[0-9]+|[一二三四五六七八九十两]", t) or re.fullmatch(
+        r"[0-9]+|[一二三四五六七八九十两]", n
+    )
+    if bare:
+        idx = _parse_idx(bare.group(0))
+        if idx is not None and 1 <= idx <= len(PLAYS):
+            return str(PLAYS[idx - 1]["id"])
     if re.search(r"最后[一个种号款]?", n) or n in ("最后", "最后一个"):
         return str(PLAYS[-1]["id"])
     patterns = (

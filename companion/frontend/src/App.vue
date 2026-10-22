@@ -28,6 +28,7 @@ import { installTouch } from './features/touch';
 import PetBar from './features/shell/PetBar.vue';
 import CoinPill from './features/coins/CoinPill.vue';
 import UserCenter from './features/coins/UserCenter.vue';
+import DrawCard from './features/draw/DrawCard.vue';
 import { startCoins } from './features/coins/session';
 
 const QuickPanel = defineAsyncComponent(() => import('./features/hud/QuickPanel.vue'));
@@ -139,6 +140,7 @@ onMounted(async () => {
     <n-message-provider placement="top">
       <div class="layout">
         <StageView />
+        <DrawCard />
         <DeskChrome v-if="!isPetShell" />
         <CoinPill v-if="isPetShell" class="pet-coin" />
         <UserCenter />

@@ -57,7 +57,7 @@ export const useSettingsStore = defineStore('settings', {
       stage_show: true, stage_color: '#232342', stage_glow: '#5b5bd6', stage_style: 'classic',
       stage_texture: '', stage_opacity: 1,
     },
-    modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, codewatch: true, touch: true },
+    modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, codewatch: true, touch: true, harness: true },
     memory: { embedder: 'auto' as 'auto' | 'local' | 'doubao' | 'qwen' | 'openai' | 'gemini' },
     hardware: {
       auto: false, tier: '', ram_gb: 0, vram_gb: 0, cores: 0,
@@ -176,6 +176,7 @@ export const useSettingsStore = defineStore('settings', {
         tarot: mods?.tarot !== false,
         codewatch: mods?.codewatch !== false,
         touch: mods?.touch !== false,
+        harness: mods?.harness === true,
       };
       const mem = (data as { memory?: { embedder?: string } }).memory;
       const emb = String(mem?.embedder || 'auto');

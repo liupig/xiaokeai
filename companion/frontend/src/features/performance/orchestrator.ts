@@ -231,6 +231,16 @@ export class Orchestrator {
         stage.director.notifyTurnDone();
         caster.finalize(ev.full_text || '');
         break;
+      case 'picture':
+        if (!ev.url) {
+          void import('../draw/card').then((m) => m.showDrawnCard('', ''));
+          break;
+        }
+        void import('../tarot/session').then((m) => m.showDrawnPicture(ev.url, ev.name || ''));
+        break;
+      case 'drawing':
+        void import('../draw/card').then((m) => m.showDrawing(ev.name || ''));
+        break;
       case 'tarot':
       case 'meta':
       case 'error':

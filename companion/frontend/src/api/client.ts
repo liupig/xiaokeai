@@ -72,7 +72,9 @@ export type ChatEvent =
   | { type: 'error'; code: string; message: string }
   | { type: 'done'; full_text: string }
   | { type: 'meta'; user_id?: number | null; message_id?: number | null }
-  | { type: 'tarot'; action: string; wait?: TarotWait | null; session: TarotSession };
+  | { type: 'tarot'; action: string; wait?: TarotWait | null; session: TarotSession }
+  | { type: 'picture'; url: string; name: string }
+  | { type: 'drawing'; name: string };
 
 export interface ChatMessageRow {
   id?: number;
@@ -957,6 +959,12 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+
+  harnessRelease() {
+    return request<{ installed: boolean; running: boolean; home: string }>('/api/modules/harness/release', {
+      method: 'POST',
     });
   },
 

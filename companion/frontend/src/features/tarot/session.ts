@@ -798,6 +798,12 @@ export async function afterTarotSpeak(
   return 'idle';
 }
 
+/** 画好的图不进牌桌，改贴在屏幕上。看牌进行中收掉桌上那张，避免两套叠在一起。 */
+export async function showDrawnPicture(url: string, name: string) {
+  const { showDrawnCard } = await import('../draw/card');
+  await showDrawnCard(url, name);
+}
+
 export async function onCharacterSwitch() {
   if (tarotUi.phase === 'off') return;
   await playDismiss();

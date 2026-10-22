@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { NButton, NDrawer, NDrawerContent } from 'naive-ui';
 import { api } from '../../api/client';
 import { useCharacterStore } from '../../stores/character';
@@ -18,6 +18,7 @@ const settings = useSettingsStore();
 
 const overlayOn = computed(() =>
   !!keepsakeSession.bgOverride || isKeepsakeBgUrl(settings.quality.background_image));
+const zoom = ref('');
 
 function mediaUrl(url: string) {
   if (!url) return '';
@@ -80,7 +81,8 @@ async function clearKeepsakeBg() {
           <video v-if="it.kind === 'clip'" controls playsinline preload="metadata">
             <source :src="mediaUrl(it.url)" :type="it.mime || 'video/mp4'" />
           </video>
-          <img v-else :src="mediaUrl(it.url)" :alt="it.caption || t('keep.still')" />
+          <img v-else :src="mediaUrl(it.url)" :alt="it.caption || t('keep.still')"
+               class="still" @click="zoom = mediaUrl(it.url)" />
           <figcaption>
             <span>{{ it.caption || it.quote || (it.kind === 'clip' ? t('keep.clipWord') : t('keep.still')) }}</span>
             <span class="acts">
@@ -95,6 +97,11 @@ async function clearKeepsakeBg() {
       </div>
     </n-drawer-content>
   </n-drawer>
+  <Teleport to="body">
+    <div v-if="zoom" class="zoom" @click="zoom = ''">
+      <img :src="zoom" alt="" />
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -118,6 +125,23 @@ img, video {
   border-radius: 12px;
   background: #111;
   display: block;
+}
+.still { cursor: zoom-in; }
+.zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  cursor: zoom-out;
+}
+.zoom img {
+  width: auto;
+  max-width: min(920px, 88vw);
+  max-height: 88vh;
+  object-fit: contain;
 }
 figcaption {
   display: flex;

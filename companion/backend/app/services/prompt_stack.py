@@ -284,6 +284,12 @@ _REFUSAL_RE = re.compile(
 )
 _DEFLECT_LINE = "这句越界啦，我不接这个话题。换一个吧，我还在这儿呢。"
 _GUARD_WINDOW = 60  # 只检查开头这么多字，避免长回复被误伤
+_SENTENCE_END = re.compile(r"[。！？!?\n]")
+
+
+def _sentence_ready(text: str) -> bool:
+    """第一句已经收口，就先放出去。审查播报没有这几个收口时仍等到窗口满。"""
+    return bool(_SENTENCE_END.search(text or ""))
 
 
 def _deflect_line() -> str:
@@ -325,7 +331,7 @@ async def guard_refusal(source):
                     for e in _deflect():
                         yield e
                     return
-                if len(acc) >= _GUARD_WINDOW:
+                if len(acc) >= _GUARD_WINDOW or _sentence_ready(acc):
                     checking = False
                     for e in buf:
                         yield e

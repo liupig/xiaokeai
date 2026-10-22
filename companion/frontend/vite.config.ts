@@ -84,6 +84,7 @@ export default defineConfig({
       '/api': { target: BACKEND, changeOrigin: true, timeout: 600000 },
       '/assets': { target: BACKEND, changeOrigin: true },
       '/keepsakes': { target: BACKEND, changeOrigin: true },
+      '/draws': { target: BACKEND, changeOrigin: true },
     },
   },
 });

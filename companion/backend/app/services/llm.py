@@ -11,7 +11,9 @@ import httpx
 
 from .narration import STAGE_RE, map_stage_inner
 
-TAG_RE = re.compile(r"\[(emo|act|dance|cam|expr|intent|stand):([^\[\]]{1,80})\]")
+TAG_RE = re.compile(
+    r"\[(emo|act|dance|cam|expr|intent|stand|draw|lookup):([^\[\]]{0,160})\]"
+)
 
 SYSTEM_PROTOCOL = """
 你在扮演一个 3D 虚拟陪玩角色。文字会转成语音，表情和动作由工作室导演根据你的意图自动选角。
@@ -73,7 +75,12 @@ class TagStreamParser:
                 if m.start() > 0:
                     events.append({"type": "text", "delta": self.buf[: m.start()]})
                 if kind == "tag":
-                    events.append({"type": m.group(1), "value": m.group(2).strip()})
+                    name = m.group(1)
+                    value = (m.group(2) or "").strip()
+                    if name != "dance" and not value:
+                        events.append({"type": "text", "delta": m.group(0)})
+                    else:
+                        events.append({"type": name, "value": value})
                 else:
                     events.extend(map_stage_inner(m.group(1)))
                 self.buf = self.buf[m.end():]
@@ -93,7 +100,9 @@ class TagStreamParser:
                 if head:
                     events.append({"type": "text", "delta": head})
                 self.buf = self.buf[last_open:]
-                if len(self.buf) > 100:
+                # [draw:…] 可以到一百六十字，未闭合时先按住，别拆成念出来的字
+                hold = 220 if self.buf.startswith("[") else 100
+                if len(self.buf) > hold:
                     events.append({"type": "text", "delta": self.buf})
                     self.buf = ""
             break

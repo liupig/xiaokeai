@@ -432,6 +432,7 @@ def find_ml_source(*prefer: Path) -> Path | None:
 
 # 开发机 conda/venv 里有、发行版用不到的库（产品代码未 import）。
 # 不要删 scipy：qwen-tts → librosa 启动就要它，上次精简后打包版 TTS 直接加载失败。
+# 不要删 deepseek_harness / deepseek_harness_runtime：dsh 可执行文件在这个包的 runtime 目录里，A 包要带走。
 RUNTIME_DROP_NAMES = {
     "gradio", "gradio_client", "safehttpx",
     "cv2", "opencv_python", "opencv_contrib_python",

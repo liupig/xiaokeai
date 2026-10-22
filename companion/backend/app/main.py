@@ -13,7 +13,7 @@ from sqlmodel import Session
 
 from .db import engine, init_db
 from .models import CamReview, Character, CoinNote, CoinWallet, SceneState  # noqa: F401 — register table
-from .paths import KEEPSAKES_DIR, resolve_asset_file
+from .paths import DRAWS_DIR, KEEPSAKES_DIR, resolve_asset_file
 from .routers import assets, characters, chat, coins, download, omni, review, settings, speech
 from .modules.memory.router import router as memory_router
 from .modules.scenes.router import router as scenes_router
@@ -21,6 +21,7 @@ from .modules.rewrite.router import router as rewrite_router
 from .modules.keepsake.router import router as keepsake_router
 from .modules.tarot.router import router as tarot_router
 from .modules.codewatch.router import router as codewatch_router
+from .modules.harness.router import router as harness_router
 from .services import catalog
 from .services import asr as asr_svc
 from .services import review_store
@@ -54,6 +55,7 @@ app.include_router(rewrite_router)
 app.include_router(keepsake_router)
 app.include_router(tarot_router)
 app.include_router(codewatch_router)
+app.include_router(harness_router)
 
 @app.get("/assets/{path:path}", include_in_schema=False)
 def serve_asset(path: str):
@@ -64,6 +66,7 @@ def serve_asset(path: str):
 
 
 app.mount("/keepsakes", StaticFiles(directory=str(KEEPSAKES_DIR)), name="keepsakes")
+app.mount("/draws", StaticFiles(directory=str(DRAWS_DIR)), name="draws")
 
 
 @app.on_event("startup")
@@ -179,6 +182,11 @@ def shutdown() -> None:
     try:
         from .modules.codewatch.router import release as codewatch_release
         codewatch_release()
+    except Exception:
+        pass
+    try:
+        from .modules.harness.service import release as harness_release
+        harness_release()
     except Exception:
         pass
     proc_reap.shutdown_workers()

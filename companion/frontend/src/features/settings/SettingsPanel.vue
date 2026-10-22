@@ -702,7 +702,7 @@ async function saveEmbedder(v: string) {
   }
 }
 
-async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'codewatch' | 'touch', on: boolean) {
+async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'codewatch' | 'touch' | 'harness', on: boolean) {
   const prev = settings.modules[key];
   settings.modules[key] = on;
   try {
@@ -714,6 +714,9 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
     if (key === 'codewatch' && !on) {
       const { onModuleOff } = await import('../codewatch');
       onModuleOff();
+    }
+    if (key === 'harness' && !on) {
+      await api.harnessRelease();
     }
     if (key !== 'scenes') return;
     if (on && characters.currentId) {
@@ -814,6 +817,11 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
             <n-switch :value="settings.modules.touch" @update:value="(v: boolean) => toggleMod('touch', v)" />
           </div>
           <p class="hint">{{ t('set.mod.touch') }}</p>
+          <div class="switch-row">
+            <span>{{ t('mod.harness') }}</span>
+            <n-switch :value="settings.modules.harness" @update:value="(v: boolean) => toggleMod('harness', v)" />
+          </div>
+          <p class="hint">{{ t('set.mod.harness') }}</p>
         </div>
       </n-tab-pane>
       <n-tab-pane name="ai" :tab="t('settings.ai')">

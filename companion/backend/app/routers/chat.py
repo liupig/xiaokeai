@@ -1,4 +1,5 @@
 """对话接口：SSE 流式，含情绪标签事件。"""
+import asyncio
 import json
 import re
 import time
@@ -72,8 +73,20 @@ def _when_local(dt: Optional[datetime]) -> str:
     return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
+async def _speak_first(source, lead: str):
+    """点舞的铺垫先送出去，技能调用留在这一句后面。"""
+    if lead:
+        yield {"type": "text", "delta": lead}
+    async for ev in source:
+        if ev.get("type") == "done" and lead and not str(ev.get("full_text") or "").startswith(lead):
+            ev = {**ev, "full_text": lead + str(ev.get("full_text") or "")}
+        yield ev
+
+
 def _plain(text: str) -> str:
-    return re.sub(r"\[(emo|act|dance|cam|expr|intent|stand):[^\[\]]{1,80}\]", "", text or "").strip()
+    text = re.sub(r"\[(dance|draw|lookup):[^\[\]]{0,160}\]", "", text or "")
+    text = re.sub(r"\[(emo|act|cam|expr|intent|stand):[^\[\]]{1,80}\]", "", text)
+    return text.strip()
 
 
 def _msg_out(m: ChatMessage) -> Dict[str, Any]:
@@ -307,6 +320,20 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         "touch": "aside",
     }.get(mode, "rp" if isolate else "qa")
 
+    from ..modules.harness.brief import host_brief, wants_harness
+    use_harness = wants_harness(
+        enabled=module_on(session, "harness"),
+        mode=mode,
+        reroll=bool(req.reroll),
+        afterglow=tarot_afterglow,
+    )
+    harness_brief = host_brief(messages, groups.get("dance") or []) if use_harness else ""
+    harness_prior = history[:-1] if history and history[-1].get("role") == "user" else list(history)
+    wish_note = ""
+    if use_harness and module_on(session, "memory"):
+        from .coins import latest_wish_note
+        wish_note = latest_wish_note(session, req.character_id)
+
     async def event_stream():
         full_text = ""
         billed_tokens = 0
@@ -322,13 +349,104 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
             meta = {"type": "meta", "user_id": user_row_id, "message_id": None}
             yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
             return
-        source = prompt_stack.guard_refusal(llm_service.stream_chat(llm_conf, messages))
-        annotated = duplex_service.annotate_stream(
-            source,
-            body_cmd=body_cmd,
-            filler=dx["filler"] and not sidecar and not tarot_now,
-            delayed_sec=delayed_sec,
-            unit_kind=unit_kind,
+        if use_harness:
+            from ..modules.harness.brief import dance_opening
+            from ..modules.harness.service import stream_reply
+
+            from ..modules.websearch.service import accept_query, lookup_note
+
+            async def harness_turns():
+                dance = "" if tarot_now else dance_opening(req.text or "", harness_prior)
+                recall = wish_note
+                lead = ""
+                searched = False
+                query = ""
+                saw_lookup = False
+                said_lookup_line = False
+                async for ev in _speak_first(stream_reply(
+                    llm_conf,
+                    character_id=req.character_id,
+                    user_text=req.text or "",
+                    brief=harness_brief,
+                    prior=harness_prior,
+                    recall=recall,
+                ), dance):
+                    if ev.get("type") == "lookup" and not dance and not searched:
+                        saw_lookup = True
+                        query = accept_query(str(ev.get("value") or "")) or query
+                        continue
+                    if query and not searched and ev.get("type") in {"text", "emo", "cam", "intent", "act", "expr", "stand", "done"}:
+                        continue
+                    if ev.get("type") == "text" and "我去查一下" in str(ev.get("delta") or ""):
+                        said_lookup_line = True
+                        lead = "我去查一下。"
+                    if lead and ev.get("type") == "done" and not str(ev.get("full_text") or "").startswith(lead):
+                        ev = {**ev, "full_text": lead + str(ev.get("full_text") or "")}
+                    yield ev
+                if not query and saw_lookup and not dance:
+                    async for ev in stream_reply(
+                        llm_conf,
+                        character_id=req.character_id,
+                        user_text="刚才的检索词不能查。按上一句的事自己改写成一个短词，只写 [lookup:检索词]，不要说话。",
+                        brief="",
+                        prior=harness_prior,
+                        recall=wish_note,
+                    ):
+                        if ev.get("type") == "lookup":
+                            query = accept_query(str(ev.get("value") or "")) or query
+                            continue
+                        if ev.get("type") == "error":
+                            yield ev
+                            yield {"type": "done", "full_text": lead}
+                            return
+                if searched or not query:
+                    return
+                if said_lookup_line:
+                    lead = "我去查一下。"
+                elif "我去查一下" not in lead:
+                    yield {"type": "text", "delta": "我去查一下。"}
+                    lead = "我去查一下。" + lead
+                found = await asyncio.to_thread(lookup_note, query)
+                recall = f"{wish_note}\n\n{found}".strip() if wish_note else found
+                finished = False
+                async for ev in stream_reply(
+                    llm_conf,
+                    character_id=req.character_id,
+                    user_text="页面到了。按【现场】把刚才要查的事实说完。搜索页上的数字优先。不要重复铺垫，不要再写标记。",
+                    brief="",
+                    prior=None,
+                    recall=recall,
+                ):
+                    if ev.get("type") == "lookup":
+                        continue
+                    if ev.get("type") == "error":
+                        yield ev
+                        yield {"type": "done", "full_text": lead}
+                        return
+                    if ev.get("type") == "done":
+                        finished = True
+                        ev = {**ev, "full_text": lead + str(ev.get("full_text") or "")}
+                    yield ev
+                if not finished:
+                    yield {"type": "done", "full_text": lead}
+
+            source = prompt_stack.guard_refusal(harness_turns())
+        else:
+            source = prompt_stack.guard_refusal(llm_service.stream_chat(llm_conf, messages))
+        from ..modules.draw.service import realize_draws
+        annotated = realize_draws(
+            duplex_service.annotate_stream(
+                source,
+                body_cmd=body_cmd,
+                filler=dx["filler"] and not sidecar and not tarot_now,
+                delayed_sec=delayed_sec,
+                unit_kind=unit_kind,
+            ),
+            llm_conf,
+            character_id=req.character_id,
+            allow=not tarot_now,
+            user_text=req.text or "",
+            prior=harness_prior,
         )
         try:
             async for ev in annotated:

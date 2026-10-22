@@ -20,9 +20,10 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from ..db import get_session
+from ..models import MemoryFact
 from ..modules.flags import enabled
 from ..modules.memory import worker as memory_worker
 from ..services import coins_box as coins
@@ -129,6 +130,29 @@ def _remember(character_id: int, lang: str, row: Dict[str, Any]) -> None:
         )
     except Exception as exc:
         print(f"[wish] memory skipped: {exc}")
+
+
+def latest_wish_note(session: Session, character_id: int) -> str:
+    """库里只有一条许愿记录，后一次覆盖前一次。没有就空。"""
+    if character_id <= 0:
+        return ""
+    from ..modules.harness.brief import wish_recall
+
+    picked = ""
+    newest = None
+    rows = session.exec(
+        select(MemoryFact).where(MemoryFact.character_id == character_id)
+    ).all()
+    for row in rows:
+        content = (row.content or "").strip()
+        if not content.startswith("[wish]"):
+            continue
+        stamp = row.updated_at
+        if picked and newest is not None and stamp is not None and stamp < newest:
+            continue
+        picked = content
+        newest = stamp
+    return wish_recall(picked)
 
 
 async def _wish_line(session: Session, lang: str, row: Dict[str, Any]) -> str:
