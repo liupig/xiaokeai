@@ -305,6 +305,13 @@ export interface CoinPreview {
   ladder: CoinTier[];
 }
 
+export interface GlanceAlong {
+  on: boolean;
+  seq: number;
+  text: string;
+  character_id: number;
+}
+
 export interface CodewatchStatus {
   watching: boolean;
   phase: 'idle' | 'started' | 'working' | 'done';
@@ -811,6 +818,16 @@ export const api = {
     return request<TarotSession>(`/api/modules/tarot/session/${characterId}`);
   },
 
+  glanceAlong() {
+    return request<GlanceAlong>('/api/modules/glance/along');
+  },
+  glanceAlongAck(seq: number) {
+    return request<GlanceAlong>('/api/modules/glance/along/ack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seq }),
+    });
+  },
   codewatchStatus() {
     return request<CodewatchStatus>('/api/modules/codewatch/status');
   },
@@ -842,7 +859,7 @@ export const api = {
   async streamChat(characterId: number, text: string,
                    onEvent: (ev: ChatEvent) => void, signal?: AbortSignal,
                    morphs: string[] = [],
-                   mode: 'user' | 'continue' | 'proactive' | 'goodbye' | 'welcome' | 'codewatch' | 'touch' = 'user',
+                   mode: 'user' | 'continue' | 'proactive' | 'goodbye' | 'welcome' | 'codewatch' | 'touch' | 'along' = 'user',
                    extra: ChatExtra = {}) {
     const body = {
       character_id: characterId, text, morphs, mode,

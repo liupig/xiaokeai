@@ -5,9 +5,10 @@ from sqlmodel import Session
 
 from ..services import settings_store
 
-MODULE_KEYS = ("memory", "scenes", "rewrite", "keepsake", "tarot", "codewatch", "touch", "harness")
+MODULE_KEYS = ("memory", "scenes", "rewrite", "keepsake", "tarot", "codewatch", "touch", "harness", "glance")
 # 缺省都开。dsh 内核在 requirements 里，克隆后装环境就能用。
-_DEFAULT_OFF = frozenset()
+# glance 默认关：不开就不截屏，也不把「看一眼」写进技能目录。
+_DEFAULT_OFF = frozenset({"glance"})
 
 
 def all_flags(session: Session) -> Dict[str, bool]:

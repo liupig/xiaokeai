@@ -56,7 +56,21 @@ def update_settings(patch: Dict[str, Any],
     out["content"] = content_status()
     runtime = settings_store.get_all(session)
     _sync_speech_workers(runtime)
-    if not bool((runtime.get("modules") or {}).get("codewatch", True)):
+    prev_mods = prev.get("modules") or {}
+    now_mods = runtime.get("modules") or {}
+    if bool(prev_mods.get("glance", False)) != bool(now_mods.get("glance", False)):
+        try:
+            from ..modules.harness.service import release as harness_release
+            harness_release()
+        except Exception:
+            pass
+        if not bool(now_mods.get("glance", False)):
+            try:
+                from ..modules.glance.along import stop as along_stop
+                along_stop()
+            except Exception:
+                pass
+    if not bool(now_mods.get("codewatch", True)):
         try:
             from ..modules.codewatch.router import release as codewatch_release
             codewatch_release()

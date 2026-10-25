@@ -909,6 +909,10 @@ export const useChatStore = defineStore('chat', {
       return 'sent';
     },
     async sidecarChat(mode: 'continue' | 'proactive' | 'goodbye' | 'welcome', reason = '', extra: ChatExtra = {}) {
+      if (mode === 'continue' || mode === 'proactive' || mode === 'goodbye') {
+        const { alongLive } = await import('../features/glance/along');
+        if (alongLive.on) return;
+      }
       const sceneWelcome = mode === 'welcome'
         && !!(extra.scene_id || extra.scene_text || extra.scene_title);
       if (sceneWelcome) {
@@ -1111,6 +1115,55 @@ export const useChatStore = defineStore('chat', {
         this.sending = false;
         speechPlayer.streamOpen = false;
       }
+    },
+    async alongSpeak(seen: string): Promise<'skip' | 'spoke' | 'empty'> {
+      const text = (seen || '').trim();
+      if (!text) return 'skip';
+      if (dancePlaying()) return 'skip';
+      const chars = useCharacterStore();
+      if (!chars.currentId) return 'skip';
+      if (this.sending || speechPlayer.streamOpen || speechPlayer.isSpeaking()) return 'skip';
+      sessionClosed = false;
+      this.sending = true;
+      const controller = new AbortController();
+      streamAbort = controller;
+      const assistant: Message = {
+        role: 'assistant', content: '', fullContent: '', kind: 'proactive',
+        spokenLen: 0,
+        created_at: new Date().toISOString(),
+        when: localStamp(),
+      };
+      this.messages.push(assistant);
+      this.applyVoice();
+      orchestrator.beginContinue('proactive');
+      const bag = { speech: false };
+      const onEvent = (ev: any) => {
+        if (ev.type === 'error') {
+          this.lastError = ev.message || this.lastError;
+          return;
+        }
+        if (ev.type === 'meta') {
+          if (ev.message_id) assistant.id = ev.message_id;
+          return;
+        }
+        applyBubbleEvent(assistant, ev, bag);
+        orchestrator.handle(ev);
+      };
+      const morphs = (chars.modelInfo?.morphNames ?? [])
+        .filter((n) => !BASE_MORPHS.has(n))
+        .slice(0, 50);
+      try {
+        await api.streamChat(chars.currentId, text, onEvent, controller.signal, morphs, 'along', liveScenePack());
+      } catch (e) {
+        if (!controller.signal.aborted) this.lastError = String(e);
+      }
+      if (!assistant.content && !assistant.fullContent) this.messages.pop();
+      if (streamAbort === controller) {
+        streamAbort = null;
+        this.sending = false;
+        speechPlayer.streamOpen = false;
+      }
+      return (assistant.content || assistant.fullContent) ? 'spoke' : 'empty';
     },
     /** 被碰到之后偶尔的一句。走和续聊同一条表演，不另开说话。 */
     async touchSpeak(brief: string, line: string) {

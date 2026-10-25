@@ -27,7 +27,7 @@ DEFAULTS: Dict[str, Any] = {
                 # 圆形舞台底座：显隐 / 台面颜色 / 发光环颜色 / 风格 / 台面贴图 / 不透明度
                 "stage_show": True, "stage_color": "#232342", "stage_glow": "#5b5bd6",
                 "stage_style": "classic", "stage_texture": "", "stage_opacity": 1.0},
-    "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "codewatch": True, "touch": True, "harness": True},
+    "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "codewatch": True, "touch": True, "harness": True, "glance": False},
     "locale": {"ui": "zh-CN", "reply": "zh-CN", "reply_mode": "fixed"},
     "memory": {"embedder": "auto"},
     "hardware": {

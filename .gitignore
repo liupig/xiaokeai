@@ -195,9 +195,5 @@ companion/assets/tarot/_logs/
 *.7z
 *.gguf
 
-# MiniCPM-o 独立 Demo：虚拟环境和权重不入库
-minicpm-o-demo/.venv/
-minicpm-o-demo/models/
-minicpm-o-demo/output/
-minicpm-o-demo/bin/
-minicpm-o-demo/tmp/
+# 本地试验目录（MiniCPM-o 4.5 与 MiniCPM-V 4.7 录屏）。整目录不入库。
+/minicpm-o-demo/

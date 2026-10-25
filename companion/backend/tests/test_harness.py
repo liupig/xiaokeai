@@ -14,7 +14,9 @@ from app.modules.harness.service import sync_skills  # noqa: E402
 
 def test_user_talk_uses_harness_and_side_paths_do_not():
     assert wants_harness(enabled=True, mode="user")
+    assert wants_harness(enabled=True, mode="along")
     assert not wants_harness(enabled=False, mode="user")
+    assert not wants_harness(enabled=True, mode="along", afterglow=True)
     assert not wants_harness(enabled=True, mode="welcome")
     assert not wants_harness(enabled=True, mode="continue")
     assert not wants_harness(enabled=True, mode="user", reroll=True)
@@ -103,6 +105,21 @@ def test_profile_patch_leaves_folding_to_the_host():
     assert "不会替你改写" in lookup
     assert "调用 lookup" in text
     assert "心月狐 鸣潮" in text
+    assert "调用 watch" not in text
+    assert "[glance:]" not in text
+    assert not (root / "skills" / "watch" / "SKILL.md").is_file()
+    sync_skills(root, glance=True)
+    opened = (root / "profiles" / "sdk" / "cordis.patch.yml").read_text(encoding="utf-8")
+    assert "调用 watch" in opened
+    assert "[glance:对方的要求]" in opened
+    watch = (root / "skills" / "watch" / "SKILL.md").read_text(encoding="utf-8")
+    assert "disable-model-invocation" not in watch
+    assert "在干什么" in watch
+    assert "[glance:]" in watch
+    sync_skills(root, glance=False)
+    closed = (root / "profiles" / "sdk" / "cordis.patch.yml").read_text(encoding="utf-8")
+    assert "调用 watch" not in closed
+    assert not (root / "skills" / "watch" / "SKILL.md").is_file()
 
 
 def test_the_model_query_is_searched_as_written():
@@ -300,7 +317,63 @@ def test_empty_dance_tag_is_a_stage_event_not_speech():
     assert ("dance", "") in kinds
     looked = TagStreamParser().feed("我去查一下。[lookup:北京天气]")
     assert ("lookup", "北京天气") in [(ev["type"], ev.get("value")) for ev in looked]
+    glanced = TagStreamParser().feed("我看看。[glance:]")
+    assert ("text", "我看看。") in [(ev["type"], ev.get("delta")) for ev in glanced]
+    assert ("glance", "") in [(ev["type"], ev.get("value")) for ev in glanced]
     assert not any(ev["type"] == "text" and "dance" in (ev.get("delta") or "") for ev in events)
+
+
+def test_glance_note_puts_the_observation_in_front_of_her():
+    from app.modules.glance.service import glance_note, parse_glance
+
+    assert parse_glance("在干嘛") == ("", False)
+    assert parse_glance("我现在在干嘛") == ("", False)
+    found, along = parse_glance("找 百度网盘在桌面哪里")
+    assert found == "百度网盘在桌面哪里"
+    assert along is False
+    show, along = parse_glance("陪看 你陪我看剧")
+    assert along is True
+    assert "看剧" in show
+    assert parse_glance("你陪我看剧")[1] is True
+    from app.modules.glance.service import glance_from_user
+    assert glance_from_user("你看看我在干嘛？") == "在干嘛"
+    assert glance_from_user("看看我在干嘛？") == "在干嘛"
+    assert glance_from_user("你才是笨蛋") == ""
+    from app.modules.glance.along import quiet_line, same_scene, wants_start, wants_stop
+    assert wants_start("你陪我看")
+    assert wants_start("一起看")
+    assert not wants_start("你看看我在干嘛")
+    assert wants_stop("别看了")
+    assert not wants_start("你别陪我看了")
+    assert quiet_line("没变")
+    assert quiet_line("事：在改代码\n点：没得点")
+    assert quiet_line("事：在听歌\n点：好听\n劲：松")
+    from app.modules.glance.service import beside_cue
+    note = beside_cue(
+        "事：还在打这只boss\n点：他又倒了\n劲：紧",
+        [{"role": "user", "content": "这只好烦"}, {"role": "assistant", "content": "[emo:relaxed]又来了。"}],
+        ["事：进了boss房\n点：血条满的\n劲：平"],
+    )
+    assert "【刚说过】" in note and "这只好烦" in note and "【画面经过】" in note and "boss房" in note
+    assert not quiet_line("事：在改 engine.py\n点：这一行报错说 glance_once 未定义\n劲：紧")
+    assert quiet_line("这一眼没看成。连接被拒绝")
+    assert not quiet_line("在 Cursor 里改 engine.py，光标停在 glance_once。")
+    assert same_scene(
+        "在 Cursor 里改 engine.py，光标停在 glance_once。",
+        "在 Cursor 里改 engine.py，光标还停在 glance_once。",
+    )
+    assert not same_scene("在 Cursor 里改 engine.py", "打开了哔哩哔哩，正在放一部电影。")
+
+    seen = glance_note({"ok": True, "text": "在 Cursor 里改 engine.py，光标停在 glance_once。"})
+    assert "【眼前】在 Cursor 里改 engine.py" in seen
+    assert "我看看" in seen
+    assert "[glance:]" in seen
+    where = glance_note({"ok": True, "text": "百度网盘图标在桌面左上。"}, "找 百度网盘在桌面哪里")
+    assert "左上" in where
+    assert "不要去点" in where
+    missed = glance_note({"ok": False, "text": "", "message": "连接被拒绝"})
+    assert "这一眼没看成" in missed
+    assert "连接被拒绝" in missed
 
 
 def test_draw_tag_is_a_picture_event_not_speech():
@@ -394,6 +467,7 @@ def test_skill_file_syncs_into_an_isolated_home(tmp_path: Path):
     assert (home / "skills" / "dance" / "SKILL.md").is_file()
     assert (home / "skills" / "tarot" / "SKILL.md").is_file()
     assert (home / "skills" / "draw" / "SKILL.md").is_file()
+    assert not (home / "skills" / "watch" / "SKILL.md").is_file()
     assert (home / "workspace").is_dir()
     skill.write_text("stale", encoding="utf-8")
     sync_skills(tmp_path)

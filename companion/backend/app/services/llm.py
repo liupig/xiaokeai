@@ -12,7 +12,7 @@ import httpx
 from .narration import STAGE_RE, map_stage_inner
 
 TAG_RE = re.compile(
-    r"\[(emo|act|dance|cam|expr|intent|stand|draw|lookup):([^\[\]]{0,160})\]"
+    r"\[(emo|act|dance|cam|expr|intent|stand|draw|lookup|glance):([^\[\]]{0,160})\]"
 )
 
 SYSTEM_PROTOCOL = """
@@ -77,7 +77,7 @@ class TagStreamParser:
                 if kind == "tag":
                     name = m.group(1)
                     value = (m.group(2) or "").strip()
-                    if name != "dance" and not value:
+                    if name not in ("dance", "glance") and not value:
                         events.append({"type": "text", "delta": m.group(0)})
                     else:
                         events.append({"type": name, "value": value})

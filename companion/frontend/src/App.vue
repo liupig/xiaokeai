@@ -97,6 +97,8 @@ onMounted(async () => {
     ? characters.switchTo(characters.currentId).catch(() => {})
     : Promise.resolve();
   await Promise.all([sceneP, modelP]);
+  const along = await import('./features/glance/along');
+  along.installAlong();
   if (settings.modules.codewatch) {
     const codewatch = await import('./features/codewatch');
     await codewatch.restoreCodewatch().catch(() => {});

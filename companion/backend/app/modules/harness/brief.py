@@ -23,9 +23,10 @@ def wants_harness(
 ) -> bool:
     """用户开口进 dsh。看牌进行中的那句也进，目录才能选中 tarot。
 
-    牌仍由代码发。收摊后那句、重说、宿主自己排的句子仍走旧管线。
+    陪我看时，画面变了的那句也进同一条会话。牌仍由代码发。
+    收摊后那句、重说、宿主按沉默排的句子仍走旧管线。
     """
-    return bool(enabled) and mode == "user" and not reroll and not afterglow
+    return bool(enabled) and mode in ("user", "along") and not reroll and not afterglow
 
 
 def host_brief(messages: Sequence[Dict[str, str]], dance_names: Sequence[str] | None = None) -> str:

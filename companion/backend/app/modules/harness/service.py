@@ -105,21 +105,45 @@ def messages_base(base_url: str | None) -> str | None:
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
-def sync_skills(home: Optional[Path] = None) -> Path:
-    """把仓库里的技能抄到这次运行的 home。正文变了就覆盖，别的文件不动。"""
+def glance_on() -> bool:
+    """看一眼默认关。读不到设置就当关着，避免把眼睛写进本来的对话。"""
+    try:
+        from sqlmodel import Session
+
+        from ...db import engine
+        from ...services.settings_store import get_all
+
+        with Session(engine) as session:
+            mods = get_all(session).get("modules") or {}
+        return bool(mods.get("glance", False))
+    except Exception:
+        return False
+
+
+def sync_skills(home: Optional[Path] = None, *, glance: bool = False) -> Path:
+    """把仓库里的技能抄到这次运行的 home。正文变了就覆盖，别的文件不动。
+
+    glance 关着时不抄 watch，并把上次留下的那份删掉。
+    """
     root = home or home_dir()
     dest_root = root / "skills"
     dest_root.mkdir(parents=True, exist_ok=True)
     (root / "workspace").mkdir(parents=True, exist_ok=True)
-    _write_profile_patch(root)
+    _write_profile_patch(root, glance=glance)
     if not SKILL_SRC.is_dir():
         return root
     for skill in SKILL_SRC.glob("*/SKILL.md"):
+        if skill.parent.name == "watch" and not glance:
+            continue
         target = dest_root / skill.parent.name / "SKILL.md"
         target.parent.mkdir(parents=True, exist_ok=True)
         text = skill.read_text(encoding="utf-8")
         if not target.is_file() or target.read_text(encoding="utf-8") != text:
             target.write_text(text, encoding="utf-8")
+    if not glance:
+        stale = dest_root / "watch" / "SKILL.md"
+        if stale.is_file():
+            stale.unlink()
     return root
 
 
@@ -138,11 +162,14 @@ def _inline_rules() -> str:
     return "\n\n".join(part for part in parts if part)
 
 
-def _profile_patch() -> str:
+def _profile_patch(*, glance: bool = False) -> str:
     # 自动折叠在开口前同步写摘要，摘要模板还是编程纪要。满了改由宿主换一条短会话。
     rules = "\n".join(
         f"      {line}" if line else "" for line in _inline_rules().split("\n")
     )
+    eyes = ""
+    if glance:
+        eyes = "对方问自己在干什么、让你陪着看剧或看视频、或让你在屏幕上找东西在哪时，调用 watch 技能。先说「我看看。」再只写 [glance:对方的要求]。宿主去看屏幕。这一轮不要编，不要去点。"
     return (
         "- id: compaction-basic\n"
         "  config:\n"
@@ -155,15 +182,16 @@ def _profile_patch() -> str:
         "  config:\n"
         "    personaPrefix: |\n"
         "      系统提醒、技能名单、技能名字和你自己的推理，一个字都不要说出来。对方听得见的只有口语。\n"
-        "      闲聊、看牌、画画直接开口，不要为它们调用 skill。对方要跳舞时，铺垫已经说了，接着调用 dance 技能，回来后再说一句并写 [dance:]。对方要核对现在的事时，调用 lookup 技能，检索词由你自己改写，只写 [lookup:检索词]。宿主按原词去查。不要自己打开搜索网站，不要编。不要把技能说出来。\n"
+        "      闲聊、看牌、画画直接开口，不要为它们调用 skill。对方要跳舞时，铺垫已经说了，接着调用 dance 技能，回来后再说一句并写 [dance:]。对方要核对现在的事时，调用 lookup 技能，检索词由你自己改写，只写 [lookup:检索词]。宿主按原词去查。不要自己打开搜索网站，不要编。"
+        f"{eyes}不要把技能说出来。\n"
         f"{rules}\n"
     )
 
 
-def _write_profile_patch(root: Path) -> None:
+def _write_profile_patch(root: Path, *, glance: bool = False) -> None:
     dest = root / "profiles" / "sdk" / "cordis.patch.yml"
     dest.parent.mkdir(parents=True, exist_ok=True)
-    text = _profile_patch()
+    text = _profile_patch(glance=glance)
     if not dest.is_file() or dest.read_text(encoding="utf-8") != text:
         dest.write_text(text, encoding="utf-8")
 
@@ -372,7 +400,7 @@ class Runtime:
                 raise HarnessError("未配置 LLM API Key，请到设置中填写")
             from deepseek_harness import DeepSeekHarness
 
-            home = sync_skills()
+            home = sync_skills(glance=glance_on())
             workspace = workspace_dir()
             model = (conf.get("model") or "").strip() or "deepseek-v4-flash"
             base_url = messages_base((conf.get("base_url") or "").strip() or None)

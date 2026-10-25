@@ -22,6 +22,7 @@ from .modules.keepsake.router import router as keepsake_router
 from .modules.tarot.router import router as tarot_router
 from .modules.codewatch.router import router as codewatch_router
 from .modules.harness.router import router as harness_router
+from .modules.glance.router import router as glance_router
 from .services import catalog
 from .services import asr as asr_svc
 from .services import review_store
@@ -56,6 +57,7 @@ app.include_router(keepsake_router)
 app.include_router(tarot_router)
 app.include_router(codewatch_router)
 app.include_router(harness_router)
+app.include_router(glance_router)
 
 @app.get("/assets/{path:path}", include_in_schema=False)
 def serve_asset(path: str):
