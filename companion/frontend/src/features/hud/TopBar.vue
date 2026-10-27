@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { NAvatar, NTooltip } from 'naive-ui';
 import { MocapToolbar } from '../mocap';
 import XkIcon from '../icons/XkIcon.vue';
-import { useCharacterStore } from '../../stores/character';
+import { rememberCurrentCharacter, useCharacterStore } from '../../stores/character';
 import { useSettingsStore } from '../../stores/settings';
 import { t } from '../../i18n';
 import { setShellMode } from '../shell/mode';
@@ -21,6 +21,7 @@ const canPet = typeof window.companionDesktop?.setShellMode === 'function';
 const canReload = typeof window.companionDesktop?.reload === 'function';
 
 function reloadShell() {
+  rememberCurrentCharacter();
   void window.companionDesktop?.reload?.();
 }
 

@@ -9,9 +9,36 @@ import { useAssetsStore } from './assets';
 
 let switchGen = 0;
 
+/** 舞台和桌宠是两个窗口，切换会整页重开。当前角色只活在内存里的话，新窗口会落到列表第一位。 */
+const CURRENT_KEY = 'companion.character.current';
+
 function staleLoad(err: unknown) {
   const msg = err instanceof Error ? err.message : String(err);
   return msg.includes('已被更新的加载取代');
+}
+
+function readSavedId(): number {
+  try {
+    const n = Number(localStorage.getItem(CURRENT_KEY) || 0);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeSavedId(id: number) {
+  try {
+    if (id > 0) localStorage.setItem(CURRENT_KEY, String(id));
+    else localStorage.removeItem(CURRENT_KEY);
+  } catch { /* 隐私模式 */ }
+}
+
+/** 窗口被拆掉之前再写一次，避免只停在内存里。 */
+export function rememberCurrentCharacter() {
+  try {
+    const id = useCharacterStore().currentId;
+    if (id > 0) writeSavedId(id);
+  } catch { /* pinia 还没起来 */ }
 }
 
 export const useCharacterStore = defineStore('character', {
@@ -28,9 +55,16 @@ export const useCharacterStore = defineStore('character', {
   actions: {
     async loadList() {
       this.list = await api.listCharacters();
-      if (!this.currentId && this.list.length) {
-        this.currentId = this.list[0].id!;
+      if (this.currentId && this.list.some((c) => c.id === this.currentId)) {
+        writeSavedId(this.currentId);
+        return;
       }
+      const saved = readSavedId();
+      const hit = this.list.find((c) => c.id === saved);
+      const next = hit?.id ?? this.list[0]?.id ?? 0;
+      this.currentId = next;
+      if (next) writeSavedId(next);
+      else writeSavedId(0);
     },
     async load() {
       await this.loadList();
@@ -45,6 +79,7 @@ export const useCharacterStore = defineStore('character', {
       speechPlayer.stop();
       stage.stopMotion();
       this.currentId = id;
+      writeSavedId(id);
       try {
         const { tarotLayerOn } = await import('../features/tarot/gate');
         if (tarotLayerOn.value) {
@@ -101,8 +136,12 @@ export const useCharacterStore = defineStore('character', {
     async remove(id: number) {
       await api.deleteCharacter(id);
       this.list = this.list.filter((c) => c.id !== id);
-      if (this.currentId === id && this.list.length) {
-        await this.switchTo(this.list[0].id!);
+      if (this.currentId === id) {
+        if (this.list.length) await this.switchTo(this.list[0].id!);
+        else {
+          this.currentId = 0;
+          writeSavedId(0);
+        }
       }
     },
   },
