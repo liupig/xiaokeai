@@ -18,6 +18,52 @@ import type { ActionKey, Avatar, BoneKey, CamPreset, CamShotId, EmotionKey, Qual
 export type { StandSlot };
 
 const PHY_STEP = 1 / 65; // MMDPhysics 内部最小步长
+/** PMX 从 MMD 单位（约 8cm）换成米。物理库假定缩放是 1，会临时改掉它。 */
+const MMD_MODEL_SCALE = 0.08;
+
+/** 卸掉一套刚体。不销毁的话，wasm 堆（约 64MB）换几次模型就会耗尽，下一步初始化直接失败。 */
+function releaseMmdPhysics(physics: MMDPhysics | null) {
+  if (!physics) return;
+  const ammo = (globalThis as { Ammo?: { destroy?: (obj: object) => void } }).Ammo;
+  const destroy = (obj: object | null | undefined) => {
+    if (!obj || typeof ammo?.destroy !== 'function') return;
+    try { ammo.destroy(obj); } catch { /* 已经释放过 */ }
+  };
+  const world = physics.world as {
+    removeConstraint?: (c: object) => void;
+    removeRigidBody?: (b: object) => void;
+  } | null;
+  for (const c of physics.constraints as Array<{ constraint?: object | null }>) {
+    const ct = c.constraint;
+    if (!ct) continue;
+    try { world?.removeConstraint?.(ct); } catch { /* */ }
+    destroy(ct);
+    c.constraint = null;
+  }
+  for (const b of physics.bodies as Array<{
+    body?: {
+      getCollisionShape?: () => object;
+      getMotionState?: () => object;
+    } | null;
+  }>) {
+    const body = b.body;
+    if (!body) continue;
+    let shape: object | null = null;
+    let state: object | null = null;
+    try { shape = body.getCollisionShape?.() ?? null; } catch { /* */ }
+    try { state = body.getMotionState?.() ?? null; } catch { /* */ }
+    try { world?.removeRigidBody?.(body); } catch { /* */ }
+    destroy(body);
+    destroy(shape);
+    destroy(state);
+    b.body = null;
+  }
+  destroy(world);
+  (physics as { world: object | null }).world = null;
+  physics.bodies = [];
+  physics.constraints = [];
+}
+
 /** 1080p @ 2x；更高分辨率不再叠 DPR，避免 4K 开 2x 吃掉上百 MB 显存 */
 const PIXEL_BUDGET = 1920 * 1080 * 4;
 
@@ -145,6 +191,11 @@ export class Stage {
   private physics: MMDPhysics | null = null;
   private physicsHeld: MMDPhysics | null = null;
   private physicsGen = 0;
+  /** 物理库会改 mesh 的缩放和 parent，抛错前先记下，用来改回去 */
+  private mmdHoldParent: THREE.Object3D | null = null;
+  private mmdHoldPos = new THREE.Vector3();
+  private mmdHoldQuat = new THREE.Quaternion();
+  private mmdHoldScale = new THREE.Vector3(1, 1, 1);
   private modelKind = '';
   private phyAcc = 0;
   private disposed = false;
@@ -790,7 +841,7 @@ export class Stage {
 
   private async setupMMD(mmd: THREE.SkinnedMesh, url: string): Promise<ModelInfo> {
     // MMD 单位约 8cm，缩放到米制
-    mmd.scale.setScalar(0.08);
+    mmd.scale.setScalar(MMD_MODEL_SCALE);
     mmd.updateMatrixWorld(true);
     // three-stdlib 的 MMDLoader 没给颜色贴图标记 sRGB，
     // 新版 three 会把它们当线性数据导致颜色发灰，这里补上
@@ -834,6 +885,69 @@ export class Stage {
     this.phyAcc = 0;
   }
 
+  /** 关掉并且释放 wasm 里的刚体。换模型、初始化失败时用；普通开关只 detach，留着下次复用。 */
+  private dropPhysics() {
+    const held = this.physicsHeld ?? this.physics;
+    this.physicsGen += 1;
+    this.physics = null;
+    this.physicsHeld = null;
+    this.phyAcc = 0;
+    releaseMmdPhysics(held);
+  }
+
+  /**
+   * MMDPhysics 发现缩放不是 1 时，会把 mesh.scale 改成 1、parent 摘掉，算完再改回。
+   * 初始化或步进一旦抛错（刚体太多、wasm 堆耗尽），改回那一步不会执行，
+   * 角色就停在 1/0.08 = 12.5 倍，关物理也缩不回去。
+   */
+  private holdMmdMesh(mesh: THREE.Object3D) {
+    this.mmdHoldParent = mesh.parent;
+    this.mmdHoldPos.copy(mesh.position);
+    this.mmdHoldQuat.copy(mesh.quaternion);
+    const s = mesh.scale;
+    if (Math.abs(s.x - MMD_MODEL_SCALE) > 0.02
+        || Math.abs(s.y - MMD_MODEL_SCALE) > 0.02
+        || Math.abs(s.z - MMD_MODEL_SCALE) > 0.02) {
+      s.setScalar(MMD_MODEL_SCALE);
+    }
+    this.mmdHoldScale.copy(mesh.scale);
+  }
+
+  private restoreMmdMesh(mesh: THREE.Object3D) {
+    mesh.parent = this.mmdHoldParent;
+    mesh.position.copy(this.mmdHoldPos);
+    mesh.quaternion.copy(this.mmdHoldQuat);
+    mesh.scale.copy(this.mmdHoldScale);
+  }
+
+  /** 物理库抛错后的兜底：缩放被留在 1、parent 被摘掉时，下一帧改回来。 */
+  private keepMmdModelScale() {
+    const mesh = this.modelRoot;
+    if (this.modelKind !== 'pmx' || !mesh) return;
+    const s = mesh.scale;
+    if (Math.abs(s.x - MMD_MODEL_SCALE) > 0.02
+        || Math.abs(s.y - MMD_MODEL_SCALE) > 0.02
+        || Math.abs(s.z - MMD_MODEL_SCALE) > 0.02) {
+      s.setScalar(MMD_MODEL_SCALE);
+    }
+    if (!mesh.parent && this.scene) mesh.parent = this.scene;
+  }
+
+  private stepMmdPhysics(dt: number) {
+    const mesh = this.modelRoot;
+    const physics = this.physics;
+    if (!mesh || !physics) return;
+    this.holdMmdMesh(mesh);
+    try {
+      physics.update(dt);
+    } catch (e) {
+      console.warn('MMD 物理步进失败，已关闭：', e);
+      this.dropPhysics();
+    } finally {
+      if (this.modelRoot === mesh) this.restoreMmdMesh(mesh);
+    }
+  }
+
   private async attachPhysics() {
     const gen = ++this.physicsGen;
     if (!this.quality.physics || this.physics) return;
@@ -850,9 +964,27 @@ export class Stage {
       if (gen !== this.physicsGen || !this.quality.physics) return;
       const ud = (mmd.geometry as THREE.BufferGeometry).userData.MMD;
       if (!ud?.rigidBodies?.length) return;
-      this.physics = new MMDPhysics(mmd, ud.rigidBodies, ud.constraints);
-      this.physics.warmup(60);
-      this.physicsHeld = this.physics;
+      let created: MMDPhysics | null = null;
+      this.holdMmdMesh(mmd);
+      try {
+        created = new MMDPhysics(mmd, ud.rigidBodies, ud.constraints);
+        created.warmup(60);
+        if (gen !== this.physicsGen || !this.quality.physics) {
+          releaseMmdPhysics(created);
+          return;
+        }
+        this.physics = created;
+        this.physicsHeld = created;
+      } catch (e) {
+        console.warn('MMD 物理初始化失败，继续以无物理模式运行：', e);
+        releaseMmdPhysics(created);
+        if (gen === this.physicsGen) {
+          this.physics = null;
+          this.physicsHeld = null;
+        }
+      } finally {
+        this.restoreMmdMesh(mmd);
+      }
     } catch (e) {
       console.warn('MMD 物理初始化失败，继续以无物理模式运行：', e);
       if (gen === this.physicsGen) this.physics = null;
@@ -932,11 +1064,8 @@ export class Stage {
     this.camRig.resetFocus();
     this.walkLocActive = false;
     this.walkLocUrl = '';
-    this.physicsGen += 1;
-    this.physics = null;
-    this.physicsHeld = null;
+    this.dropPhysics();
     this.modelKind = '';
-    this.phyAcc = 0;
     this.expr.reset();
     this.director.reset();
     this.lipsync.setTalking(false);
@@ -1660,10 +1789,12 @@ export class Stage {
       if (this.physics) {
         this.phyAcc += dt;
         if (this.phyAcc >= PHY_STEP) {
-          this.physics.update(Math.min(this.phyAcc, 1 / 30));
+          const step = Math.min(this.phyAcc, 1 / 30);
           this.phyAcc = 0;
+          this.stepMmdPhysics(step);
         }
       }
+      this.keepMmdModelScale();
 
       av.update(dt); // VRM 内部更新（表情/弹簧骨），MMD 为空操作
       this.motion.pinHold();
