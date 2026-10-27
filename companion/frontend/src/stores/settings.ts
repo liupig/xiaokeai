@@ -58,6 +58,7 @@ export const useSettingsStore = defineStore('settings', {
       stage_texture: '', stage_opacity: 1,
     },
     modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, codewatch: true, touch: true, harness: true, glance: false },
+    vision: { provider: 'minicpm' as 'minicpm' | 'openai', base_url: '', api_key: '', model: '' },
     memory: { embedder: 'auto' as 'auto' | 'local' | 'doubao' | 'qwen' | 'openai' | 'gemini' },
     hardware: {
       auto: false, tier: '', ram_gb: 0, vram_gb: 0, cores: 0,
@@ -144,6 +145,7 @@ export const useSettingsStore = defineStore('settings', {
       }
       setUiLang(this.locale.ui);
       setReplyLang(this.locale.reply);
+      window.companionDesktop?.setTrayLocale?.(this.locale.ui);
       const alignedNow = alignVoice(this.tts.engine, this.tts.voice, this.locale.reply);
       if (alignedNow && alignedNow !== this.tts.voice && this.locale_set) {
         this.tts.voice = alignedNow;
@@ -178,6 +180,13 @@ export const useSettingsStore = defineStore('settings', {
         touch: mods?.touch !== false,
         harness: mods?.harness === true,
         glance: mods?.glance === true,
+      };
+      const vision = (data as { vision?: { provider?: string; base_url?: string; api_key?: string; model?: string } }).vision;
+      this.vision = {
+        provider: vision?.provider === 'openai' ? 'openai' : 'minicpm',
+        base_url: String(vision?.base_url || ''),
+        api_key: String(vision?.api_key || ''),
+        model: String(vision?.model || ''),
       };
       const mem = (data as { memory?: { embedder?: string } }).memory;
       const emb = String(mem?.embedder || 'auto');
@@ -221,7 +230,7 @@ export const useSettingsStore = defineStore('settings', {
     async save() {
       this.noteVoice();
       const data = await api.updateSettings({
-        llm: this.llm, tts: this.tts, stt: this.stt, omni: this.omni,
+        llm: this.llm, tts: this.tts, stt: this.stt, omni: this.omni, vision: this.vision,
         locale: this.locale,
         download: this.download, quality: this.quality, modules: this.modules,
         memory: this.memory,
@@ -240,6 +249,7 @@ export const useSettingsStore = defineStore('settings', {
       this.locale = { ...this.locale, ...patch };
       setUiLang(this.locale.ui);
       setReplyLang(this.locale.reply);
+      window.companionDesktop?.setTrayLocale?.(this.locale.ui);
       const book = { ...(this.tts.voice_by_lang || {}) };
       if (voiceFits(prevVoice, prevReply, this.tts.engine)) book[prevReply] = prevVoice;
       if (this.locale.reply !== prevReply) {

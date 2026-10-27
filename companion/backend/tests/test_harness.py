@@ -296,6 +296,17 @@ def test_thinking_off_reaches_dsh_as_reasoning_off():
     assert reasoning_effort_for(None) is None
 
 
+def test_unset_volc_max_is_a_chat_cap():
+    from app.modules.harness.service import turn_max_tokens
+
+    volc = "https://ark.cn-beijing.volces.com/api/v3"
+    assert turn_max_tokens(volc, 0, "off") == 2048
+    assert turn_max_tokens(volc, 0, "on") == 8192
+    assert turn_max_tokens(volc, 4000, "off") == 4000
+    assert turn_max_tokens(volc, 200000, "off") == 131072
+    assert turn_max_tokens("https://api.deepseek.com", 0, "off") is None
+
+
 def test_a_missing_session_is_not_an_already_open_one():
     from app.modules.harness.service import session_missing
 

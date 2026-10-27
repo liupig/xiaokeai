@@ -32,6 +32,28 @@ function isSidecarClip(clip: { duplexCmd?: DuplexCmd; kind?: string } | null): b
   return k === 'delayed' || k === 'proactive' || k === 'goodbye' || k === 'welcome';
 }
 
+/** 口语不许带 emoji。单独一个表情不能去占一次合成。 */
+function stripEmoji(text: string): string {
+  return (text || '').replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\uFE0F\u200D]/gu, '');
+}
+
+/** 花括号、action、topic_id 一律不进合成。能取出 text 字段就只说那句。 */
+function speakable(text: string): string {
+  const raw = stripEmoji(text || '').trim();
+  if (!raw) return '';
+  const marked = raw.includes('{') || raw.includes('topic_id') || raw.includes('"action"') || raw.includes('"text"');
+  if (!marked) return raw;
+  const matched = raw.match(/"text"\s*:\s*"((?:\\.|[^"\\])*)"/);
+  if (!matched) return '';
+  try {
+    const said = JSON.parse(`"${matched[1]}"`).trim();
+    if (!said || said.includes('{') || said.includes('topic_id')) return '';
+    return stripEmoji(said).trim();
+  } catch {
+    return '';
+  }
+}
+
 function estimateSpeechSec(text: string): number {
   const n = Array.from(text.replace(/\s/g, '')).length;
   return Math.max(0.6, n * 0.22);
@@ -40,7 +62,7 @@ function estimateSpeechSec(text: string): number {
 const PERF_TAG = /\[(emo|act|dance|cam|expr|intent|stand):[^\[\]]{1,80}\]/g;
 
 function stripCaption(text: string) {
-  return (text || '')
+  return stripEmoji(text || '')
     .replace(PERF_TAG, '')
     .replace(/[（(【][^）)】]{1,48}[）)】]/g, '')
     .replace(/[（(【][^）)】]{0,48}$/g, '')
@@ -379,16 +401,26 @@ export class SpeechPlayer {
     const gen = this.generation;
     const ac = new AbortController();
     this.ensureCtx();
+    const withTimeout = <T>(work: Promise<T>): Promise<T> => {
+      let timer = 0;
+      const limit = new Promise<T>((_resolve, reject) => {
+        timer = window.setTimeout(() => {
+          ac.abort();
+          reject(new Error('tts timeout'));
+        }, 12000);
+      });
+      return Promise.race([work, limit]).finally(() => window.clearTimeout(timer));
+    };
     let job: Promise<AudioBuffer | Response | null>;
     if (this.engine === 'browser') {
       job = Promise.resolve(null);
     } else if (STREAM_ENGINES.has(this.engine)) {
-      job = api.ttsResponse(
+      job = withTimeout(api.ttsResponse(
         speakForEngine(cleaned), this.voice, this.engine, ac.signal,
         this.qwenSize, this.qwenStyle, this.qwenInstruct,
-      );
+      ));
     } else {
-      job = this.fetchBuffer(cleaned, ac.signal, gen);
+      job = withTimeout(this.fetchBuffer(cleaned, ac.signal, gen));
     }
     return {
       text: cleaned, job, ac,
@@ -401,7 +433,7 @@ export class SpeechPlayer {
 
   /** Pool 入口。同轮 A1/A2/A3 只排队；新一轮 QA 才按剩余音频 3 秒决定切不切。 */
   pushUnit(unit: PlayableUnit) {
-    const cleaned = (unit.text || '').trim();
+    const cleaned = speakable(unit.text || '');
     if (!cleaned) return;
     const turn = unit.inputGen ?? this.inputGen;
     const tagged: PlayableUnit = {
@@ -502,18 +534,27 @@ export class SpeechPlayer {
     if (this.ctx.state !== 'running') void this.ctx.resume();
   }
 
-  /** 上下文被挂起或被系统打断时先等它真正跑起来，再排声音。 */
+  /** 上下文被挂起时先等它跑起来。等不到就放开，别把后面的话卡在队列里。 */
   private whenAudible(): Promise<void> {
     this.ensureCtx();
     const ctx = this.ctx!;
     if (ctx.state === 'running') return Promise.resolve();
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      let done = false;
       const finish = () => {
-        if (ctx.state !== 'running') return;
+        if (done || ctx.state !== 'running') return;
+        done = true;
+        window.clearTimeout(timer);
         ctx.removeEventListener('statechange', finish);
         this.aecSpeaker.nudge();
         resolve();
       };
+      const timer = window.setTimeout(() => {
+        if (done) return;
+        done = true;
+        ctx.removeEventListener('statechange', finish);
+        reject(new Error('audio suspended'));
+      }, 4000);
       ctx.addEventListener('statechange', finish);
       void ctx.resume().then(finish);
     });
@@ -756,22 +797,33 @@ export class SpeechPlayer {
     const state = { streamDone: false };
     return new Promise((resolve, reject) => {
       let settled = false;
+      let poll = 0;
+      let heardAt = 0;
+      let heardTime = 0;
       const finish = (err?: unknown) => {
         if (settled) return;
         settled = true;
+        window.clearInterval(poll);
         URL.revokeObjectURL(url);
         if (err) reject(err);
         else resolve();
       };
       audio.onended = () => finish();
       audio.onerror = () => finish(new Error('MPEG 播放失败'));
-      const poll = window.setInterval(() => {
-        if (settled) {
-          window.clearInterval(poll);
-          return;
-        }
+      const startedAt = Date.now();
+      poll = window.setInterval(() => {
+        if (settled) return;
         if (gen !== this.generation || token !== this.playToken) {
           finish();
+          return;
+        }
+        if (audio.currentTime > heardTime + 0.05) {
+          heardTime = audio.currentTime;
+          heardAt = Date.now();
+        }
+        const quietFor = heardAt ? Date.now() - heardAt : Date.now() - startedAt;
+        if (audio.paused && quietFor > 15000) {
+          finish(new Error('tts stalled'));
           return;
         }
         this.maybeCutForPending();

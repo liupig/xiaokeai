@@ -97,6 +97,41 @@ public static class ChildJob {
   static IntPtr handle;
   static CtrlHandler keep;
   static readonly System.Collections.Generic.List<int> pids = new System.Collections.Generic.List<int>();
+  static void KillPort(int port) {
+    try {
+      var info = new ProcessStartInfo();
+      info.FileName = "netstat.exe";
+      info.Arguments = "-ano -p tcp";
+      info.CreateNoWindow = true;
+      info.UseShellExecute = false;
+      info.RedirectStandardOutput = true;
+      using (var probe = Process.Start(info)) {
+        if (probe == null) return;
+        var text = probe.StandardOutput.ReadToEnd();
+        probe.WaitForExit(4000);
+        var seen = new System.Collections.Generic.HashSet<int>();
+        foreach (var raw in text.Split('\n')) {
+          if (raw.IndexOf("LISTENING", StringComparison.OrdinalIgnoreCase) < 0) continue;
+          var parts = raw.Split(new char[] { ' ', '\t', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+          if (parts.Length < 5) continue;
+          if (!parts[1].EndsWith(":" + port)) continue;
+          int pid;
+          if (!int.TryParse(parts[parts.Length - 1], out pid) || pid <= 0 || seen.Contains(pid)) continue;
+          seen.Add(pid);
+          try {
+            var kill = new ProcessStartInfo();
+            kill.FileName = "taskkill.exe";
+            kill.Arguments = "/PID " + pid + " /T /F";
+            kill.CreateNoWindow = true;
+            kill.UseShellExecute = false;
+            using (var killer = Process.Start(kill)) {
+              if (killer != null) killer.WaitForExit(4000);
+            }
+          } catch { }
+        }
+      }
+    } catch { }
+  }
   static void KillAll() {
     foreach (var pid in pids.ToArray()) {
       try {
@@ -110,6 +145,7 @@ public static class ChildJob {
         }
       } catch { }
     }
+    KillPort(8766);
   }
   public static bool Start() {
     if (handle != IntPtr.Zero) return true;
@@ -174,6 +210,7 @@ function Stop-Kids {
   }
   Stop-Port 8600
   Stop-Port 5175
+  Stop-Port 8766
 }
 
 Write-Host "Stopping the previous desktop, backend, and frontend..."
@@ -181,6 +218,7 @@ Stop-Matching (Join-Path $desk "node_modules")
 Stop-Matching (Join-Path $front "node_modules\vite")
 Stop-Port 5175
 Stop-Port 8600
+Stop-Port 8766
 Stop-Matching (Join-Path $root "backend")
 Start-Sleep -Milliseconds 600
 
@@ -208,7 +246,7 @@ Write-Host "Frontend http://127.0.0.1:5175"
 $desktop = Start-Logged "desktop" $desk "npm run dev"
 $kids += $desktop
 Write-Host "Desktop window is opening."
-Write-Host "Close this window, or close the desktop window, to stop backend and frontend too."
+Write-Host "Close this window, or close the desktop window, to stop backend, frontend, and vision."
 
 try {
   Wait-Process -Id $desktop.Id

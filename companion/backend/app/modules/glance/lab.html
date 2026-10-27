@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>陪看记录</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #12141a;
+      --card: #1c2030;
+      --line: #2c3348;
+      --text: #e7e9f2;
+      --muted: #9aa3b8;
+      --accent: #8eb6ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 14px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      background: #171b26ee;
+      border-bottom: 1px solid var(--line);
+    }
+    h1 { margin: 0; font-size: 16px; font-weight: 600; }
+    header p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+    .tools { display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: 13px; }
+    button {
+      background: #2a3348;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    main { padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 14px; }
+    .empty { color: var(--muted); padding: 48px 0; text-align: center; }
+    article {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 16px 16px;
+    }
+    .top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+    time { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .chip {
+      font-size: 12px;
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: #2a3144;
+      color: var(--muted);
+    }
+    .chip.ok { color: #b7f0c8; background: #1d3a2a; }
+    .chip.bad { color: #ffc1c1; background: #3a2428; }
+    .chip.say { color: #d5e4ff; background: #24324d; }
+    section { margin-top: 12px; }
+    h2 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--accent); letter-spacing: 0.02em; }
+    .frames { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+    .frames img {
+      height: 132px;
+      width: auto;
+      border-radius: 8px;
+      background: #0e1016;
+      border: 1px solid var(--line);
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #12151e;
+      border-radius: 8px;
+      padding: 10px 12px;
+      max-height: 220px;
+      overflow: auto;
+      color: #d5d9e6;
+    }
+    .why { color: var(--muted); }
+    .more { align-self: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>陪看记录</h1>
+      <p id="hint">固定页面。截图、视觉模型和交给小可爱的内容都留在这里。</p>
+    </div>
+    <div class="tools">
+      <label><input id="keep" type="checkbox" /> 保留最近三天的截图</label>
+      <label><input id="live" type="checkbox" checked /> 自动刷新</label>
+      <button id="clear" type="button">清空</button>
+    </div>
+  </header>
+  <main id="list"><div class="empty">还没有一眼。开始陪看之后，新的记录会出现在这里。</div></main>
+  <script>
+    const list = document.getElementById('list');
+    const live = document.getElementById('live');
+    const keep = document.getElementById('keep');
+    const hint = document.getElementById('hint');
+    let rows = [];
+    let more = false;
+    const esc = (s) => String(s || '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    const frames = (id, kind, n) => {
+      if (!n) return '<div class="why">没有</div>';
+      let html = '<div class="frames">';
+      for (let i = 0; i < n; i++) {
+        html += `<img alt="" src="/api/modules/glance/lab/${id}/${kind}/${i}" />`;
+      }
+      return html + '</div>';
+    };
+    const chip = (text, kind) => `<span class="chip ${kind || ''}">${esc(text)}</span>`;
+    function card(row) {
+      const bits = [chip(row.at)];
+      if (row.skipped) bits.push(chip('没跑模型'));
+      else if (!row.ok) bits.push(chip('没看成', 'bad'));
+      else bits.push(chip(row.channel || '已看', 'ok'));
+      if (row.downsample) bits.push(chip(row.downsample));
+      if (row.detail) bits.push(chip('细看'));
+      if (row.ms) bits.push(chip(row.ms + ' ms'));
+      const said = { speak: '她说了', silent: '她不说', hollow: '空话没播', drop: '没交成' };
+      if (row.xiaoke_action) bits.push(chip(said[row.xiaoke_action] || row.xiaoke_action, row.xiaoke_action === 'speak' ? 'say' : ''));
+      const result = row.result || row.message || '（空）';
+      const hand = row.handoff
+        ? `<pre>${esc(row.handoff)}</pre>`
+        : `<div class="why">${esc(row.handoff_why || '还没交给她')}</div>`;
+      const back = row.xiaoke_out || row.xiaoke_raw
+        ? `<pre>${esc(row.xiaoke_out || row.xiaoke_raw)}</pre>`
+        : `<div class="why">${esc(row.xiaoke_action ? '这轮没有说出口的话' : '还没有回复')}</div>`;
+      return `<article data-id="${esc(row.id)}">
+        <div class="top">${bits.join('')}</div>
+        <section><h2>截到的画面</h2>${frames(row.id, 'captured', row.captured)}</section>
+        <section><h2>送给视觉模型的图</h2>${frames(row.id, 'sent', row.sent)}</section>
+        <section><h2>视觉模型 prompt</h2><pre>${esc(row.prompt || '这一眼没有送模型')}</pre></section>
+        <section><h2>视觉模型结果</h2><pre>${esc(result)}</pre></section>
+        <section><h2>交给小可爱</h2>${row.xiaoke_in ? `<pre>${esc(row.xiaoke_in)}</pre>` : hand}</section>
+        <section><h2>小可爱返回</h2>${back}</section>
+      </article>`;
+    }
+    function paint(data) {
+      if (document.activeElement !== keep) keep.checked = !!data.keeping;
+      const days = data.days || 3;
+      const total = data.total || 0;
+      hint.textContent = data.keeping
+        ? `最近 ${days} 天的截图留在本机。地址固定为 ${location.origin}/lab/watch，服务启动时会一起打开。共 ${total} 条。`
+        : `截图保留关着。打开后，新的截图会在本机留 ${days} 天。地址固定为 ${location.origin}/lab/watch。共 ${total} 条。`;
+      const wanted = rows.map((row) => row.id);
+      const nodes = new Map([...list.querySelectorAll('article')].map((el) => [el.dataset.id, el]));
+      const same = wanted.length === nodes.size && wanted.every((id) => nodes.has(id));
+      if (!same) {
+        const frag = document.createDocumentFragment();
+        if (!wanted.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty';
+          empty.textContent = '还没有一眼。开始陪看之后，新的记录会出现在这里。';
+          frag.appendChild(empty);
+        }
+        for (const row of rows) {
+          let node = nodes.get(row.id);
+          if (!node) {
+            const holder = document.createElement('template');
+            holder.innerHTML = card(row);
+            node = holder.content.firstElementChild;
+          }
+          frag.appendChild(node);
+        }
+        list.replaceChildren(frag);
+      }
+      let button = document.getElementById('more');
+      if (more) {
+        if (!button) {
+          button = document.createElement('button');
+          button.id = 'more';
+          button.className = 'more';
+          button.type = 'button';
+          button.textContent = '更早的记录';
+          list.appendChild(button);
+        }
+        button.onclick = loadOlder;
+      } else if (button) {
+        button.remove();
+      }
+    }
+    async function pull() {
+      if (!live.checked && rows.length) return;
+      try {
+        const res = await fetch('/api/modules/glance/lab?limit=40', { cache: 'no-store' });
+        const data = await res.json();
+        const items = data.items || [];
+        const seen = new Set(items.map((row) => row.id));
+        const rest = rows.filter((row) => !seen.has(row.id));
+        rows = items.concat(rest);
+        if (!rest.length) more = !!data.has_older;
+        if (!data.has_older) more = false;
+        paint(data);
+      } catch (err) {
+        list.innerHTML = '<div class="empty">记录页暂时连不上后端。</div>';
+      }
+    }
+    async function loadOlder() {
+      const id = rows.length ? rows[rows.length - 1].id : '';
+      if (!id) return;
+      const res = await fetch('/api/modules/glance/lab?limit=40&before=' + encodeURIComponent(id), { cache: 'no-store' });
+      const data = await res.json();
+      const seen = new Set(rows.map((row) => row.id));
+      rows = rows.concat((data.items || []).filter((row) => !seen.has(row.id)));
+      more = !!data.has_older;
+      paint(data);
+    }
+    keep.onchange = async () => {
+      await fetch('/api/modules/glance/lab/keep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on: keep.checked }),
+      });
+      pull();
+    };
+    document.getElementById('clear').onclick = async () => {
+      if (!window.confirm('清空会删掉这个页面上的陪看记录，包括本机保存的截图。')) return;
+      rows = [];
+      more = false;
+      await fetch('/api/modules/glance/lab/clear', { method: 'POST' });
+      pull();
+    };
+    pull();
+    setInterval(pull, 1500);
+  </script>
+</body>
+</html>

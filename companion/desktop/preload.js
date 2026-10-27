@@ -23,4 +23,7 @@ contextBridge.exposeInMainWorld('companionDesktop', {
   minimize: () => ipcRenderer.send('window-minimize'),
   close: () => ipcRenderer.send('window-close'),
   reload: () => ipcRenderer.invoke('reload-shell'),
+  getTrayPrefs: () => ipcRenderer.invoke('get-tray-prefs'),
+  setTrayPrefs: (prefs) => ipcRenderer.invoke('set-tray-prefs', prefs),
+  setTrayLocale: (lang) => ipcRenderer.send('set-tray-locale', lang),
 });

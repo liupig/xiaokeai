@@ -22,7 +22,8 @@ body,
 
 html.is-desktop {
   --desk-chrome: env(titlebar-area-height, 36px);
-  --desk-controls: calc(100vw - env(titlebar-area-x, 100vw) - env(titlebar-area-width, 0px));
+  /* 标题栏环境变量读不到时，给最小化那三个按钮留出空档，拖拽条不要盖住它们。 */
+  --desk-controls: max(140px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
 }
 
 html.is-pet,

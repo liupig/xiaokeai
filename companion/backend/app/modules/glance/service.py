@@ -3,8 +3,40 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 
 import httpx
+
+_inflight: list[httpx.Client] = []
+_inflight_lock = threading.Lock()
+
+
+def _borrow() -> httpx.Client:
+    client = httpx.Client()
+    with _inflight_lock:
+        _inflight.append(client)
+    return client
+
+
+def _release(client: httpx.Client) -> None:
+    with _inflight_lock:
+        if client in _inflight:
+            _inflight.remove(client)
+    try:
+        client.close()
+    except Exception:
+        pass
+
+
+def abort_eyes_calls() -> None:
+    """关掉进行中的看屏幕请求，陪看线程才不会卡在这一眼里。"""
+    with _inflight_lock:
+        clients = list(_inflight)
+    for client in clients:
+        try:
+            client.close()
+        except Exception:
+            pass
 
 _ALONG = ("看剧", "追剧", "陪我看", "陪看", "一起看", "看视频", "看片子", "看直播")
 
@@ -46,33 +78,75 @@ def parse_glance(value: str) -> tuple[str, bool]:
     return raw, False
 
 
+def _read_detail(ask: str) -> bool:
+    text = ask or ""
+    return any(word in text for word in ("找", "在哪", "歌词", "报错", "看不清"))
+
+
 def eyes_glance(
     ask: str = "",
     along: bool = False,
     timeout: float = 180,
     before: str = "",
     gate: bool = False,
+    detail: bool = False,
+    crop: tuple[int, int, int, int] | list[int] | None = None,
 ) -> dict:
+    """截屏始终问眼睛进程。本机 MiniCPM 由它看；其他视觉模型只向它要原图。"""
+    from .vision import uses_local, describe
+
+    if not detail:
+        detail = _read_detail(ask)
+    body = {"monitor": 1, "ask": ask, "along": along, "before": before, "gate": gate, "detail": detail}
+    if crop and len(crop) == 4:
+        body["crop"] = [int(crop[0]), int(crop[1]), int(crop[2]), int(crop[3])]
+    path = "/api/glance" if uses_local() else "/api/frames"
+    client = _borrow()
     try:
-        resp = httpx.post(
-            f"{eyes_url()}/api/glance",
-            json={"monitor": 1, "ask": ask, "along": along, "before": before, "gate": gate},
-            timeout=timeout,
-        )
+        resp = client.post(f"{eyes_url()}{path}", json=body, timeout=timeout)
         resp.raise_for_status()
         data = resp.json()
     except Exception as exc:
-        return {"ok": False, "text": "", "message": str(exc)}
+        data = {"ok": False, "text": "", "message": str(exc)}
+    finally:
+        _release(client)
     if not isinstance(data, dict):
-        return {"ok": False, "text": "", "message": "眼睛没有返回"}
-    return data
+        data = {"ok": False, "text": "", "message": "眼睛没有返回"}
+    return _keep_for_lab(data, ask=ask, before=before, gate=gate, detail=detail, timeout=timeout, local=path == "/api/glance")
+
+
+def _keep_for_lab(data: dict, *, ask: str, before: str, gate: bool, detail: bool, timeout: float, local: bool) -> dict:
+    """像素只留在调试记录里，返回给对话的字典不再带图。"""
+    from .trace import note_look
+    from .vision import _prompt, describe
+
+    pack = data.pop("trace", None) or {}
+    images = data.pop("images", None)
+    if local or not data.get("ok") or data.get("skipped"):
+        data["trace_id"] = note_look(data, pack, ask=ask, gate=gate, detail=detail)
+        return data
+    seen = describe({"images": images or []}, ask=ask, before=before, gate=gate, timeout=timeout)
+    seen.pop("images", None)
+    merged = {**data, **seen}
+    if not pack.get("sent") and images:
+        pack = {**pack, "sent": images}
+    pack = {**pack, "prompt": _prompt(ask, before, gate)}
+    merged["trace_id"] = note_look(merged, pack, ask=ask, gate=gate, detail=detail)
+    return merged
+
+
+def _screen_line(text: str) -> str:
+    """交给她的只有那一句字幕或名字，不把整段识别说明交出去。"""
+    from .situation import _speakable, parse_observation
+
+    return _speakable(parse_observation(text))
 
 
 def _lead(ask: str, along: bool) -> str:
     base = (
         "铺垫已经说了：我看看。不要重复。不要再写 [glance:]。不要说技能。"
         "不要去点他的电脑，也不要说已经打开、已经找到了鼠标。"
-        "【眼前】是你看见的，不是台词。不要复述，不要当旁白，不要介绍画面。"
+        "【眼前】是屏幕上的那一句。接它的意思，不要把这句话再念一遍，不要描述画面里的人。"
     )
     if along:
         return base + (
@@ -115,13 +189,40 @@ def beside_cue(seen: str, prior: list | None = None, trail: list[str] | None = N
     return "\n".join(lines)
 
 
-def glance_note(data: dict | None = None, ask: str = "") -> str:
-    """放进【现场】的【眼前】。眼睛没开、画面是黑的，也写成一句，让她照实说。"""
+def glance_bundle(data: dict | None = None, ask: str = "", timeout: float = 30) -> tuple[str, str]:
+    """【眼前】正文，以及这一眼在调试记录里的编号。"""
     question, along = parse_glance(ask)
-    found = eyes_glance(question, along) if data is None else data
+    if data is None:
+        from .sense import collect
+
+        found = collect(
+            force=True,
+            find=bool(question) and not along,
+            ask=question,
+            along=along,
+            timeout=timeout,
+        )
+    else:
+        found = data
+    if not isinstance(found, dict):
+        found = {}
     text = str(found.get("text") or "").strip()
     lead = _lead(question, along)
     if not found.get("ok") or not text:
         reason = str(found.get("message") or "").strip() or "没有看清"
-        return lead + "【眼前】这一眼没看成。" + reason
-    return lead + "【来源】这一眼来自屏幕。屏幕上的人物和情节不是他。\n【眼前】" + text
+        note = lead + "【眼前】这一眼没看成。" + reason
+    else:
+        line = _screen_line(text)
+        shown = line or "这一眼没有能接的句子。"
+        note = lead + "【来源】这一眼来自屏幕。屏幕上的人物和情节不是他。\n【眼前】" + shown
+    trace_id = str(found.get("trace_id") or "")
+    if trace_id:
+        from .trace import mark
+        mark(trace_id, handoff=note, handoff_why="她问了屏幕，这段交给她")
+    return note, trace_id
+
+
+def glance_note(data: dict | None = None, ask: str = "") -> str:
+    """放进【现场】的【眼前】。眼睛没开、画面是黑的，也写成一句，让她照实说。"""
+    note, _trace_id = glance_bundle(data, ask)
+    return note

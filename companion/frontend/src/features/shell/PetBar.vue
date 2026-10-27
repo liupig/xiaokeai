@@ -7,10 +7,12 @@ import { speechPlayer } from '../voice/tts';
 import { useChatStore } from '../../stores/chat';
 import { useSettingsStore } from '../../stores/settings';
 import XkIcon from '../icons/XkIcon.vue';
+import { useGlancePower } from '../glance/power';
 import { t } from '../../i18n';
 import { setShellMode } from './mode';
 
 const ORB = 46;
+const GLANCE = 34;
 const MARGIN = 10;
 const IDLE_MS = 30_000;
 const ORB_KEY = 'companion.pet.orb';
@@ -18,6 +20,7 @@ const ORB_KEY = 'companion.pet.orb';
 const chat = useChatStore();
 const settings = useSettingsStore();
 const message = useMessage();
+const { glance, glanceBusy, glanceTip, toggleGlance } = useGlancePower();
 const text = ref('');
 const listening = ref(false);
 const open = ref(false);
@@ -28,6 +31,7 @@ const draggingOrb = ref(false);
 const screens = ref<PetDisplay[]>([]);
 const inputEl = ref<HTMLInputElement | null>(null);
 const orbStyle = ref<Record<string, string>>({ left: '10px', top: '120px' });
+const glanceStyle = ref<Record<string, string>>({ left: '16px', top: '174px' });
 const dockStyle = ref<Record<string, string>>({
   left: '10px',
   top: '10px',
@@ -93,6 +97,9 @@ function layout() {
   const left = pos.x;
   const top = pos.y;
   orbStyle.value = { left: `${left}px`, top: `${top}px` };
+  let gy = top + ORB + 8;
+  if (gy + GLANCE > window.innerHeight - MARGIN) gy = Math.max(MARGIN, top - GLANCE - 8);
+  glanceStyle.value = { left: `${left + (ORB - GLANCE) / 2}px`, top: `${gy}px` };
   const width = Math.min(320, window.innerWidth - 20);
   const panelLeft = Math.min(window.innerWidth - width - 10, Math.max(10, left + ORB / 2 - width / 2));
   const above = top - 128;
@@ -311,6 +318,12 @@ function toggleMic() {
       <path d="M5 6.5A3.5 3.5 0 0 1 8.5 3h7A3.5 3.5 0 0 1 19 6.5v6a3.5 3.5 0 0 1-3.5 3.5H11l-3.6 2.7a.8.8 0 0 1-1.3-.6V16A3.5 3.5 0 0 1 5 12.5v-6Z" />
     </svg>
   </button>
+  <button type="button" class="pet-glance" data-pet-hit
+          :class="{ on: glance.along, starting: glance.eyes === 'starting' || glanceBusy }"
+          :style="glanceStyle" :title="glanceTip"
+          @click.stop="toggleGlance">
+    <XkIcon name="glance" :size="16" />
+  </button>
   <div v-show="open" class="pet-dock" data-pet-hit :class="{ below }" :style="dockStyle">
     <div class="row">
       <button v-if="micAvailable(isClipStt(settings.stt.engine) ? settings.stt.engine : 'browser')"
@@ -336,6 +349,8 @@ function toggleMic() {
       </button>
     </div>
     <div class="ops">
+      <button type="button" :class="{ on: glance.along }" @click="toggleGlance">{{ glanceTip }}</button>
+      <i />
       <button type="button" @click="setShellMode('stage')">{{ t('pet.back') }}</button>
       <i />
       <button v-if="canReload" type="button" @click="reloadPet">{{ t('pet.reload') }}</button>
@@ -396,6 +411,36 @@ function toggleMic() {
 }
 
 .pet-orb:hover {
+  filter: brightness(1.08);
+}
+
+.pet-glance {
+  position: absolute;
+  z-index: 22;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #fff;
+  background: rgba(28, 28, 48, 0.82);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
+  transition: left 0.28s ease, top 0.28s ease, background 0.15s;
+}
+
+.pet-glance.on {
+  background: #5b5bd6;
+}
+
+.pet-glance.starting {
+  background: rgba(91, 91, 214, 0.55);
+}
+
+.pet-glance:hover {
   filter: brightness(1.08);
 }
 
@@ -564,7 +609,8 @@ input::placeholder {
   cursor: pointer;
 }
 
-.ops button:hover {
+.ops button:hover,
+.ops button.on {
   color: #fff;
 }
 

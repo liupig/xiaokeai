@@ -135,9 +135,93 @@ def tag_for_kind(kind: str, body_cmd: str = "interrupt_or_queue") -> Tuple[str, 
     return cmd, "normal"
 
 
+def _machine_marked(text: str) -> bool:
+    raw = text or ""
+    return any(mark in raw for mark in ("topic_id", '"action"', '"text"', "{"))
+
+
+def _drop_json_shell(text: str) -> str:
+    """模型交的 JSON、以及被分句切开的碎片，都不能进 TTS。"""
+    raw = (text or "").strip()
+    if not _machine_marked(raw):
+        return raw
+    from ..modules.glance.watch import parse_reaction
+    parsed = parse_reaction(raw, "")
+    said = parsed[1].strip() if parsed and parsed[0] == "speak" else ""
+    if said and not _machine_marked(said):
+        return said
+    return ""
+
+
+class _JsonSpeechGate:
+    """整段攒住花括号，闭合后再取出要说的那句。分句器看不到半截 JSON。"""
+
+    def __init__(self) -> None:
+        self.hold = ""
+        self.depth = 0
+        self.on = False
+
+    def push(self, delta: str) -> str:
+        out: List[str] = []
+        for ch in delta or "":
+            if not self.on:
+                if ch == "{":
+                    self.on = True
+                    self.depth = 1
+                    self.hold = "{"
+                else:
+                    out.append(ch)
+                continue
+            self.hold += ch
+            if ch == "{":
+                self.depth += 1
+            elif ch == "}":
+                self.depth -= 1
+                if self.depth <= 0:
+                    said = _drop_json_shell(self.hold)
+                    if said:
+                        out.append(said)
+                    self.hold = ""
+                    self.on = False
+                    self.depth = 0
+        return "".join(out)
+
+    def finish(self) -> str:
+        if not self.on:
+            return ""
+        said = _drop_json_shell(self.hold)
+        self.hold = ""
+        self.on = False
+        self.depth = 0
+        return said
+
+
+def strip_json_speech(text: str) -> str:
+    gate = _JsonSpeechGate()
+    return (gate.push(text or "") + gate.finish()).strip()
+
+
+# 模型偶尔还会带 emoji。口语里不允许，也不能单独切成一段去占 TTS。
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F1E6-\U0001F1FF"
+    "\U0001F300-\U0001FAFF"
+    "\u2600-\u27BF"
+    "\uFE0F"
+    "\u200D"
+    "]+"
+)
+
+
+def strip_emoji(text: str) -> str:
+    return _EMOJI_RE.sub("", text or "")
+
+
 def make_unit(text: str, kind: str, body_cmd: str = "interrupt_or_queue") -> Dict[str, Any]:
     cleaned, _extras = peel_stage_dirs(text or "")
     cleaned = strip_spoken_narration(cleaned)
+    cleaned = strip_emoji(cleaned)
+    cleaned = _drop_json_shell(cleaned)
     cmd, stype = tag_for_kind(kind, body_cmd)
     return {
         "type": "speech",
@@ -160,36 +244,56 @@ async def annotate_stream(
 ):
     """把 LLM 异步事件流补上 speech 单元。text 仍给 UI；合成只走 speech。"""
     splitter = SentenceSplitter(current_reply())
+    gate = _JsonSpeechGate()
     body_cmd = normalize_body_cmd(body_cmd)
     first_body = True
+
+    def _units(prose: str, kind: str):
+        nonlocal first_body
+        produced = []
+        for sent in splitter.feed(prose):
+            spoken, extras = peel_stage_dirs(sent)
+            produced.append((spoken, extras, kind))
+            first_body = False
+            if unit_kind == "body":
+                kind = "body"
+        return produced
+
     try:
         async for ev in events:
             if ev.get("type") == "text":
-                yield ev
+                prose = strip_emoji(gate.push(str(ev.get("delta") or "")))
+                if not prose:
+                    continue
+                yield {**ev, "delta": prose}
                 kind = unit_kind if unit_kind != "body" else ("phrase" if first_body else "body")
-                for sent in splitter.feed(ev.get("delta") or ""):
-                    spoken, extras = peel_stage_dirs(sent)
+                for spoken, extras, kind in _units(prose, kind):
                     for extra in extras:
                         yield extra
                     unit = make_unit(spoken, kind, body_cmd)
                     if unit["text"]:
                         yield unit
-                    first_body = False
-                    if unit_kind == "body":
-                        kind = "body"
                 continue
             if ev.get("type") == "done":
+                tail = strip_emoji(gate.finish())
+                if tail:
+                    yield {"type": "text", "delta": tail}
                 kind = unit_kind if unit_kind != "body" else ("phrase" if first_body else "body")
+                pending = _units(tail, kind) if tail else []
                 for sent in splitter.flush():
                     spoken, extras = peel_stage_dirs(sent)
+                    pending.append((spoken, extras, kind))
+                    first_body = False
+                    if unit_kind == "body":
+                        kind = "body"
+                for spoken, extras, kind in pending:
                     for extra in extras:
                         yield extra
                     unit = make_unit(spoken, kind, body_cmd)
                     if unit["text"]:
                         yield unit
-                    first_body = False
-                    if unit_kind == "body":
-                        kind = "body"
+                full = strip_emoji(strip_json_speech(str(ev.get("full_text") or "")))
+                ev = {**ev, "full_text": full}
                 yield ev
                 sec = float(delayed_sec or 0)
                 if sec > 0:

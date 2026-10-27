@@ -15,6 +15,7 @@ import {
 import { alignVoice, promptPack, replyLang, voiceLang } from '../i18n';
 import { ensureScene, sceneExtra, restoreOrRotateScene, maybeAutoRotateScene, nextAutoRotateAt, sceneSession, spokenWelcome } from '../features/scenes/session';
 import { refreshMemory } from '../features/memory/session';
+import { refreshCoinsSoon } from '../features/coins/session';
 import type { ChatExtra } from '../api/client';
 
 /** 口型 / 眨眼等由系统占用的基础形态键，不暴露给 LLM */
@@ -34,6 +35,8 @@ export interface Message {
   alts?: string[];
   /** 已经开口读过的字数；历史消息不设，视为读完 */
   spokenLen?: number;
+  /** 主动陪看这一句对应的话题 */
+  topicId?: string;
   speakingFrom?: number;
   speakingTo?: number;
 }
@@ -227,6 +230,8 @@ function emitLocal(text: string, onEvent: (ev: any) => void) {
   onEvent({ type: 'done', full_text: plain });
 }
 
+/** 同一条已经记过播出，就不要再打一次补丁。 */
+const spokenPatched = new Map<number, string>();
 /** 进行中的 SSE 对话流，切换角色时 abort */
 let streamAbort: AbortController | null = null;
 let delayedTimer: ReturnType<typeof setTimeout> | null = null;
@@ -386,6 +391,8 @@ export const useChatStore = defineStore('chat', {
         return;
       }
       if (id) {
+        if (spokenPatched.get(id) === spoken) return;
+        spokenPatched.set(id, spoken);
         try { await api.patchChatMessage(id, last.content); } catch { /* */ }
       }
     },
@@ -846,6 +853,7 @@ export const useChatStore = defineStore('chat', {
           return;
         }
         if (ev.type === 'meta') {
+          refreshCoinsSoon();
           if (ev.user_id) {
             const u = [...this.messages].reverse().find((m) => m.role === 'user' && !m.id);
             if (u) u.id = ev.user_id;
@@ -979,6 +987,7 @@ export const useChatStore = defineStore('chat', {
           return;
         }
         if (ev.type === 'meta') {
+          refreshCoinsSoon();
           if (ev.message_id) assistant.id = ev.message_id;
           return;
         }
@@ -1058,6 +1067,7 @@ export const useChatStore = defineStore('chat', {
           return;
         }
         if (ev.type === 'meta') {
+          refreshCoinsSoon();
           if (ev.message_id) assistant.id = ev.message_id;
           return;
         }
@@ -1122,7 +1132,11 @@ export const useChatStore = defineStore('chat', {
       if (dancePlaying()) return 'skip';
       const chars = useCharacterStore();
       if (!chars.currentId) return 'skip';
-      if (this.sending || speechPlayer.streamOpen || speechPlayer.isSpeaking()) return 'skip';
+      if (this.sending) return 'skip';
+      if (speechPlayer.streamOpen || speechPlayer.isSpeaking()) {
+        speechPlayer.stop();
+        speechPlayer.streamOpen = false;
+      }
       sessionClosed = false;
       this.sending = true;
       const controller = new AbortController();
@@ -1143,9 +1157,12 @@ export const useChatStore = defineStore('chat', {
           return;
         }
         if (ev.type === 'meta') {
+          refreshCoinsSoon();
           if (ev.message_id) assistant.id = ev.message_id;
+          if (ev.topic_id) assistant.topicId = String(ev.topic_id);
           return;
         }
+        if (ev.type === 'done' && ev.topic_id) assistant.topicId = String(ev.topic_id);
         applyBubbleEvent(assistant, ev, bag);
         orchestrator.handle(ev);
       };
@@ -1194,6 +1211,7 @@ export const useChatStore = defineStore('chat', {
           return;
         }
         if (ev.type === 'meta') {
+          refreshCoinsSoon();
           if (ev.message_id) assistant.id = ev.message_id;
           return;
         }
@@ -1358,6 +1376,7 @@ export const useChatStore = defineStore('chat', {
           return;
         }
         if (ev.type === 'meta') {
+          refreshCoinsSoon();
           if (ev.message_id) lastA.id = ev.message_id;
           return;
         }

@@ -107,6 +107,13 @@ const llmPresetOptions = computed(() => {
   const front = new Set(['openai', 'anthropic', 'gemini', 'openrouter', 'groq', 'mistral', 'xai']);
   return [...all.filter((o) => front.has(o.value)), ...all.filter((o) => !front.has(o.value))];
 });
+const visionOptions = computed(() => {
+  settings.locale.ui;
+  return [
+    { label: t('set.vision.minicpm'), value: 'minicpm' },
+    { label: t('set.vision.openai'), value: 'openai' },
+  ];
+});
 const langOptions = computed(() => {
   settings.locale.ui;
   return [
@@ -164,6 +171,23 @@ const contentPath = ref(settings.content.path || '');
 const contentBusy = ref(false);
 const contentHint = ref('');
 const canPickFolder = computed(() => typeof window.companionDesktop?.pickFolder === 'function');
+const isShell = !!window.companionDesktop?.isShell;
+const trayMinimize = ref(true);
+const trayClose = ref(true);
+
+async function loadTrayPrefs() {
+  const prefs = await window.companionDesktop?.getTrayPrefs?.();
+  if (!prefs) return;
+  trayMinimize.value = !!prefs.minimize;
+  trayClose.value = !!prefs.close;
+}
+
+async function saveTray(patch: { minimize?: boolean; close?: boolean }) {
+  const prefs = await window.companionDesktop?.setTrayPrefs?.(patch);
+  if (!prefs) return;
+  trayMinimize.value = !!prefs.minimize;
+  trayClose.value = !!prefs.close;
+}
 const contentFound = computed(() => {
   settings.locale.ui;
   const f = settings.content.found || {};
@@ -669,8 +693,10 @@ async function warmup(target: 'asr' | 'tts') {
 }
 
 watch(() => props.show, (v) => {
-  if (v) startStatusPoll();
-  else stopStatusPoll();
+  if (v) {
+    startStatusPoll();
+    void loadTrayPrefs();
+  } else stopStatusPoll();
 });
 onUnmounted(() => {
   stopStatusPoll();
@@ -720,6 +746,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
     }
     if (key === 'glance') {
       await api.harnessRelease();
+      if (!on) await api.glancePowerSet(false, characters.currentId || 0);
     }
     if (key !== 'scenes') return;
     if (on && characters.currentId) {
@@ -758,6 +785,21 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
                     @update:value="(v: 'fixed' | 'follow') => settings.setLocale({ reply_mode: v })" />
           <p v-if="!featureOn('tarot', settings.locale.reply)" class="hint">{{ t('mod.missing') }} · {{ t('mod.tarot') }}</p>
           <p v-if="!featureOn('scenes', settings.locale.reply)" class="hint">{{ t('mod.missing') }} · {{ t('mod.scenes') }}</p>
+        </div>
+      </n-tab-pane>
+      <n-tab-pane v-if="isShell" name="desktop" :tab="t('settings.desktop')">
+        <div class="form">
+          <p class="hint">{{ t('set.tray.hint') }}</p>
+          <div class="switch-row">
+            <span>{{ t('set.tray.minimize') }}</span>
+            <n-switch :value="trayMinimize" @update:value="(v: boolean) => saveTray({ minimize: v })" />
+          </div>
+          <p class="hint">{{ t('set.tray.minimizeHint') }}</p>
+          <div class="switch-row">
+            <span>{{ t('set.tray.close') }}</span>
+            <n-switch :value="trayClose" @update:value="(v: boolean) => saveTray({ close: v })" />
+          </div>
+          <p class="hint">{{ t('set.tray.closeHint') }}</p>
         </div>
       </n-tab-pane>
       <n-tab-pane name="content" :tab="t('settings.content')">
@@ -830,6 +872,20 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
             <n-switch :value="settings.modules.glance" @update:value="(v: boolean) => toggleMod('glance', v)" />
           </div>
           <p class="hint">{{ t('set.mod.glance') }}</p>
+          <label>{{ t('set.vision.label') }}</label>
+          <n-select v-model:value="settings.vision.provider" :options="visionOptions" />
+          <template v-if="settings.vision.provider === 'openai'">
+            <label>{{ t('set.vision.url') }}</label>
+            <n-input v-model:value="settings.vision.base_url"
+                     placeholder="https://api.openai.com/v1" />
+            <label>API Key</label>
+            <n-input v-model:value="settings.vision.api_key" type="password"
+                     show-password-on="click" :placeholder="t('set.vision.keyPh')" />
+            <label>{{ t('set.vision.model') }}</label>
+            <n-input v-model:value="settings.vision.model"
+                     placeholder="gpt-4o / qwen-vl-max / gemini-2.5-flash" />
+          </template>
+          <p class="hint">{{ t('set.vision.hint') }}</p>
         </div>
       </n-tab-pane>
       <n-tab-pane name="ai" :tab="t('settings.ai')">

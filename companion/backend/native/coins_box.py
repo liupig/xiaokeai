@@ -3,6 +3,9 @@
 界面只能做三件事：按地址和金额转账、导入交易串、读余额。
 盒子里有一条从同一个创世块长出来的哈希链。挂机和转账都是往后接一块，
 余额只由这条链重放出来。各台电脑不连网、不对齐，所以各有各的分叉。
+挂机大约每 10 分钟接一块。闲时把旧明细收成一块快照：
+余额和已经花过的票号留在快照里，更早的明细删掉。票号不过期，否则同一张票能再收一次。
+挂机只是把上一枚并进下一枚，被并掉的编号不进已花名单，名单不再按心跳变长。
 账本整份加密。改一个字节就校验失败，盒子作废。转到黑洞地址就是销毁。
 
 编译时要两把编译密钥一起盖章，缺一把就不成立。封账本也要两把密钥一起派生，缺一把打不开。
@@ -105,8 +108,12 @@ _HEX128 = re.compile(r"^[0-9a-f]{128}$")
 _GENESIS = hashlib.sha256(b"xiaoke-chain/1|genesis").hexdigest()
 BURN = "00" * 32
 
-_BREAK_MS = 120_000
+# 心跳改成 10 分钟一次。间隔再长才算人走了，这一段不发币。
+_BREAK_MS = 900_000
 _SKEW_MS = 2_000
+# 明细上限。写账时到了就收成一块 check。闲时更早收，避免账本在聊天时变长。
+_FOLD_AT = 32
+_IDLE_FOLD_AT = 4
 _BASE_PER_MIN_MILLI = 2_000
 _HOUR = 60 * 60 * 1000
 _TIERS = (
@@ -435,8 +442,15 @@ def _materialize(state: Dict[str, Any]) -> None:
             for item in tx.get("outs") or []:
                 add({"id": item["id"], "amt": int(item["amt"]), "src": item.get("src") or "mint"})
         elif kind == "mint":
+            # 挂机是把上一枚并进下一枚。被并掉的编号不是别人转来的票，
+            # 不进 used，否则每次心跳多留一个永久编号，账本会一直涨。
             if tx.get("drop"):
-                drop(list(tx["drop"]))
+                gone = set(tx["drop"])
+                for item in gone:
+                    if item not in index:
+                        raise CoinError("bad_chain")
+                    del index[item]
+                utxo = [row for row in utxo if row["id"] not in gone]
             add({"id": tx["id"], "amt": int(tx["amt"]), "src": "mint"})
         elif kind == "pay":
             drop(list(tx["ins"]))
@@ -546,7 +560,9 @@ def _split(secret: bytes) -> List[bytes]:
 
 
 def _db():
-    con = sqlite3.connect(str(_DB), timeout=2)
+    con = sqlite3.connect(str(_DB), timeout=5)
+    con.execute("PRAGMA busy_timeout=5000")
+    con.execute("PRAGMA journal_mode=WAL")
     con.execute(
         "CREATE TABLE IF NOT EXISTS kx_slot ("
         "slot TEXT PRIMARY KEY, n INTEGER NOT NULL, p TEXT NOT NULL, "
@@ -786,7 +802,43 @@ def _read() -> Optional[Dict[str, Any]]:
     return state
 
 
+def _fold(state: Dict[str, Any], now: int, limit: int = 0) -> bool:
+    """把已经重放出来的余额收成一块快照。已用票号原样留下。"""
+    chain = state.get("chain") or []
+    need = int(limit or _FOLD_AT)
+    if len(chain) < need:
+        return False
+    outs = []
+    for row in state.get("utxo") or []:
+        amt = int(row.get("amt") or 0)
+        if amt <= 0:
+            continue
+        outs.append({
+            "id": str(row["id"]),
+            "amt": amt,
+            "src": row.get("src") or "mint",
+        })
+    tx = {
+        "k": "check",
+        "outs": outs,
+        "used": list(state.get("used") or []),
+        "seen": list(state.get("seen") or []),
+    }
+    state["chain"] = []
+    state["tip"] = _GENESIS
+    state["height"] = 0
+    _append(state, tx, int(now))
+    _materialize(state)
+    return True
+
+
+def _load(now: int) -> Tuple[Dict[str, Any], bool]:
+    state = _open()
+    return state, _fold(state, now)
+
+
 def _write(state: Dict[str, Any]) -> None:
+    _fold(state, int(state.get("last_ms") or _now_ms()))
     _publish(state)
 
 
@@ -867,7 +919,7 @@ def _open() -> Dict[str, Any]:
         if migrated is not None:
             _write(migrated)
             return migrated
-        print("[coins] ledger rejected")
+        print("[coins] ledger rejected", file=sys.stderr)
     state = _fresh(now)
     _write(state)
     return state
@@ -940,14 +992,14 @@ def grant_talk(prompt: str, reply: str, billed: int = 0) -> Dict[str, Any]:
         tokens = _estimate_tokens(prompt) + _estimate_tokens(reply)
     tokens = max(0, min(tokens, _TOKEN_CAP))
     with _LOCK:
-        state = _open()
+        now = _now_ms()
+        state, folded = _load(now)
         left = int(state.get("token_left") or 0) + tokens
         milli = left * 1000 // _TOKENS_PER_COIN
         state["token_left"] = left - milli * _TOKENS_PER_COIN // 1000
-        now = _now_ms()
         if milli > 0:
             _mint(state, milli, now)
-        if tokens > 0:
+        if tokens > 0 or folded:
             _write(state)
         out = _view(state, milli if milli > 0 else 0)
         out["tokens"] = tokens
@@ -1008,8 +1060,8 @@ def wish() -> Dict[str, Any]:
     """Mint one wish. Returns the whole-coin drop and the three thrown props."""
     _official()
     with _LOCK:
-        state = _open()
         now = _now_ms()
+        state, _folded = _load(now)
         used = _wish_used(state, now)
         if used >= _WISH_PER_DAY:
             raise CoinError("wished")
@@ -1139,11 +1191,39 @@ def heartbeat() -> Dict[str, Any]:
     _official()
     with _LOCK:
         now = _now_ms()
-        state = _open()
+        state, folded = _load(now)
         gained, dirty = _tick(state, now)
-        if dirty:
+        if dirty or folded:
             _write(state)
         return _view(state, gained)
+
+
+def compact() -> bool:
+    """链超长时收成一块快照。余额和已花票号不变，只删掉更早的明细。"""
+    _official()
+    with _LOCK:
+        now = _now_ms()
+        state, folded = _load(now)
+        if not folded:
+            return False
+        _write(state)
+        return True
+
+
+def idle_compact() -> bool:
+    """闲时收明细。正在记账就让开，余额和已花票号不动。"""
+    _official()
+    if not _LOCK.acquire(blocking=False):
+        return False
+    try:
+        now = _now_ms()
+        state = _open()
+        if not _fold(state, now, _IDLE_FOLD_AT):
+            return False
+        _publish(state)
+        return True
+    finally:
+        _LOCK.release()
 
 
 def balance() -> int:
@@ -1156,8 +1236,9 @@ def pay(recipient: str, amount_milli: int) -> Dict[str, Any]:
     _official()
     recipient = (recipient or "").strip().lower()
     with _LOCK:
-        state = _open()
-        note = _transfer(state, recipient, int(amount_milli), _now_ms())
+        now = _now_ms()
+        state, _folded = _load(now)
+        note = _transfer(state, recipient, int(amount_milli), now)
         _write(state)
         out = _view(state, 0)
         out["note"] = note
@@ -1168,8 +1249,9 @@ def redeem(note_text: str) -> Dict[str, Any]:
     _official()
     parsed = _unpack_tx(note_text)
     with _LOCK:
-        state = _open()
-        got = _import(state, parsed, _now_ms())
+        now = _now_ms()
+        state, _folded = _load(now)
+        got = _import(state, parsed, now)
         _write(state)
         out = _view(state, 0)
         out["from"] = parsed["sender"]

@@ -217,6 +217,7 @@ _LEAK = re.compile(
     re.IGNORECASE,
 )
 _SPOKEN_END = re.compile(r"[。！？!?\n～~]")
+_SPOKEN_SOFT = re.compile(r"[，、]")
 
 
 def _catalog_talk(sentence: str) -> bool:
@@ -234,6 +235,11 @@ class SpokenGate:
         kept: List[str] = []
         while True:
             mark = _SPOKEN_END.search(self.buf)
+            if mark is None:
+                for soft in _SPOKEN_SOFT.finditer(self.buf):
+                    if soft.end() >= 8:
+                        mark = soft
+                        break
             if not mark:
                 break
             sentence = self.buf[: mark.end()]

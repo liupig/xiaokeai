@@ -38,6 +38,9 @@ interface CompanionDesktop {
   minimize?: () => void;
   close?: () => void;
   reload?: () => Promise<boolean>;
+  getTrayPrefs?: () => Promise<{ minimize: boolean; close: boolean }>;
+  setTrayPrefs?: (prefs: { minimize?: boolean; close?: boolean }) => Promise<{ minimize: boolean; close: boolean }>;
+  setTrayLocale?: (lang: string) => void;
 }
 
 interface Window {

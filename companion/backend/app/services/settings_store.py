@@ -42,6 +42,8 @@ DEFAULTS: Dict[str, Any] = {
         "api_key": "",
         "model": "MiniCPM-O-4.5-9B",
     },
+    # 陪看的视觉模型。minicpm 用眼睛进程里的本机模型；openai 是任何兼容接口。
+    "vision": {"provider": "minicpm", "base_url": "", "api_key": "", "model": ""},
 }
 
 

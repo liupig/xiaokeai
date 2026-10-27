@@ -312,6 +312,13 @@ export interface GlanceAlong {
   character_id: number;
 }
 
+export interface GlancePower {
+  along: boolean;
+  eyes: 'up' | 'down' | 'starting' | 'remote';
+  message: string;
+  character_id: number;
+}
+
 export interface CodewatchStatus {
   watching: boolean;
   phase: 'idle' | 'started' | 'working' | 'done';
@@ -820,6 +827,16 @@ export const api = {
 
   glanceAlong() {
     return request<GlanceAlong>('/api/modules/glance/along');
+  },
+  glancePower() {
+    return request<GlancePower>('/api/modules/glance/power');
+  },
+  glancePowerSet(on: boolean, characterId: number) {
+    return request<GlancePower>('/api/modules/glance/power', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on, character_id: characterId }),
+    });
   },
   glanceAlongAck(seq: number) {
     return request<GlanceAlong>('/api/modules/glance/along/ack', {

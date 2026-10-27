@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select
 
+from ...db import engine
 from ...models import Character, ChatMessage, SceneState, utc_now
 from ...services import llm as llm_service
 from ...services import settings_store
@@ -499,7 +500,14 @@ async def generate_tonight(session: Session, character_id: int) -> Dict[str, str
                 "No help-desk voice. No welcome back. No inviting a dance."
             )},
         ]
+    session.commit()
+    session.close()
     blob = await llm_service.complete_json(conf, tonight_msgs, max_tokens=400)
+    with Session(engine) as fresh:
+        return _save_tonight(fresh, character_id, blob, hour, minute)
+
+
+def _save_tonight(session: Session, character_id: int, blob: Any, hour: int, minute: int) -> Dict[str, str]:
     if not isinstance(blob, dict):
         card = dict(random.choice(list_cards()))
         save_current(session, character_id, card)

@@ -25,6 +25,7 @@ def before_messages(
         )
     if enabled(session, "memory") and not tarot_isolate:
         from .memory.worker import inject_memory
+        session.commit()
         try:
             out = inject_memory(character_id, out)
         except Exception as exc:

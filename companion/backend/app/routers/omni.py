@@ -63,6 +63,8 @@ def omni_status(session: Session = Depends(get_session)) -> Dict[str, Any]:
 @router.post("/test")
 async def omni_test(body: OmniTestBody, session: Session = Depends(get_session)):
     conf = _merge_conf(body, session)
+    session.commit()
+    session.close()
     mode = (body.mode or "speech").strip().lower()
     if mode not in ("chat", "speech"):
         mode = "speech"

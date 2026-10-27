@@ -305,6 +305,20 @@ def reasoning_effort_for(thinking: str | None) -> str | None:
     return None
 
 
+def turn_max_tokens(base_url: str | None, max_tokens: int, thinking: str | None) -> int | None:
+    """没填上限时不要按接口天花板去要。dsh 空白会带 256000，方舟超过 131072 直接 400。"""
+    asked = int(max_tokens or 0)
+    host = (base_url or "").lower()
+    volc = "volces.com" in host or "volcengine.com" in host
+    if asked <= 0:
+        if not volc:
+            return None
+        return 8192 if (thinking or "").strip() == "on" else 2048
+    if volc and asked > 131072:
+        return 131072
+    return asked
+
+
 def session_missing(exc: BaseException) -> bool:
     text = str(exc)
     return " not found" in text or "does not exist" in text
@@ -323,6 +337,7 @@ _DEAD_EXC = frozenset({
 class Runtime:
     def __init__(self) -> None:
         self._harness = None
+        self._launch: tuple | None = None
         self._turn = threading.Lock()
         self._open_ids: set[str] = set()
 
@@ -330,6 +345,7 @@ class Runtime:
         with self._turn:
             harness = self._harness
             self._harness = None
+            self._launch = None
             self._open_ids.clear()
         if harness is not None:
             try:
@@ -367,6 +383,7 @@ class Runtime:
             return None
         harness = self._harness
         self._harness = None
+        self._launch = None
         self._open_ids.clear()
         return harness
 
@@ -390,27 +407,36 @@ class Runtime:
                     stale.close()
                 except Exception as exc:
                     print(f"[harness] close failed: {exc}")
-            if self._harness is not None:
-                return self._harness
-            if not sdk_installed():
-                raise HarnessError("内置的 dsh 运行时没有装进当前环境")
             conf = apply_llm_overlay(llm_conf)
             api_key = (conf.get("api_key") or "").strip()
+            model = (conf.get("model") or "").strip() or "deepseek-v4-flash"
+            base_url = messages_base((conf.get("base_url") or "").strip() or None)
+            effort = reasoning_effort_for(conf.get("thinking"))
+            cap = turn_max_tokens(base_url, int(conf.get("max_tokens") or 0), conf.get("thinking"))
+            launch = (model, base_url, effort, cap)
+            if self._harness is not None and self._launch == launch:
+                return self._harness
             if not api_key:
+                if self._harness is not None:
+                    return self._harness
                 raise HarnessError("未配置 LLM API Key，请到设置中填写")
+            if self._harness is not None:
+                print("[harness] model settings changed, starting again")
+                old = self._harness
+                self._harness = None
+                self._launch = None
+                self._open_ids.clear()
+                try:
+                    old.close()
+                except Exception as exc:
+                    print(f"[harness] close failed: {exc}")
+            if not sdk_installed():
+                raise HarnessError("内置的 dsh 运行时没有装进当前环境")
             from deepseek_harness import DeepSeekHarness
 
             home = sync_skills(glance=glance_on())
             workspace = workspace_dir()
-            model = (conf.get("model") or "").strip() or "deepseek-v4-flash"
-            base_url = messages_base((conf.get("base_url") or "").strip() or None)
-            max_tokens = int(conf.get("max_tokens") or 0)
-            # dsh 不填时会带 256000。方舟这个口最大 131072，再大直接 400。
-            if base_url and ("volces.com" in base_url or "volcengine.com" in base_url):
-                if max_tokens <= 0 or max_tokens > 131072:
-                    max_tokens = 131072
             launched_at = process_cwd(workspace)
-            effort = reasoning_effort_for(conf.get("thinking"))
             self._harness = DeepSeekHarness(
                 dsh_home=str(home),
                 cwd=str(workspace),
@@ -422,8 +448,9 @@ class Runtime:
                 base_url=base_url,
                 api_key=api_key,
                 initialize_timeout_seconds=120.0,
-                max_tokens=max_tokens if max_tokens > 0 else None,
+                max_tokens=cap,
             )
+            self._launch = launch
             return self._harness
 
     def _ensure_open(self, harness, session_id: str) -> None:

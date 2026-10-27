@@ -1,15 +1,49 @@
-"""金币外壳。规则在编译好的 coins_box 里，这里只把三个入口交出去。"""
+"""金币外壳。规则在编译好的 coins_box 里，调用都进账本进程，不在聊天进程里重放。"""
 import re
 
-from . import coins_box as _box
+from . import ledger
+from .coins_box import BURN, CoinError
 
-CoinError = _box.CoinError
-BURN = _box.BURN
-heartbeat = _box.heartbeat
-balance = _box.balance
-pay = _box.pay
-redeem = _box.redeem
-preview = _box.preview
+__all__ = [
+    "BURN",
+    "CoinError",
+    "balance",
+    "grant_talk",
+    "heartbeat",
+    "pay",
+    "preview",
+    "redeem",
+    "wish",
+]
+
+
+def heartbeat():
+    return ledger.call("heartbeat")
+
+
+def balance() -> int:
+    return int(ledger.call("balance"))
+
+
+def pay(recipient: str, amount_milli: int):
+    return ledger.call("pay", [recipient, int(amount_milli)])
+
+
+def redeem(note_text: str):
+    return ledger.call("redeem", [note_text])
+
+
+def preview(seconds: int):
+    return ledger.call("preview", [int(seconds)])
+
+
+def wish():
+    return ledger.call("wish")
+
+
+def grant_talk(prompt: str, reply: str, billed: int = 0) -> None:
+    """对话产生的金币。放进账本进程就返回，不挡住这轮语音。"""
+    ledger.enqueue("grant_talk", [prompt or "", reply or "", int(billed or 0)])
 
 _PURSE = {
     "zh-CN": "对方钱包里现在有 {n} 枚金币。问到有多少钱、多少金币、余额，只说这个数，不要把许愿落下的枚数加总。没问就不要提。",
@@ -61,7 +95,7 @@ def purse_say(milli: int | None = None) -> str:
     """念给对方的余额。只有盒子里的数。"""
     if milli is None:
         try:
-            milli = int(_box.balance())
+            milli = int(balance())
         except Exception:
             return ""
     from ..locale_pack import current_reply
@@ -75,7 +109,7 @@ def purse_line(milli: int | None = None) -> str:
     """给模型的余额。数字来自盒子，不来自许愿记忆。"""
     if milli is None:
         try:
-            milli = int(_box.balance())
+            milli = int(balance())
         except Exception:
             return ""
     from ..locale_pack import current_reply

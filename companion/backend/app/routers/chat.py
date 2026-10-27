@@ -2,6 +2,7 @@
 import asyncio
 import json
 import re
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -87,6 +88,19 @@ def _plain(text: str) -> str:
     text = re.sub(r"\[(dance|draw|lookup|glance):[^\[\]]{0,160}\]", "", text or "")
     text = re.sub(r"\[(emo|act|cam|expr|intent|stand):[^\[\]]{1,80}\]", "", text)
     return text.strip()
+
+
+def _after_reply(cid: int, mode: str, user: str, text: str, prompt: str, tokens: int) -> None:
+    """记账和记忆都不占用回这条语音的线程。"""
+    try:
+        hooks.schedule_after_reply(cid, mode, user, text)
+    except Exception:
+        pass
+    try:
+        from ..services.coins import grant_talk
+        grant_talk(prompt, text, tokens)
+    except Exception:
+        pass
 
 
 def _msg_out(m: ChatMessage) -> Dict[str, Any]:
@@ -335,15 +349,21 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     if use_harness and module_on(session, "memory"):
         from .coins import latest_wish_note
         wish_note = latest_wish_note(session, req.character_id)
+    glance_on = module_on(session, "glance")
+    harness_on = module_on(session, "harness")
+    # 流开始前放开这条连接。生成器里再碰会话，会把库锁挂到整段语音结束。
+    session.commit()
+    session.close()
     if use_harness:
         from ..services.coins import purse_line
 
-        purse = purse_line()
+        purse = await asyncio.to_thread(purse_line)
         if purse:
             wish_note = f"{wish_note}\n\n{purse}".strip() if wish_note else purse
 
     async def event_stream():
         full_text = ""
+        linked_topic = ""
         billed_tokens = 0
         dropped = False
         t0 = time.perf_counter()
@@ -353,8 +373,8 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
             note_user(
                 req.text or "",
                 req.character_id,
-                glance=module_on(session, "glance"),
-                harness=module_on(session, "harness"),
+                glance=glance_on,
+                harness=harness_on,
             )
         if tarot_ev:
             yield f"data: {json.dumps(tarot_ev, ensure_ascii=False)}\n\n"
@@ -367,69 +387,74 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
             return
         from ..services.coins import asks_purse, purse_say
 
-        purse_answer = purse_say() if mode == "user" and asks_purse(req.text or "") else ""
+        purse_answer = await asyncio.to_thread(purse_say) if mode == "user" and asks_purse(req.text or "") else ""
 
         if mode == "along":
             seen = (req.text or "").strip()
             from ..modules.glance.along import candidate_alive, finish_speak, open_candidate
 
-            note = "" if tarot_now or not use_harness or not module_on(session, "glance") else open_candidate(seen, harness_prior)
+            note = "" if tarot_now or not use_harness or not glance_on else open_candidate(seen, harness_prior)
             if not seen or not note:
                 yield f"data: {json.dumps({'type': 'done', 'full_text': ''})}\n\n"
                 yield f"data: {json.dumps({'type': 'meta', 'user_id': None, 'message_id': None})}\n\n"
                 return
 
             async def along_turns():
-                import re
+                from ..modules.glance.along import live as along_live
+                from ..modules.glance.along import pending_trace
+                from ..modules.glance.trace import mark as mark_trace
+                from ..modules.glance.situation import situation
+                from ..modules.glance.watch import along_turn, hollow_company, parse_reaction
 
-                from ..modules.harness.service import stream_reply
-
-                cue = f"{wish_note}\n\n{note}".strip() if wish_note else note
-                held: list[dict] = []
+                nonlocal linked_topic
+                instruction = along_turn(situation.talk)
                 pieces: list[str] = []
+                trace_id = pending_trace()
 
-                def _plain(value: str) -> str:
-                    return re.sub(r"\[[^\]]*\]", "", value or "").strip().lower()
+                def _told(action: str, spoken: str = "") -> None:
+                    mark_trace(
+                        trace_id,
+                        xiaoke_in=instruction + "\n" + note,
+                        xiaoke_raw="".join(pieces),
+                        xiaoke_out=spoken,
+                        xiaoke_action=action,
+                    )
 
-                async for ev in stream_reply(
-                    llm_conf,
-                    character_id=req.character_id,
-                    user_text=(
-                        "坐在旁边。下面只是一个可能值得处理的点，没有人替你想好感受。"
-                        "屏幕上的人和情节不是他。不要复述画面，不要装熟，不要推断他的心情。"
-                        "没什么要说的，只回复 [silent]。"
-                        "要说就用你自己的声音，开头给 [emo:neutral] 或 [emo:relaxed]，不要写 [silent]。"
-                    ),
-                    brief=harness_brief,
-                    prior=harness_prior,
-                    recall=cue,
-                ):
+                along_messages = [
+                    {"role": "system", "content": (harness_brief + "\n\n" + note)[:6000]},
+                    {"role": "user", "content": instruction},
+                ]
+                async for ev in llm_service.stream_chat(llm_conf, along_messages):
                     if ev.get("type") in {"glance", "lookup"}:
                         continue
                     if ev.get("type") == "text":
                         pieces.append(str(ev.get("delta") or ""))
-                    body = _plain("".join(pieces))
-                    if ev.get("type") == "done" or body in {"", "silent"}:
-                        if ev.get("type") != "done":
-                            held.append(ev)
-                            continue
-                        if body in {"", "silent"} or not candidate_alive():
+                    if ev.get("type") != "done":
+                        if pieces and not candidate_alive():
                             finish_speak(False)
+                            _told("drop")
                             yield {"type": "done", "full_text": ""}
                             return
-                        finish_speak(True)
-                        for old in held:
-                            yield old
-                        yield ev
-                        return
-                    if not candidate_alive():
+                        continue
+                    topic = along_live.candidate.topic_id if along_live.candidate is not None else ""
+                    parsed = parse_reaction("".join(pieces), topic)
+                    if parsed is None or parsed[0] == "silent" or not candidate_alive():
                         finish_speak(False)
+                        _told("silent")
                         yield {"type": "done", "full_text": ""}
                         return
-                    for old in held:
-                        yield old
-                    held.clear()
-                    yield ev
+                    spoken = parsed[1]
+                    if hollow_company(spoken):
+                        finish_speak(False)
+                        _told("hollow", spoken)
+                        yield {"type": "done", "full_text": ""}
+                        return
+                    finish_speak(True, spoken)
+                    _told("speak", spoken)
+                    linked_topic = topic
+                    yield {"type": "text", "delta": spoken}
+                    yield {"type": "done", "full_text": spoken, "topic_id": topic}
+                    return
 
             source = prompt_stack.guard_refusal(along_turns())
         elif purse_answer:
@@ -445,7 +470,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
             from ..modules.websearch.service import accept_query, lookup_note
             from ..modules.glance.service import glance_from_user, glance_note
 
-            eyes_on = module_on(session, "glance")
+            eyes_on = glance_on
 
             async def harness_turns():
                 dance = "" if tarot_now else dance_opening(req.text or "", harness_prior)
@@ -464,6 +489,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 saw_glance = False
                 said_glance_line = False
                 glance_ask = ""
+                glance_task = None
                 async for ev in _speak_first(stream_reply(
                     llm_conf,
                     character_id=req.character_id,
@@ -478,6 +504,15 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                         saw_glance = True
                         if not glance_ask:
                             glance_ask = str(ev.get("value") or "")
+                        if "我看看" not in lead:
+                            lead = "我看看。"
+                            yield {"type": "text", "delta": "我看看。"}
+                        if glance_task is None and eyes_on:
+                            from ..modules.glance.service import glance_bundle
+
+                            glance_task = asyncio.create_task(
+                                asyncio.to_thread(glance_bundle, None, glance_ask)
+                            )
                         continue
                     if ev.get("type") == "lookup" and not dance and not searched and not saw_glance:
                         saw_lookup = True
@@ -486,7 +521,9 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                     if saw_glance and ev.get("type") in {"text", "emo", "cam", "intent", "act", "expr", "stand", "lookup", "done"}:
                         if ev.get("type") == "text" and "我看看" in str(ev.get("delta") or ""):
                             said_glance_line = True
-                            lead = "我看看。"
+                            if "我看看" not in lead:
+                                lead = "我看看。"
+                                yield {"type": "text", "delta": "我看看。"}
                         continue
                     if query and not searched and ev.get("type") in {"text", "emo", "cam", "intent", "act", "expr", "stand", "done"}:
                         continue
@@ -503,37 +540,82 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                     if forced:
                         saw_glance = True
                         glance_ask = forced
+                        if glance_task is None:
+                            from ..modules.glance.service import glance_bundle
+
+                            glance_task = asyncio.create_task(
+                                asyncio.to_thread(glance_bundle, None, glance_ask)
+                            )
                 if saw_glance and not dance:
-                    if said_glance_line:
-                        lead = "我看看。"
-                    elif "我看看" not in lead:
+                    if "我看看" not in lead:
                         yield {"type": "text", "delta": "我看看。"}
                         lead = "我看看。"
-                    found = await asyncio.to_thread(glance_note, None, glance_ask)
+                    from ..modules.glance.service import glance_bundle
+                    from ..modules.glance.trace import mark as mark_trace
+
+                    if glance_task is None:
+                        found, trace_id = await asyncio.to_thread(glance_bundle, None, glance_ask)
+                    else:
+                        found, trace_id = await glance_task
                     from ..modules.glance.along import seed_seen
+                    from ..modules.glance.situation import situation
+                    from ..modules.glance.watch import along_turn, hollow_company, screen_beat
+
                     seed_seen(found)
-                    recall = f"{wish_note}\n\n{found}".strip() if wish_note else found
-                    finished = False
-                    async for ev in stream_reply(
-                        llm_conf,
-                        character_id=req.character_id,
-                        user_text="眼前到了。按【现场】里的说法跟他说话，不要当旁白。没有的不要编。不要去点，不要说已经打开。不要重复铺垫，不要再写标记。",
-                        brief="",
-                        prior=None,
-                        recall=recall,
-                    ):
-                        if ev.get("type") in {"glance", "lookup"}:
+                    if "这一眼没有能接的句子" in found:
+                        mark_trace(trace_id, xiaoke_in=found, xiaoke_out=lead, xiaoke_action="silent")
+                        yield {"type": "done", "full_text": lead}
+                        return
+                    line = found.split("【眼前】")[-1].strip()
+                    ask_her = along_turn(situation.talk)
+                    where = {
+                        "movie": "片子里的一句",
+                        "music": "歌里的一句",
+                        "video": "画面里的一句",
+                        "code": "屏幕上的一句",
+                        "game": "这一局里的一句",
+                        "slides": "这一页上的一句",
+                    }.get(situation.scene, "眼前的一句")
+                    beat = screen_beat(line, attention=situation.attention, talk=situation.talk, where=where)
+                    beat = beat + "\n" + situation.blocks()
+                    react = [
+                        {"role": "system", "content": (harness_brief + "\n\n" + beat)[:6000]},
+                        {"role": "user", "content": ask_her},
+                    ]
+                    buf: list[str] = []
+                    failed = False
+                    async for ev in llm_service.stream_chat(llm_conf, react):
+                        if ev.get("type") in {"glance", "lookup", "text"}:
+                            if ev.get("type") == "text":
+                                buf.append(str(ev.get("delta") or ""))
                             continue
                         if ev.get("type") == "error":
+                            failed = True
                             yield ev
-                            yield {"type": "done", "full_text": lead}
-                            return
-                        if ev.get("type") == "done":
-                            finished = True
-                            ev = {**ev, "full_text": lead + str(ev.get("full_text") or "")}
-                        yield ev
-                    if not finished:
+                            break
+                        if ev.get("type") != "done":
+                            continue
+                    spoken = re.sub(r"\[[^\]]*\]", "", "".join(buf)).strip()
+                    if failed or not spoken or spoken in {"不说", "不说。"} or hollow_company(spoken):
+                        mark_trace(
+                            trace_id,
+                            xiaoke_in=ask_her + "\n" + beat,
+                            xiaoke_raw=spoken,
+                            xiaoke_out=lead,
+                            xiaoke_action="hollow" if spoken else "silent",
+                        )
                         yield {"type": "done", "full_text": lead}
+                        return
+                    full = lead + spoken
+                    mark_trace(
+                        trace_id,
+                        xiaoke_in=ask_her + "\n" + beat,
+                        xiaoke_raw=spoken,
+                        xiaoke_out=full,
+                        xiaoke_action="speak",
+                    )
+                    yield {"type": "text", "delta": spoken}
+                    yield {"type": "done", "full_text": full}
                     return
                 if not query and saw_lookup and not dance:
                     async for ev in stream_reply(
@@ -640,33 +722,45 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                     pass
         assistant_id = None
         if full_text and not dropped:
-            from ..db import engine as db_engine
-            from sqlmodel import Session as DbSession
-            with DbSession(db_engine) as s2:
-                row = ChatMessage(
-                    character_id=req.character_id,
-                    role="assistant", content=full_text,
-                    full_content=full_text, kind=msg_kind)
-                s2.add(row)
-                s2.commit()
-                s2.refresh(row)
-                assistant_id = row.id
-            talk_log.write("full", _plain(full_text),
-                           character_id=req.character_id, msg_kind=msg_kind)
-            hooks.schedule_after_reply(
-                req.character_id, mode, req.text if not sidecar else "", full_text)
-            try:
-                from ..services import coins_box
-                prompt = "\n".join(str(item.get("content") or "") for item in messages)
-                coins_box.grant_talk(prompt, full_text, billed_tokens)
-            except Exception:
-                pass
+            saved_text = full_text
+            saved_kind = msg_kind
+            saved_cid = req.character_id
+            saved_mode = mode
+            saved_user = req.text if not sidecar else ""
+            saved_prompt = "\n".join(str(item.get("content") or "") for item in messages)
+            saved_tokens = billed_tokens
+
+            def _persist() -> Optional[int]:
+                # 落库会等 SQLite。放在事件循环里时，已经发出的这句话进不了语音进程。
+                from ..db import engine as db_engine
+                from sqlmodel import Session as DbSession
+                row_id = None
+                with DbSession(db_engine) as s2:
+                    row = ChatMessage(
+                        character_id=saved_cid,
+                        role="assistant", content=saved_text,
+                        full_content=saved_text, kind=saved_kind)
+                    s2.add(row)
+                    s2.commit()
+                    s2.refresh(row)
+                    row_id = row.id
+                talk_log.write("full", _plain(saved_text),
+                               character_id=saved_cid, msg_kind=saved_kind)
+                # 记账和记忆会占住线程好几秒。语音还在等这个线程池，就不能先出声。
+                threading.Thread(
+                    target=_after_reply,
+                    args=(saved_cid, saved_mode, saved_user, saved_text, saved_prompt, saved_tokens),
+                    daemon=True,
+                    name="after-reply",
+                ).start()
+                return row_id
+
+            assistant_id = await asyncio.to_thread(_persist)
         meta = {"type": "meta", "user_id": user_row_id, "message_id": assistant_id}
+        if linked_topic:
+            meta["topic_id"] = linked_topic
         yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
 
-    # 流式回复要等模型说完。这条数据库连接不放开的话，下一次对话会卡到锁超时，变成 500。
-    session.commit()
-    session.close()
     return StreamingResponse(event_stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
@@ -684,6 +778,8 @@ async def chat_ingress(req: IngressRequest, session: Session = Depends(get_sessi
     """正在跳/正在说时，用户新文本：drop 附和、hold 等说完、cut 立刻开新一轮。"""
     busy = req.busy if req.busy in ("dance", "speech", "generate") else "speech"
     conf = settings_store.get_all(session)
+    session.commit()
+    session.close()
     if not bool((conf.get("tts") or {}).get("duplex_ingress", True)):
         return {"act": "cut"}
     act = await ingress_service.decide(

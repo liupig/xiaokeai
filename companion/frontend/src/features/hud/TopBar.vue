@@ -5,6 +5,7 @@ import { MocapToolbar } from '../mocap';
 import XkIcon from '../icons/XkIcon.vue';
 import { rememberCurrentCharacter, useCharacterStore } from '../../stores/character';
 import { useSettingsStore } from '../../stores/settings';
+import { useGlancePower } from '../glance/power';
 import { t } from '../../i18n';
 import { setShellMode } from '../shell/mode';
 import CoinPill from '../coins/CoinPill.vue';
@@ -24,6 +25,8 @@ function reloadShell() {
   rememberCurrentCharacter();
   void window.companionDesktop?.reload?.();
 }
+
+const { glance, glanceBusy, glanceTip, toggleGlance } = useGlancePower();
 
 const tools = computed(() => {
   settings.locale.ui;
@@ -54,6 +57,15 @@ const tools = computed(() => {
     </div>
     <div class="toolbar glass">
       <MocapToolbar />
+      <n-tooltip :delay="300">
+        <template #trigger>
+          <button class="tool" :class="{ active: glance.along, starting: glance.eyes === 'starting' || glanceBusy }"
+                  type="button" @click="toggleGlance">
+            <XkIcon name="glance" :size="22" />
+          </button>
+        </template>
+        {{ glanceTip }}
+      </n-tooltip>
       <n-tooltip v-if="canReload" :delay="300">
         <template #trigger>
           <button class="tool" type="button" @click="reloadShell">
@@ -166,6 +178,10 @@ const tools = computed(() => {
 .tool.active {
   background: #5b5bd6;
   color: #fff;
+}
+
+.tool.starting {
+  background: rgba(91, 91, 214, 0.45);
 }
 
 .tool.rec {

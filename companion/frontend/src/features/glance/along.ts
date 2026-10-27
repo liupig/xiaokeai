@@ -14,10 +14,6 @@ let retryAt = 0;
 
 async function tick() {
   if (busy) return;
-  if (!useSettingsStore().modules.glance) {
-    alongLive.on = false;
-    return;
-  }
   let snap;
   try {
     snap = await api.glanceAlong();
@@ -25,11 +21,12 @@ async function tick() {
     return;
   }
   alongLive.on = !!snap.on;
+  if (!snap.on && !useSettingsStore().modules.glance) return;
   if (!snap.on || !snap.text || snap.seq === acked) return;
   const chars = useCharacterStore();
   const chat = useChatStore();
   if (!chars.currentId || snap.character_id !== chars.currentId) return;
-  if (chat.sending || speechPlayer.streamOpen || speechPlayer.isSpeaking()) return;
+  if (chat.sending) return;
   if (Date.now() < retryAt && snap.seq === lastTried) return;
   if (useSettingsStore().modules.tarot) {
     const { tarotLive } = await import('../tarot/gate');

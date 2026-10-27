@@ -114,6 +114,8 @@ async def hook_ingest(request: Request) -> Dict[str, Any]:
 @router.get("/events")
 async def events(session: Session = Depends(get_session)):
     _guard(session)
+    session.commit()
+    session.close()
 
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue(maxsize=32)

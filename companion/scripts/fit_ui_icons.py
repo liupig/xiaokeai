@@ -7,6 +7,16 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
+# Pillow 8 没有 Resampling / Transpose 枚举，常量和 9.1+ 的枚举值相同。
+if not hasattr(Image, "Resampling"):
+    class _Resampling:
+        LANCZOS = Image.LANCZOS
+    Image.Resampling = _Resampling  # type: ignore[attr-defined]
+if not hasattr(Image, "Transpose"):
+    class _Transpose:
+        FLIP_TOP_BOTTOM = Image.FLIP_TOP_BOTTOM
+    Image.Transpose = _Transpose  # type: ignore[attr-defined]
+
 REPO = Path(__file__).resolve().parent.parent
 RAW_DIR = REPO / "assets" / "ui-icons" / "raw"
 OUT_DIR = REPO / "frontend" / "src" / "assets" / "icons"
@@ -149,7 +159,7 @@ def main() -> None:
         "settings": 2, "review": 2, "code": 2, "chevron": 0, "film": 1,
         "tarot": 1, "log": 0, "assets": 1, "mic": 1, "cam": 1, "snap": 0,
         "quick": 0, "keepsake": 1, "rec": 0, "send": 0,
-        "reload": 2, "pet": 1,
+        "reload": 2, "pet": 1, "glance": 1,
     }
     for src in sorted(RAW_DIR.glob("*.png")):
         icon = process_one(src, radius_of.get(src.stem, 3))

@@ -77,7 +77,20 @@ export function startCoins() {
   if (timer) return;
   armDelta();
   void beat();
-  timer = window.setInterval(() => void beat(), 20_000);
+  timer = window.setInterval(() => void beat(), 10 * 60 * 1000);
+}
+
+let refreshTimer = 0;
+
+/** 对话入账是异步的。这一轮说完再读一次余额，不跟心跳绑在一起。 */
+export function refreshCoinsSoon() {
+  window.clearTimeout(refreshTimer);
+  refreshTimer = window.setTimeout(() => {
+    void api.coinBalance().then((row) => {
+      coins.balanceMilli = row.balance_milli;
+      coins.ready = true;
+    }).catch(() => {});
+  }, 1200);
 }
 
 function trimCoins(milli: number) {

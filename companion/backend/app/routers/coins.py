@@ -15,6 +15,7 @@ lifetime count, today's props, and today's coins. It does not insert a row
 per wish. The write runs on a daemon thread so a slow memory worker cannot
 hold the response, and a failure there does not undo the mint.
 """
+import asyncio
 import threading
 from typing import Any, Dict, List, Optional
 
@@ -26,10 +27,10 @@ from ..db import get_session
 from ..models import MemoryFact
 from ..modules.flags import enabled
 from ..modules.memory import worker as memory_worker
-from ..services import coins_box as coins
+from ..services import coins
 from ..services import llm as llm_service
 from ..services import settings_store
-from ..services.coins_box import CoinError
+from ..services.coins import CoinError
 
 router = APIRouter(prefix="/api/coins", tags=["coins"])
 
@@ -155,10 +156,12 @@ def latest_wish_note(session: Session, character_id: int) -> str:
     return wish_recall(picked)
 
 
-async def _wish_line(session: Session, lang: str, row: Dict[str, Any]) -> str:
+async def _wish_line_closed(lang: str, row: Dict[str, Any]) -> str:
     try:
-        conf = settings_store.get_all(session)
-        llm_conf = dict(conf.get("llm") or {})
+        from ..db import engine
+        with Session(engine) as session:
+            conf = settings_store.get_all(session)
+            llm_conf = dict(conf.get("llm") or {})
     except Exception:
         return ""
     coins_n = max(1, int(row.get("drop_milli") or 0) // 1000)
@@ -214,11 +217,14 @@ def redeem(body: RedeemBody) -> Dict[str, Any]:
 
 @router.post("/wish")
 async def wish(body: Optional[WishBody] = None, session: Session = Depends(get_session)) -> Dict[str, Any]:
-    row = _guard(coins.wish)
+    row = await asyncio.to_thread(_guard, coins.wish)
     lang = _lang(session)
-    row["line"] = await _wish_line(session, lang, row)
+    remember = enabled(session, "memory")
+    session.commit()
+    session.close()
+    row["line"] = await _wish_line_closed(lang, row)
     character_id = int((body.character_id if body else 0) or 0)
-    if enabled(session, "memory") and character_id > 0:
+    if remember and character_id > 0:
         threading.Thread(
             target=_remember,
             args=(character_id, lang, dict(row)),

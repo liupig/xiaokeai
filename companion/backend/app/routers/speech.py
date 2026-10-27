@@ -57,9 +57,11 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
         voice = tts.resolve_voice(engine, voice, voice)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    llm = settings_store.apply_llm_overlay(dict(all_conf.get("llm") or {}))
+    session.commit()
+    session.close()
     rate = req.rate or conf.get("rate") or "+0%"
     if engine == "cosy":
-        llm = settings_store.apply_llm_overlay(settings_store.get_all(session).get("llm") or {})
         api_key = cloud_key.ali_key(llm)
         if not api_key.startswith("sk-"):
             raise HTTPException(
@@ -90,7 +92,6 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
             },
         )
     if engine == "volc":
-        llm = settings_store.apply_llm_overlay(settings_store.get_all(session).get("llm") or {})
         agen = tts_volc.synthesize_mp3(req.text, voice, cloud_key.volc_speech_key(llm))
         try:
             first = await anext(agen)
@@ -117,7 +118,6 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
             },
         )
     if engine in ("openai", "eleven"):
-        llm = settings_store.apply_llm_overlay(settings_store.get_all(session).get("llm") or {})
         if engine == "openai":
             agen = tts_openai.synthesize_mp3(req.text, voice, cloud_key.openai_key(llm))
             rate = tts_openai.SAMPLE_RATE
@@ -151,7 +151,6 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
             },
         )
     if engine == "gemini":
-        llm = settings_store.apply_llm_overlay(settings_store.get_all(session).get("llm") or {})
         agen = tts_gemini.synthesize_pcm(req.text, voice, cloud_key.gemini_key(llm))
         try:
             first = await anext(agen)
@@ -187,7 +186,7 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
             req.instruct or conf.get("qwen_instruct") or "",
         )
         from ..locale_pack import normalize, reply_of
-        reply = normalize(reply_of(settings_store.get_all(session)))
+        reply = normalize(reply_of(all_conf))
         if reply != "zh-CN":
             if any("\u4e00" <= ch <= "\u9fff" for ch in instruct):
                 instruct = ""
@@ -235,8 +234,30 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
                 "Access-Control-Expose-Headers": "X-Audio-Format, X-Audio-Rate",
             },
         )
+    agen = tts.synthesize_edge(req.text, voice, rate).__aiter__()
+    try:
+        first = await agen.__anext__()
+    except StopAsyncIteration:
+        raise HTTPException(503, "edge TTS 没有声音") from None
+    except Exception as exc:
+        talk_log.write("tts", f"edge失败 {exc}")
+        raise HTTPException(503, "edge TTS 失败") from exc
+
+    async def edge_gen():
+        try:
+            yield first
+            async for chunk in agen:
+                yield chunk
+        finally:
+            closer = getattr(agen, "aclose", None)
+            if closer:
+                try:
+                    await closer()
+                except Exception:
+                    pass
+
     return StreamingResponse(
-        tts.synthesize_edge(req.text, voice, rate),
+        edge_gen(),
         media_type="audio/mpeg",
         headers={
             "X-Audio-Format": "mp3",
@@ -251,8 +272,11 @@ async def stt_endpoint(file: UploadFile = File(...), session: Session = Depends(
     data = await file.read()
     if not data:
         raise HTTPException(400, "音频为空")
-    engine = ((settings_store.get_all(session).get("stt") or {}).get("engine") or "").strip().lower()
-    llm = settings_store.apply_llm_overlay(settings_store.get_all(session).get("llm") or {})
+    all_conf = settings_store.get_all(session)
+    engine = ((all_conf.get("stt") or {}).get("engine") or "").strip().lower()
+    llm = settings_store.apply_llm_overlay(dict(all_conf.get("llm") or {}))
+    session.commit()
+    session.close()
     try:
         if engine == "ali":
             text = await asr_ali.transcribe(data, cloud_key.ali_key(llm))

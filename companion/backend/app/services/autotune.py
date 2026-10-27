@@ -228,9 +228,25 @@ def _apply_failed(rec: Dict[str, Any], failed: Dict[str, str]) -> Dict[str, Any]
     return out
 
 
+def _pin_coin_vram(gb: float) -> None:
+    """金币倍率只用开机时量到的显存。
+
+    请求里再跑 nvidia-smi，在 Windows 上会把整个服务冻住几秒。
+    这句话的语音要等它解冻才进得了合成进程。
+    """
+    try:
+        value = max(0.0, float(gb or 0))
+    except (TypeError, ValueError):
+        value = 0.0
+    from . import coins_box
+
+    coins_box._vram_gb = lambda: value
+
+
 def apply_on_boot(session: Session) -> Dict[str, Any]:
     conf = settings_store.get_all(session)
     spec = probe_machine()
+    _pin_coin_vram(spec.get("vram_gb") or 0)
     online = _online_marker()
     rec = recommend_online(spec) if online else recommend(spec)
     hw = _hw_blob(conf)

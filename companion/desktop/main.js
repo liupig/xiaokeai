@@ -3,13 +3,15 @@
 /**
  * 自带 Chromium 的桌面壳：不依赖本机安装 Chrome。
  * 舞台模式：隐藏系统标题栏，用深色顶栏 + Windows 原生最小化/最大化/关闭。
- * 桌宠模式：透明无边框小窗，只留人物，空白处点击穿透到桌面。
+ * 桌宠模式：透明无边框小窗，只留人物，空白处点击穿透到桌面，不占任务栏。
+ * 托盘：左键把窗口叫回来，右键可换模式或退出。关闭和最小化可以收进托盘。
  * 页面仍是现有 Vue 前端（打包 5211 / 开发 5175）。
  */
-const { app, BrowserWindow, dialog, ipcMain, screen, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, screen, session, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const petScreen = require('./petScreen');
+const trayMenu = require('./trayMenu');
 
 function isLocalHost(hostname) {
   return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1';
@@ -34,6 +36,7 @@ function originOf(url) {
 const HOME = homeUrl();
 const HOME_ORIGIN = originOf(HOME);
 const ICON = path.join(__dirname, 'icon.png');
+const TRAY_ICON = path.join(__dirname, 'tray-icon.png');
 const PRELOAD = path.join(__dirname, 'preload.js');
 
 app.setName('xiaoke.ai');
@@ -48,10 +51,21 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 // 桌面壳没有网页那种麦克风弹窗，不自动选默认设备的话 getUserMedia 会一直挂着。
 app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
 
-const shellState = { mode: 'stage', stage: null, pet: null, petScreen: null, petSpot: null };
+const shellState = {
+  mode: 'stage',
+  stage: null,
+  pet: null,
+  petScreen: null,
+  petSpot: null,
+  tray: { minimize: true, close: true },
+};
 const roleOf = new WeakMap();
+const parked = new WeakSet();
 let swapping = false;
 let replacing = false;
+let quitting = false;
+let tray = null;
+let trayLang = 'zh-CN';
 let saveTimer = null;
 let holdingFallback = false;
 let placingPet = false;
@@ -74,6 +88,7 @@ function loadState() {
     if (savedScreen) shellState.petScreen = savedScreen;
     const spot = normalizeSpot(raw.petSpot);
     if (spot) shellState.petSpot = spot;
+    shellState.tray = trayMenu.normalizeTrayPrefs(raw.tray);
   } catch { /* 第一次打开 */ }
 }
 
@@ -179,18 +194,64 @@ function grantPermissions() {
   });
 }
 
+const STAGE_OVERLAY = {
+  color: '#141420',
+  symbolColor: '#d0d0e4',
+  height: 36,
+};
+
+let summonGen = 0;
+
 function reveal(win) {
-  if (!win || win.isDestroyed() || win.isVisible()) return;
+  if (!win || win.isDestroyed() || win.isVisible() || parked.has(win)) return;
   // 桌宠不要在弹出时抢走键盘，否则点她那一下不算用户操作，语音上下文会一直停着。
   if (roleOf.get(win) === 'pet') win.showInactive();
   else win.show();
 }
 
+function releaseCaption(win) {
+  if (!win || win.isDestroyed() || roleOf.get(win) === 'pet') return;
+  // 舞台不能用穿透点击。那是桌宠的能力，留在舞台上整窗就点不了。
+  try { win.setIgnoreMouseEvents(false); } catch { /* */ }
+  // 最小化按钮在鼠标松开前被藏起来时，Windows 会一直记着「按下」。
+  // 先禁用再启用会放开这次捕获，标题栏按钮回到普通状态。
+  try { win.setEnabled(false); } catch { /* */ }
+  try { win.setEnabled(true); } catch { /* */ }
+  try { win.setTitleBarOverlay(STAGE_OVERLAY); } catch { /* */ }
+}
+
 function focusWindow(win) {
   if (!win || win.isDestroyed()) return;
-  if (win.isMinimized()) win.restore();
-  reveal(win);
+  summonGen += 1;
+  parked.delete(win);
+  const pet = roleOf.get(win) === 'pet';
+  // 桌宠平时不进任务栏。舞台从托盘叫回来时，把任务栏按钮还回去。
+  win.setSkipTaskbar(pet);
+  if (!pet) {
+    try { win.setIgnoreMouseEvents(false); } catch { /* */ }
+  }
+  try { if (win.isMinimized()) win.restore(); } catch { /* 没在最小化 */ }
+  if (!win.isVisible()) {
+    if (pet) win.showInactive();
+    else win.show();
+  }
+  try { if (win.isMinimized()) win.restore(); } catch { /* 已经回来了 */ }
+  if (pet) {
+    applyPetPointer(win);
+    return;
+  }
+  releaseCaption(win);
+  try { win.moveTop(); } catch { /* */ }
   win.focus();
+}
+
+function hideToTray(win) {
+  if (!win || win.isDestroyed()) return;
+  // 最小化之后的矩形会跑到屏幕外，别拿它覆盖原来的位置。
+  if (!win.isMinimized()) remember(win, true);
+  if (roleOf.get(win) !== 'pet') win.setSkipTaskbar(true);
+  parked.add(win);
+  win.hide();
 }
 
 function webPrefs() {
@@ -213,7 +274,26 @@ function attachPage(win, mode) {
   const save = () => remember(win, false);
   win.on('move', save);
   win.on('resize', save);
-  win.on('close', () => remember(win, true));
+  win.on('close', (e) => {
+    if (!win.isMinimized()) remember(win, true);
+    if (!trayMenu.shouldHideToTray('close', shellState.tray, { quitting, swapping })) return;
+    e.preventDefault();
+    hideToTray(win);
+  });
+  win.on('minimize', () => {
+    if (!trayMenu.shouldHideToTray('minimize', shellState.tray, { quitting, swapping })) return;
+    const gen = summonGen;
+    // 先让这下点击松开，再从最小化状态恢复出来，然后藏进托盘。
+    // 按下时直接 hide，按钮的捕获不会交还，下次显示整窗都点不动。
+    setTimeout(() => {
+      if (gen !== summonGen || win.isDestroyed() || quitting) return;
+      try { if (win.isMinimized()) win.restore(); } catch { /* */ }
+      hideToTray(win);
+    }, 180);
+  });
+  win.on('restore', () => {
+    if (roleOf.get(win) === 'pet') win.setSkipTaskbar(true);
+  });
 
   let tries = 0;
   const page = shellPage(mode);
@@ -255,11 +335,7 @@ function createStageWindow() {
     backgroundColor: '#141420',
     roundedCorners: true,
     titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#141420',
-      symbolColor: '#d0d0e4',
-      height: 36,
-    },
+    titleBarOverlay: STAGE_OVERLAY,
     webPreferences: webPrefs(),
   };
   if (b) {
@@ -454,6 +530,7 @@ function createPetWindow() {
     roundedCorners: false,
     thickFrame: false,
     alwaysOnTop: true,
+    skipTaskbar: true,
     resizable: false,
     movable: false,
     autoHideMenuBar: true,
@@ -506,11 +583,14 @@ ipcMain.handle('pick-folder', async () => {
 
 ipcMain.handle('get-shell-mode', () => shellState.mode);
 
-ipcMain.handle('set-shell-mode', (e, mode) => {
+function applyShellMode(mode) {
   const next = mode === 'pet' ? 'pet' : 'stage';
-  const old = BrowserWindow.fromWebContents(e.sender);
-  if (old && !old.isDestroyed()) remember(old, true);
-  if (shellState.mode === next && old && !old.isDestroyed()) return next;
+  const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+  for (let i = 0; i < wins.length; i += 1) remember(wins[i], true);
+  if (shellState.mode === next && wins.length) {
+    focusExisting();
+    return next;
+  }
   if (replacing) return shellState.mode;
   shellState.mode = next;
   saveState();
@@ -525,17 +605,21 @@ ipcMain.handle('set-shell-mode', (e, mode) => {
     replacing = false;
     return shellState.mode;
   }
-  const doomed = BrowserWindow.getAllWindows().filter((w) => w !== created);
   setImmediate(() => {
     try {
+      const doomed = BrowserWindow.getAllWindows().filter((w) => w !== created);
       for (let i = 0; i < doomed.length; i += 1) retireWindow(doomed[i]);
     } finally {
       swapping = false;
       replacing = false;
+      refreshTrayMenu();
     }
   });
+  refreshTrayMenu();
   return next;
-});
+}
+
+ipcMain.handle('set-shell-mode', (_e, mode) => applyShellMode(mode));
 
 ipcMain.handle('reload-shell', () => {
   if (replacing) return false;
@@ -703,9 +787,71 @@ ipcMain.on('set-pet-spot', (_e, raw) => {
   saveSoon();
 });
 
+function refreshTrayMenu() {
+  if (!tray) return;
+  const labels = trayMenu.trayLabels(trayLang);
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: labels.show, click: () => focusExisting() },
+    { type: 'separator' },
+    {
+      label: labels.pet,
+      enabled: shellState.mode !== 'pet',
+      click: () => applyShellMode('pet'),
+    },
+    {
+      label: labels.stage,
+      enabled: shellState.mode !== 'stage',
+      click: () => applyShellMode('stage'),
+    },
+    { type: 'separator' },
+    {
+      label: labels.quit,
+      click: () => {
+        quitting = true;
+        app.quit();
+      },
+    },
+  ]));
+}
+
+function createTray() {
+  const file = fs.existsSync(TRAY_ICON) ? TRAY_ICON : ICON;
+  let image = nativeImage.createFromPath(file);
+  if (image.isEmpty()) return;
+  const scale = screen.getPrimaryDisplay().scaleFactor || 1;
+  const size = Math.max(16, Math.min(32, Math.round(16 * scale)));
+  image = image.resize({ width: size, height: size, quality: 'best' });
+  tray = new Tray(image);
+  tray.setToolTip('xiaoke.ai');
+  tray.on('click', () => focusExisting());
+  tray.on('double-click', () => focusExisting());
+  refreshTrayMenu();
+}
+
+ipcMain.handle('get-tray-prefs', () => ({ ...shellState.tray }));
+
+ipcMain.handle('set-tray-prefs', (_e, raw) => {
+  shellState.tray = trayMenu.applyTrayPatch(shellState.tray, raw);
+  saveState();
+  return { ...shellState.tray };
+});
+
+ipcMain.on('set-tray-locale', (_e, lang) => {
+  const next = trayMenu.normalizeTrayLocale(lang);
+  if (next === trayLang) return;
+  trayLang = next;
+  refreshTrayMenu();
+});
+
 ipcMain.on('window-minimize', (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
-  if (win && !win.isDestroyed()) win.minimize();
+  if (!win || win.isDestroyed()) return;
+  if (trayMenu.shouldHideToTray('minimize', shellState.tray, { quitting, swapping })) {
+    hideToTray(win);
+    return;
+  }
+  if (roleOf.get(win) === 'pet') win.setSkipTaskbar(false);
+  win.minimize();
 });
 
 ipcMain.on('window-close', (e) => {
@@ -720,9 +866,11 @@ if (!gotLock) {
   app.on('second-instance', () => {
     focusExisting();
   });
+  app.on('before-quit', () => { quitting = true; });
   app.whenReady().then(() => {
     loadState();
     grantPermissions();
+    createTray();
     openWindow();
     setInterval(() => {
       const win = petWindow();

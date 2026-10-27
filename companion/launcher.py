@@ -475,6 +475,7 @@ def main() -> int:
         stop(desktop)
         stop(frontend)
         stop(backend)
+        reap_port(8766)
     return 0
 
 
