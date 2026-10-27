@@ -103,6 +103,23 @@ def lab_clear() -> Dict[str, Any]:
     return {"ok": True}
 
 
+@router.post("/lab/open")
+def lab_open() -> Dict[str, Any]:
+    """设置里点一下才打开。服务启动时不再弹出。"""
+    import webbrowser
+
+    from .archive import lab_url
+
+    url = lab_url()
+    try:
+        opened = webbrowser.open(url)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if not opened:
+        raise HTTPException(status_code=500, detail="browser did not open")
+    return {"ok": True, "url": url}
+
+
 @router.get("/lab/{item_id}/{kind}/{index}")
 def lab_shot(item_id: str, kind: str, index: int):
     blob = trace.shot(item_id, kind, index)

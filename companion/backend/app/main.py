@@ -124,7 +124,6 @@ def startup() -> None:
         pass
     _compact_wallet()
     threading.Thread(target=_warmup_offline_speech, daemon=True).start()
-    threading.Thread(target=_open_watch_lab, daemon=True).start()
     atexit.register(_release_glance)
 
 
@@ -137,25 +136,6 @@ def _compact_wallet() -> None:
             print("[coins] folded the chain into one checkpoint")
     except Exception as exc:
         print(f"[coins] compact skipped: {exc}")
-
-
-def _open_watch_lab() -> None:
-    """记录页是固定地址。截图开关开着时，跟服务一起打开。"""
-    import time
-    import webbrowser
-
-    time.sleep(1.2)
-    from .modules.glance.archive import keeping, lab_url
-
-    if not keeping():
-        print("[glance] 截图不落盘，记录页不自动打开")
-        return
-    url = lab_url()
-    print(f"[glance] 记录页 {url}")
-    try:
-        webbrowser.open(url)
-    except OSError as exc:
-        print(f"[glance] 记录页没有打开：{exc}")
 
 
 def _speech_engines() -> tuple[str, str]:

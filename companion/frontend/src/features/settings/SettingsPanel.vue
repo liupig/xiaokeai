@@ -728,6 +728,14 @@ async function saveEmbedder(v: string) {
   }
 }
 
+async function openWatchLab() {
+  try {
+    await api.glanceLabOpen();
+  } catch (e) {
+    message.error(String(e));
+  }
+}
+
 async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'codewatch' | 'touch' | 'harness' | 'glance', on: boolean) {
   const prev = settings.modules[key];
   settings.modules[key] = on;
@@ -872,6 +880,8 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
             <n-switch :value="settings.modules.glance" @update:value="(v: boolean) => toggleMod('glance', v)" />
           </div>
           <p class="hint">{{ t('set.mod.glance') }}</p>
+          <n-button size="small" @click="openWatchLab">{{ t('set.mod.glanceLab') }}</n-button>
+          <p class="hint">{{ t('set.mod.glanceLabHint') }}</p>
           <label>{{ t('set.vision.label') }}</label>
           <n-select v-model:value="settings.vision.provider" :options="visionOptions" />
           <template v-if="settings.vision.provider === 'openai'">

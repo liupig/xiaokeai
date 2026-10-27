@@ -157,12 +157,13 @@ Building from source: [`companion/README_BUILD.md`](./companion/README_BUILD.md)
 - **Keepsakes**: stage stills and short clips (mediabunny), filed by character.
 - **Transcript**: a side drawer for this session’s chat and the backend talk log.
 - **Code companion**: tap 「码」 in the chat bar. She watches Cursor start, write, and finish, then plays along. Defaults to local transcripts; an optional user hook. Codex later.
+- **Watch together**: off by default. The eye on the top bar, or beside the desktop pet, or saying “watch with me” / “turn vision on”, starts company and a separate local vision process. A show, a video, or the screen is fine. Pixels stay in that process; chat only receives a short description. Press the eye again, or say “stop watching” / “turn vision off”, and the process exits. Closing the app exits it too. She does not click or operate the computer. Settings → Experience modules → “Open the watch log” opens the local page in the browser. It no longer opens when the service starts. Recent screenshots can stay on this machine for a few days.
 
 #### Assets and characters
 
 - **Asset hub**: import zip / rar / single files (extract, mojibake filename fix, auto-file PMX / VMD / audio); optional search and download from [aplaybox](https://www.aplaybox.com/).
 - **Character cards**: model + persona + voice + emotion-to-morph map + idle motion.
-- **Module toggles**: memory, scene, rewrite, keepsake, tarot, Code companion, touch, and Harness are on by default; off means that path is not used. Ordinary talk goes through the built-in dsh (`deepseek-harness-sdk`, installed with the backend). She can also draw a picture onto a card and look up weather, prices, and news. Drawing always uses Volcengine: the chat key when chat is already there, otherwise `ARK_API_KEY`. See [`companion/docs/features.md`](./companion/docs/features.md) and [`companion/docs/dsh施工图.md`](./companion/docs/dsh施工图.md).
+- **Module toggles**: memory, scene, rewrite, keepsake, tarot, Code companion, touch, and Harness are on by default. Watch together is off. Off means that path is not used. Ordinary talk goes through the built-in dsh (`deepseek-harness-sdk`, installed with the backend). She can also draw a picture onto a card and look up weather, prices, and news. Drawing always uses Volcengine: the chat key when chat is already there, otherwise `ARK_API_KEY`. See [`companion/docs/features.md`](./companion/docs/features.md) and [`companion/docs/dsh施工图.md`](./companion/docs/dsh施工图.md).
 
 Setup, tag protocol, and troubleshooting: [`companion/README.md`](./companion/README.md) (Chinese).
 
@@ -488,13 +489,14 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 - **证物相册**：舞台截图和短片（mediabunny 编码），按角色归档。
 - **对话记录**：侧边抽屉回看本场对话与后端 talk log。
 - **Code 伴侣**：对话栏点「码」，看着 Cursor 开工、写着、写完，她跟着演。默认盯本机 transcript，可选装钩子。Codex 稍后。
+- **一起看**：默认关。顶栏或桌宠旁边的眼睛，或者说「一起看」「打开视觉」，会开始陪看，并拉起旁边的视觉进程。看剧、看视频、看屏幕都可以。画面留在那个进程里，对话里只进一句短描述。再按一次，或说「别看了」「关掉视觉」，陪看停掉，进程也退出。关掉程序时这个进程一起退出。她不替你点，也不替你操作。设置 → 体验模块 →「打开一起看记录」，才用浏览器打开本机记录页，服务启动时不再自动弹出。最近几天的截图可以留在本机。
 - **本机金币**：角色名旁边是余额。挂机按在线时长和显卡记成挖矿，聊天按 token 记。对她说许愿就开许愿池，一天 50 次：先扔三样正经或恶搞的东西，再从另一边下金币雨。不登录、不上传。细则在功能列表。
 
 #### 资产与角色
 
 - **资产中心**：本地导入 zip / rar / 单文件（解压、乱码文件名修复、PMX / VMD / 音频自动入库）；可对接[模之屋](https://www.aplaybox.com/)在线搜索下载。
 - **角色卡**：模型 + 人设 + 音色 + 情绪到形态键的映射 + 闲置动作。
-- **模块开关**：记忆、情境、重说、证物、塔罗、Code 伴侣、触碰、Harness 默认都开，关掉等于不走那条。正常说话走内置 dsh（`deepseek-harness-sdk`，跟后端依赖一起装）。也可以画画，牌固定在屏幕右侧，图进证物；也可以查天气、股价和新闻，检索词由她写。绘图固定走火山：聊天是火山就用那把密钥，否则用 `ARK_API_KEY`，代码里不写死。见 [`companion/docs/features.md`](./companion/docs/features.md) 和 [`companion/docs/dsh施工图.md`](./companion/docs/dsh施工图.md)。
+- **模块开关**：记忆、情境、重说、证物、塔罗、Code 伴侣、触碰、Harness 默认都开。一起看默认关。关掉等于不走那条。正常说话走内置 dsh（`deepseek-harness-sdk`，跟后端依赖一起装）。也可以画画，牌固定在屏幕右侧，图进证物；也可以查天气、股价和新闻，检索词由她写。绘图固定走火山：聊天是火山就用那把密钥，否则用 `ARK_API_KEY`，代码里不写死。见 [`companion/docs/features.md`](./companion/docs/features.md) 和 [`companion/docs/dsh施工图.md`](./companion/docs/dsh施工图.md)。
 
 更细的配置、标签协议和排错见 [`companion/README.md`](./companion/README.md)。
 

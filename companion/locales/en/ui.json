@@ -497,6 +497,8 @@
   "set.mod.touch": "A tap on her head, face, chest, waist, or hand gets a different reaction: a squint, a shy dodge, covering up, or nothing. The same spot grows dull, numb, then cold. She only sometimes speaks, and that still uses her normal voice. No reaction while dancing, motion-captured, or reading cards. Off means it is not installed.",
   "set.mod.harness": "When on, ordinary talk goes through the built-in dsh, with chat as one of its skills. Cards, rewrites, welcomes, and silence follow-ups stay on the existing chat path. Turning it off stops that process.",
   "set.mod.glance": "Off by default. The eye button on the top bar or beside the desktop pet, or saying “watch with me” or “turn vision on”, starts company and the local vision process. Press again, or say “stop watching” or “turn vision off”, and that process exits. Closing the app exits it too.",
+  "set.mod.glanceLab": "Open the watch log",
+  "set.mod.glanceLabHint": "Opens the local watch log in the browser. It no longer opens when the service starts.",
   "set.vision.label": "Vision model for watching along",
   "set.vision.minicpm": "Local MiniCPM (inside the eyes process)",
   "set.vision.openai": "Another vision model (OpenAI-compatible)",

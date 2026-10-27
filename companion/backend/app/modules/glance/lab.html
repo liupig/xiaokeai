@@ -151,7 +151,7 @@
       const days = data.days || 3;
       const total = data.total || 0;
       hint.textContent = data.keeping
-        ? `最近 ${days} 天的截图留在本机。地址固定为 ${location.origin}/lab/watch，服务启动时会一起打开。共 ${total} 条。`
+        ? `最近 ${days} 天的截图留在本机。地址固定为 ${location.origin}/lab/watch，从设置里打开。共 ${total} 条。`
         : `截图保留关着。打开后，新的截图会在本机留 ${days} 天。地址固定为 ${location.origin}/lab/watch。共 ${total} 条。`;
       const wanted = rows.map((row) => row.id);
       const nodes = new Map([...list.querySelectorAll('article')].map((el) => [el.dataset.id, el]));

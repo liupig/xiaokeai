@@ -845,6 +845,9 @@ export const api = {
       body: JSON.stringify({ seq }),
     });
   },
+  glanceLabOpen() {
+    return request<{ ok: boolean; url: string }>('/api/modules/glance/lab/open', { method: 'POST' });
+  },
   codewatchStatus() {
     return request<CodewatchStatus>('/api/modules/codewatch/status');
   },
