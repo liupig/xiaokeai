@@ -117,6 +117,9 @@ companion/backend/data/
 companion/frontend/public/vad/
 companion/frontend/public/aec3/
 
+# Local character turnaround sheets. Reference art, not shipped.
+companion/assets/turnaround/
+
 # 用户导入的 3D / 动作 / 音频 / 镜头（第三方版权，体积大，请本地导入）
 # 目录本身和说明进仓库，模型/动作文件不进
 companion/assets/models/*
