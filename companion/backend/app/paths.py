@@ -83,15 +83,48 @@ def _monolithic(root: Path) -> bool:
     return False
 
 
+def _content_dir(path: Path) -> Path | None:
+    try:
+        p = path.resolve()
+    except OSError:
+        return None
+    if p.is_dir() and (p / CONTENT_MARKER).is_file():
+        return p
+    return None
+
+
 def _sibling_content(app_root: Path) -> Path | None:
-    """A 和 B 解压到同一层时自动找到，不用手填路径。"""
-    for cand in (app_root.parent / "xiaoke-ai-B", app_root / "xiaoke-ai-B"):
-        try:
-            p = cand.resolve()
-        except OSError:
+    """A 和 B 解压到同一层时自动找到，不用手填路径。
+
+    agent 包按同一时间戳配对：xiaoke-ai-agent-A-时间戳 旁边找
+    xiaoke-ai-agent-B-同一时间戳。没有成对的，再取最新的 agent B，
+    最后才是旧的固定名 xiaoke-ai-B。
+    """
+    parent = app_root.parent
+    name = app_root.name
+    prefix = "xiaoke-ai-agent-A-"
+    if name.startswith(prefix) and name[len(prefix):].isdigit():
+        paired = _content_dir(parent / f"xiaoke-ai-agent-B-{name[len(prefix):]}")
+        if paired is not None:
+            return paired
+    newest: Path | None = None
+    try:
+        kids = list(parent.iterdir())
+    except OSError:
+        kids = []
+    b_prefix = "xiaoke-ai-agent-B-"
+    for cand in kids:
+        if not cand.name.startswith(b_prefix) or not cand.name[len(b_prefix):].isdigit():
             continue
-        if p.is_dir() and (p / CONTENT_MARKER).is_file():
-            return p
+        found = _content_dir(cand)
+        if found is not None and (newest is None or cand.name > newest.name):
+            newest = found
+    if newest is not None:
+        return newest
+    for cand in (parent / "xiaoke-ai-B", app_root / "xiaoke-ai-B"):
+        found = _content_dir(cand)
+        if found is not None:
+            return found
     return None
 
 

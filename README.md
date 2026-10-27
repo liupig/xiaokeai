@@ -1,6 +1,6 @@
 # xiaoke.ai
 
-Open-source **3D AI companion** / desktop pet · waifu · awesome-ai · 开源3D AI伴侣 / 本地3D陪玩 / 虚拟陪玩 / 透明桌宠
+Open-source **3D AI companion** / desktop pet · waifu · awesome-ai · 开源3D AI伴侣 / 本地3D陪玩 / 虚拟陪玩 / 透明桌宠 / 陪看电影刷视频听音乐
 
 [English](#english) · [中文](#中文) · [xiaoke.ai](https://xiaoke.ai)
 
@@ -8,11 +8,11 @@ Open-source **3D AI companion** / desktop pet · waifu · awesome-ai · 开源3D
 
 ## English
 
-**xiaoke.ai** (小可爱) is an open-source **3D AI companion**: a local desktop 3D virtual companion. A VRM, MMD (PMX), or GLB character sits across from you: voice chat, lip-sync, expression, motion, dance, and camera, with tarot and long-term memory kept on the machine. In the desktop app she can leave the stage and float as a transparent desktop pet. Interface language and speech language are separate: Simplified Chinese, English, Japanese, and Korean.
+**xiaoke.ai** (小可爱) is an open-source **3D AI companion**: a local desktop 3D virtual companion. A VRM, MMD (PMX), or GLB character sits across from you: voice chat, lip-sync, expression, motion, dance, and camera, with tarot and long-term memory kept on the machine. She can also stay for a movie, a short video, or a song. A local eye watches the screen and hears the sound; the picture never leaves this computer, and she speaks only when there is something worth saying. In the desktop app she can leave the stage and float as a transparent desktop pet. Interface language and speech language are separate: Simplified Chinese, English, Japanese, and Korean.
 
-Also called: open-source 3D AI companion, 3D AI companion, AI companion, local AI companion, transparent desktop pet, waifu, awesome-ai, 开源 3D AI 伴侣, AI 伴侣, 本地 AI 伴侣, 开源 3D 陪玩, 虚拟陪玩, 本地桌宠, 透明桌宠, VRM chatbot, MMD desktop pet, AI VTuber.
+Also called: open-source 3D AI companion, 3D AI companion, AI companion, local AI companion, transparent desktop pet, waifu, awesome-ai, watch a movie together, AI movie companion, 开源 3D AI 伴侣, AI 伴侣, 本地 AI 伴侣, 开源 3D 陪玩, 虚拟陪玩, 本地桌宠, 透明桌宠, VRM chatbot, MMD desktop pet, AI VTuber, 陪看电影, 陪刷视频, 陪听音乐, 视觉互动.
 
-> **Open source · free · runs on your machine — someone who talks, moves, and remembers you, sitting across the desk.**
+> **Open source · free · runs on your machine — someone who talks, moves, remembers you, and will stay for a movie, a video, or a song, sitting across the desk.**
 
 - **Open source**: frontend and backend are public; how to run and how to change them is in the docs.
 - **Free**: no paywall, membership, or usage cap. LLM and speech can stay local or use free providers.
@@ -23,7 +23,7 @@ Stage 3D models, motions, music, and voices are **not** under that license. Copy
 
 ### What this is: a local 3D companion
 
-Not a text chatbot and not a browser popup. The character is a VRM, MMD, or GLB model on a stage. A reply is spoken, lip-synced, and performed: face, motion, dance, camera. The desktop app can also shrink her into a transparent window that stays on the desktop. Chat, memory, and speech weights stay on the computer. UI and speech can each be Chinese, English, Japanese, or Korean. Source is Apache 2.0 and may be used commercially. No membership, no usage cap.
+Not a text chatbot and not a browser popup. The character is a VRM, MMD, or GLB model on a stage. A reply is spoken, lip-synced, and performed: face, motion, dance, camera. She can also keep you company through a movie, a short video, or a song: the picture and the sound stay on this machine, and she talks when a moment is worth it. The desktop app can also shrink her into a transparent window that stays on the desktop. Chat, memory, and speech weights stay on the computer. UI and speech can each be Chinese, English, Japanese, or Korean. Source is Apache 2.0 and may be used commercially. No membership, no usage cap.
 
 ### Look
 
@@ -157,7 +157,7 @@ Building from source: [`companion/README_BUILD.md`](./companion/README_BUILD.md)
 - **Keepsakes**: stage stills and short clips (mediabunny), filed by character.
 - **Transcript**: a side drawer for this session’s chat and the backend talk log.
 - **Code companion**: tap 「码」 in the chat bar. She watches Cursor start, write, and finish, then plays along. Defaults to local transcripts; an optional user hook. Codex later.
-- **Watch together**: off by default. The eye on the top bar, or beside the desktop pet, or saying “watch with me” / “turn vision on”, starts company and a separate local vision process. A show, a video, or the screen is fine. Pixels stay in that process; chat only receives a short description. Press the eye again, or say “stop watching” / “turn vision off”, and the process exits. Closing the app exits it too. She does not click or operate the computer. Settings → Experience modules → “Open the watch log” opens the local page in the browser. It no longer opens when the service starts. Recent screenshots can stay on this machine for a few days.
+- **Watch together**: off by default. She can sit with you through a movie, a short video, or a song. The eye on the top bar, or beside the desktop pet, or saying “watch with me” / “turn vision on”, starts a separate local vision process. The picture and the sound stay there; chat only receives a short note, and she speaks when there is something worth saying. Press the eye again, or say “stop watching” / “turn vision off”, and the process exits. Closing the app exits it too. She does not click or operate the computer. Settings → Experience modules → “Open the watch log” opens the local page in the browser. It no longer opens when the service starts. Recent screenshots can stay on this machine for a few days.
 
 #### Assets and characters
 
@@ -340,11 +340,11 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 ## 中文
 
-**xiaoke.ai（小可爱）** 是开源 **3D AI 伴侣**，也是本地 **3D 陪玩 / 虚拟陪玩**。VRM、MMD（PMX）、GLB 角色坐在对面：语音聊天、口型、表情、动作、舞蹈、运镜，对面抽塔罗，长期记忆留在本机。桌面程序里还可以离开舞台，变成透明桌宠浮在桌面上。界面语言和对话语言分开，支持简体中文、英语、日语、韩语。
+**xiaoke.ai（小可爱）** 是开源 **3D AI 伴侣**，也是本地 **3D 陪玩 / 虚拟陪玩**。VRM、MMD（PMX）、GLB 角色坐在对面：语音聊天、口型、表情、动作、舞蹈、运镜，对面抽塔罗，长期记忆留在本机。也可以陪你看电影、刷视频、听音乐。本机的眼睛看着屏幕、听着声音，画面不离开这台电脑，有一句值得说她才开口。桌面程序里还可以离开舞台，变成透明桌宠浮在桌面上。界面语言和对话语言分开，支持简体中文、英语、日语、韩语。
 
-别人会用这些词来找：开源 3D AI 伴侣、AI 伴侣、本地 AI 伴侣、3D AI companion、open-source AI companion、AI companion、waifu、awesome-ai、开源 3D 陪玩、虚拟陪玩、本地桌宠、透明桌宠、VRM 聊天、MMD 陪玩、AI VTuber、虚拟主播。
+别人会用这些词来找：开源 3D AI 伴侣、AI 伴侣、本地 AI 伴侣、3D AI companion、open-source AI companion、AI companion、waifu、awesome-ai、开源 3D 陪玩、虚拟陪玩、本地桌宠、透明桌宠、VRM 聊天、MMD 陪玩、AI VTuber、虚拟主播、陪看电影、陪刷视频、陪听音乐、视觉互动。
 
-> **开源免费 · 本地运行 —— 让一个会说、会动、会记得你的她，坐到你对面。**
+> **开源免费 · 本地运行 —— 让一个会说、会动、会记得你，也会陪你看电影、刷视频、听音乐的她，坐到你对面。**
 
 - **开源**：前后端源码全部公开，怎么跑、怎么改都写在文档里。
 - **免费**：没有付费墙、会员、次数卡。LLM / 语音可以全走本地或免费服务，一分钱不花也能完整体验。
@@ -355,7 +355,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 ### 这是什么：本地 3D 陪玩
 
-不是文字聊天机器人，也不是网页弹窗。角色是舞台上的 VRM、MMD 或 GLB。一句回复会说出来、对上口型，并带上表情、动作、舞蹈和运镜。桌面程序也可以把她收成一个浮在桌面上的透明窗口。对话、记忆和语音权重在本机。界面和对话可以分别是中文、英语、日语、韩语。源码 Apache 2.0，允许商用。没有会员，没有次数卡。
+不是文字聊天机器人，也不是网页弹窗。角色是舞台上的 VRM、MMD 或 GLB。一句回复会说出来、对上口型，并带上表情、动作、舞蹈和运镜。也可以陪着看一部电影、刷一条短视频，或听一首歌：画面和声音留在本机，值得说的时候她才开口。桌面程序也可以把她收成一个浮在桌面上的透明窗口。对话、记忆和语音权重在本机。界面和对话可以分别是中文、英语、日语、韩语。源码 Apache 2.0，允许商用。没有会员，没有次数卡。
 
 ### 看一眼
 
@@ -489,7 +489,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 - **证物相册**：舞台截图和短片（mediabunny 编码），按角色归档。
 - **对话记录**：侧边抽屉回看本场对话与后端 talk log。
 - **Code 伴侣**：对话栏点「码」，看着 Cursor 开工、写着、写完，她跟着演。默认盯本机 transcript，可选装钩子。Codex 稍后。
-- **一起看**：默认关。顶栏或桌宠旁边的眼睛，或者说「一起看」「打开视觉」，会开始陪看，并拉起旁边的视觉进程。看剧、看视频、看屏幕都可以。画面留在那个进程里，对话里只进一句短描述。再按一次，或说「别看了」「关掉视觉」，陪看停掉，进程也退出。关掉程序时这个进程一起退出。她不替你点，也不替你操作。设置 → 体验模块 →「打开一起看记录」，才用浏览器打开本机记录页，服务启动时不再自动弹出。最近几天的截图可以留在本机。
+- **一起看**：默认关。可以陪你看电影、刷视频、听音乐。顶栏或桌宠旁边的眼睛，或者说「一起看」「打开视觉」，会拉起旁边的视觉进程。画面和声音留在那个进程里，对话里只进一句短描述，有一句值得说她才开口。再按一次，或说「别看了」「关掉视觉」，陪看停掉，进程也退出。关掉程序时这个进程一起退出。她不替你点，也不替你操作。设置 → 体验模块 →「打开一起看记录」，才用浏览器打开本机记录页，服务启动时不再自动弹出。最近几天的截图可以留在本机。
 - **本机金币**：角色名旁边是余额。挂机按在线时长和显卡记成挖矿，聊天按 token 记。对她说许愿就开许愿池，一天 50 次：先扔三样正经或恶搞的东西，再从另一边下金币雨。不登录、不上传。细则在功能列表。
 
 #### 资产与角色

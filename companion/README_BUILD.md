@@ -48,18 +48,20 @@ backend\.venv\Scripts\python.exe build_exe.py --full
 
 ```
 E:\BingCode\bingGames\
-  xiaoke-ai-A-YYYYMMDDHHMMSS/    ← 程序包
+  xiaoke-ai-agent-A-YYYYMMDDHHMMSS/    ← 程序包
     xiaoke-ai.exe
     electron/  runtime/  app/  web/
     assets/tarot/               牌面（小）
     data/app.db                 审查 + 角色卡（不含密钥/聊天）
     content.path                第一次选完 B 后自动生成
-  xiaoke-ai-B/                   ← 资源包（固定名，可覆盖更新）
+  xiaoke-ai-agent-B-YYYYMMDDHHMMSS/   ← 资源包（和时间戳成对）
     xiaoke-content.json
     assets/models|motions|cameras|audio|music
     data/speech                 SenseVoice + Qwen3-TTS
     data/embed                  MiniLM / fastembed
     runtime/Lib/site-packages/torch   本地 Qwen TTS（约 5–7GB）
+    eyes/                       MiniCPM-V 4.7 1B 视觉服务
+    models/MiniCPM-V-4.7-1B     视觉权重
   xiaoke-ai-YYYYMMDDHHMMSS/      ← --full 一体包（旧，资源打在一起）
   xiaoke-ai-online-YYYYMMDDHHMMSS/  ← --online 完全在线包
     xiaoke-ai.exe

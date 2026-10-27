@@ -32,6 +32,35 @@ def root_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+def _find_content_pack(root: Path) -> str:
+    """旁边的资源包。agent 包优先用同一时间戳的 B，再取最新的 agent B，最后才是旧的 xiaoke-ai-B。"""
+    parent = root.parent
+    prefix = "xiaoke-ai-agent-A-"
+    if root.name.startswith(prefix) and root.name[len(prefix):].isdigit():
+        paired = parent / f"xiaoke-ai-agent-B-{root.name[len(prefix):]}"
+        if (paired / "xiaoke-content.json").is_file():
+            return str(paired.resolve())
+    newest = None
+    try:
+        kids = list(parent.iterdir())
+    except OSError:
+        kids = []
+    b_prefix = "xiaoke-ai-agent-B-"
+    for cand in kids:
+        if not cand.name.startswith(b_prefix) or not cand.name[len(b_prefix):].isdigit():
+            continue
+        if not (cand / "xiaoke-content.json").is_file():
+            continue
+        if newest is None or cand.name > newest.name:
+            newest = cand
+    if newest is not None:
+        return str(newest.resolve())
+    for cand in (parent / "xiaoke-ai-B", root / "xiaoke-ai-B"):
+        if (cand / "xiaoke-content.json").is_file():
+            return str(cand.resolve())
+    return ""
+
+
 def port_busy(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.4)
@@ -353,10 +382,7 @@ def main() -> int:
                 content = ""
     # 在线包自带动作资产。旁边若还有 B，不要自动挂上，否则会去加载离线语音和 PyTorch。
     if not content and not online:
-        for cand in (root.parent / "xiaoke-ai-B", root / "xiaoke-ai-B"):
-            if (cand / "xiaoke-content.json").is_file():
-                content = str(cand.resolve())
-                break
+        content = _find_content_pack(root) or ""
     py_paths = [str(root)]
     if content:
         os.environ["COMPANION_CONTENT"] = content

@@ -37,6 +37,28 @@ def test_online_pack_ignores_sibling_content():
         assert resolve_content_root(online) == online.resolve()
 
 
+def test_agent_pack_pairs_same_stamp():
+    import os
+    import tempfile
+
+    old = os.environ.pop("COMPANION_CONTENT", None)
+    try:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            a = tmp / "xiaoke-ai-agent-A-20261027120000"
+            b = tmp / "xiaoke-ai-agent-B-20261027120000"
+            older = tmp / "xiaoke-ai-agent-B-20261001000000"
+            a.mkdir()
+            b.mkdir()
+            older.mkdir()
+            (b / "xiaoke-content.json").write_text("{}\n", encoding="utf-8")
+            (older / "xiaoke-content.json").write_text("{}\n", encoding="utf-8")
+            assert resolve_content_root(a) == b.resolve()
+    finally:
+        if old is not None:
+            os.environ["COMPANION_CONTENT"] = old
+
+
 def test_online_recommend_does_not_require_local_weights():
     rec = recommend_online({
         "ram_gb": 32,

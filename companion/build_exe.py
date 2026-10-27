@@ -9,7 +9,7 @@
     python build_exe.py --online     # 完全在线包：动作资产 + 云端语音/向量，无离线模型
     python build_exe.py --skip-7z    # 只出目录，不打 7z
 
-产物不进仓库：A 在 games 同级 xiaoke-ai-A-时间戳/，B 固定为 xiaoke-ai-B/。
+产物不进仓库：A 为 xiaoke-ai-agent-A-时间戳/，B 为 xiaoke-ai-agent-B-同一时间戳/。
 一体包（旧）：python build_exe.py --full  → xiaoke-ai-时间戳/（代码+资源打一起）。
 在线包：python build_exe.py --online → xiaoke-ai-online-时间戳/。
 """
@@ -891,7 +891,12 @@ def smoke_online_app(dist_dir: Path) -> None:
 def step_copy_content(dist_dir: Path) -> None:
     """B 包：模型、动作、镜头、歌曲、ASR / TTS / embedding。"""
     print("\n[*] 复制资源包 B")
-    marker = {"name": "xiaoke-ai-B", "kind": "content", "version": 1}
+    marker = {
+        "name": dist_dir.name,
+        "kind": "content",
+        "version": 1,
+        "eyes": "MiniCPM-V-4.7-1B",
+    }
     (dist_dir / "xiaoke-content.json").write_text(
         json.dumps(marker, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -964,7 +969,8 @@ def write_readme_a(dist_dir: Path) -> None:
 这是可运行的程序（代码 + 瘦 Python + 窗口）。
 角色、动作、歌曲、离线语音、记忆向量和 PyTorch/CUDA 在资源包 B。
 
-第一次打开：设置 → 资源包 → 选 B 的目录（里面有 xiaoke-content.json），
+和本程序同一时间戳的 xiaoke-ai-agent-B 放在旁边时会自动认。
+也可以在设置 → 资源包里选 B 的目录（里面有 xiaoke-content.json），
 关掉窗口再打开。路径记在本目录的 content.path，换 A 不用重选。
 
 双击 xiaoke-ai.exe 打开自带 Chromium 窗口：
@@ -1046,8 +1052,11 @@ def write_readme_b(dist_dir: Path) -> None:
   data/speech       SenseVoice + Qwen3-TTS
   data/embed        记忆用 MiniLM / fastembed
   runtime/Lib/.../torch   本地 Qwen TTS 用的 PyTorch / CUDA
+  eyes/                 MiniCPM-V 4.7 1B 视觉服务（单独进程）
+  models/MiniCPM-V-4.7-1B   视觉模型权重
 
-解压后，在程序包 A 的设置 → 资源包里填本目录路径。
+解压后，和同一时间戳的程序包 A 放在同一层，打开 A 会自动认。
+也可以在设置 → 资源包里填本目录路径。
 看到 xiaoke-content.json 就说明选对了。
 """
     (dist_dir / "使用说明.txt").write_text(text, encoding="utf-8")
@@ -1102,9 +1111,8 @@ def _archive(dist_dir: Path, skip_7z: bool) -> Path | None:
     return step_7z(dist_dir)
 
 
-def build_a(py: Path, skip_7z: bool) -> Path:
-    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    dist_dir = OUT_ROOT / f"xiaoke-ai-A-{stamp}"
+def build_a(py: Path, skip_7z: bool, stamp: str) -> Path:
+    dist_dir = OUT_ROOT / f"xiaoke-ai-agent-A-{stamp}"
     dist_dir.mkdir(parents=True, exist_ok=True)
     print(f"A 输出: {dist_dir}")
     step_frontend(py)
@@ -1168,11 +1176,82 @@ def build_online(py: Path, skip_7z: bool) -> Path:
     return dist_dir
 
 
-def build_b(skip_7z: bool) -> Path:
-    dist_dir = OUT_ROOT / "xiaoke-ai-B"
+EYES_SRC = GAMES_ROOT / "minicpm-o-demo" / "v47"
+EYES_MODEL = GAMES_ROOT / "minicpm-o-demo" / "models" / "MiniCPM-V-4.7-1B"
+
+
+def _donor_runtime(explicit: Path | None) -> Path:
+    if explicit and (explicit / "python.exe").is_file():
+        return explicit
+    prev = latest_pack_dir()
+    if prev and (prev / "runtime" / "python.exe").is_file():
+        return prev / "runtime"
+    raise SystemExit("没有可借用的 Python 运行时，眼睛服务打不进 B")
+
+
+def _smoke_eyes(py: Path) -> None:
+    code = "import torch, transformers, fastapi\nprint('EYES_IMPORT_OK')\n"
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONNOUSERSITE"] = "1"
+    runtime = py.parent
+    parts = [str(runtime), str(runtime / "Library" / "bin")]
+    lib = runtime / "Lib" / "site-packages" / "torch" / "lib"
+    if lib.is_dir():
+        parts.append(str(lib))
+    env["PATH"] = os.pathsep.join(parts + [env.get("PATH", "")])
+    r = subprocess.run([str(py), "-c", code], env=env, capture_output=True)
+    out = ((r.stdout or b"") + b"\n" + (r.stderr or b"")).decode("utf-8", "replace")
+    if r.returncode != 0 or "EYES_IMPORT_OK" not in out:
+        raise SystemExit(f"眼睛运行时无法导入：\n{out[-2400:]}")
+    print("  ok MiniCPM 运行时")
+
+
+def step_copy_eyes(dist_dir: Path, donor_runtime: Path | None) -> None:
+    """视觉服务单独放进 B，不跟 Qwen TTS 共用同一套 transformers。"""
+    print("\n[*] 复制 MiniCPM-V 4.7 1B 眼睛")
+    if not (EYES_SRC / "app.py").is_file():
+        raise SystemExit(f"没有眼睛服务：{EYES_SRC}")
+    if not (EYES_MODEL / "config.json").is_file():
+        raise SystemExit(f"没有 MiniCPM 权重：{EYES_MODEL}")
+    home = dist_dir / "eyes"
+    home.mkdir(parents=True, exist_ok=True)
+    for name in ("app.py", "engine.py", "download.py", "requirements.txt", "README.md"):
+        src = EYES_SRC / name
+        if src.is_file():
+            shutil.copy2(src, home / name)
+    if (EYES_SRC / "static").is_dir():
+        robocopy(EYES_SRC / "static", home / "static")
+    donor = _donor_runtime(donor_runtime)
+    runtime = home / "runtime"
+    runtime.mkdir(parents=True, exist_ok=True)
+    for src in donor.iterdir():
+        if not src.is_file():
+            continue
+        if src.suffix.lower() in {".exe", ".dll", ".pyd", ".zip"} or src.name.endswith("._pth"):
+            shutil.copy2(src, runtime / src.name)
+    if (donor / "DLLs").is_dir():
+        robocopy(donor / "DLLs", runtime / "DLLs")
+    if (donor / "Library").is_dir():
+        robocopy(donor / "Library", runtime / "Library")
+    robocopy(donor / "Lib", runtime / "Lib", extra_xd=["site-packages"])
+    site = EYES_SRC / ".venv" / "Lib" / "site-packages"
+    if not site.is_dir():
+        raise SystemExit(f"眼睛虚拟环境不存在：{site}")
+    print("  眼睛 Python 依赖 …")
+    robocopy(site, runtime / "Lib" / "site-packages")
+    print("  MiniCPM 权重 …")
+    robocopy(EYES_MODEL, dist_dir / "models" / "MiniCPM-V-4.7-1B")
+    _smoke_eyes(runtime / "python.exe")
+
+
+def build_b(skip_7z: bool, stamp: str, donor_runtime: Path | None = None) -> Path:
+    dist_dir = OUT_ROOT / f"xiaoke-ai-agent-B-{stamp}"
     dist_dir.mkdir(parents=True, exist_ok=True)
     print(f"B 输出: {dist_dir}")
     step_copy_content(dist_dir)
+    step_copy_eyes(dist_dir, donor_runtime)
     write_readme_b(dist_dir)
     archive = _archive(dist_dir, skip_7z)
     print(f"  B 目录  {dist_dir}")
@@ -1215,14 +1294,17 @@ def main() -> None:
     print(f"Python: {py}")
     if skip_7z:
         print("本次跳过 7z 压缩包")
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    a_dir = None
     if want_online:
         build_online(py, skip_7z)
     if want_full:
         build_full(py, skip_7z)
     if want_a:
-        build_a(py, skip_7z)
+        a_dir = build_a(py, skip_7z, stamp)
     if want_b:
-        build_b(skip_7z)
+        donor = (a_dir / "runtime") if a_dir is not None else None
+        build_b(skip_7z, stamp, donor)
     cleanup_work()
     print("\n" + "=" * 52)
     print("打包完成")

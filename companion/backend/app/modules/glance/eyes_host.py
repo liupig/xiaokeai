@@ -1,6 +1,7 @@
 """本机眼睛进程的开关。开着才占显存，关掉就把 8766 上的进程停掉。"""
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 import time
@@ -179,6 +180,39 @@ def _warmup(token: int) -> None:
         _message = "眼睛没有起来"
 
 
+def eyes_home() -> Path:
+    """开发时用仓库里的 v47；打包后用资源包里的 eyes/。"""
+    env = (os.environ.get("XIAOKE_EYES_HOME") or "").strip()
+    if env and (Path(env) / "app.py").is_file():
+        return Path(env)
+    content = (os.environ.get("COMPANION_CONTENT") or "").strip()
+    if content and (Path(content) / "eyes" / "app.py").is_file():
+        return Path(content) / "eyes"
+    root = (os.environ.get("COMPANION_ROOT") or "").strip()
+    if root and (Path(root) / "eyes" / "app.py").is_file():
+        return Path(root) / "eyes"
+    return _V47
+
+
+def eyes_python(home: Path) -> Path:
+    env = (os.environ.get("XIAOKE_EYES_PYTHON") or "").strip()
+    if env:
+        return Path(env)
+    packed = home / "runtime" / "python.exe"
+    if packed.is_file():
+        return packed
+    return home / ".venv" / "Scripts" / "python.exe"
+
+
+def _log_path(home: Path) -> Path:
+    root = (os.environ.get("COMPANION_ROOT") or "").strip()
+    if root:
+        path = Path(root) / "data" / "logs" / "eyes-host.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+    return home / "eyes-host.log"
+
+
 def ensure() -> str:
     """没在跑就拉起。已经在加载就不要再开一个。"""
     global _proc, _log, _warm, _token, _phase, _message
@@ -192,8 +226,9 @@ def ensure() -> str:
     with _lock:
         if _phase == "starting" and _proc is not None and _proc.poll() is None:
             return "starting"
-        py = Path(__import__("os").environ.get("XIAOKE_EYES_PYTHON") or (_V47 / ".venv" / "Scripts" / "python.exe"))
-        app = _V47 / "app.py"
+        home = eyes_home()
+        py = eyes_python(home)
+        app = home / "app.py"
         if not py.is_file() or not app.is_file():
             _phase = "down"
             _message = "眼睛环境还没装好"
@@ -205,10 +240,26 @@ def ensure() -> str:
         _phase = "starting"
         _message = ""
         _close_log(_log)
-        _log = open(_V47 / "eyes-host.log", "a", encoding="utf-8")
+        _log = open(_log_path(home), "a", encoding="utf-8")
+        env = os.environ.copy()
+        runtime = home / "runtime"
+        path_parts = []
+        if runtime.is_dir():
+            path_parts.append(str(runtime))
+            path_parts.append(str(runtime / "Library" / "bin"))
+            torch_lib = runtime / "Lib" / "site-packages" / "torch" / "lib"
+            if torch_lib.is_dir():
+                path_parts.append(str(torch_lib))
+        if path_parts:
+            env["PATH"] = os.pathsep.join(path_parts + [env.get("PATH", "")])
+        env["PYTHONNOUSERSITE"] = "1"
+        model = home.parent / "models" / "MiniCPM-V-4.7-1B"
+        if (model / "config.json").is_file():
+            env["MINICPM_V47_MODEL"] = str(model)
         _proc = subprocess.Popen(
             [str(py), "app.py"],
-            cwd=str(_V47),
+            cwd=str(home),
+            env=env,
             stdout=_log,
             stderr=_log,
             creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
