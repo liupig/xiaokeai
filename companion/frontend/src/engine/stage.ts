@@ -21,47 +21,161 @@ const PHY_STEP = 1 / 65; // MMDPhysics 内部最小步长
 /** PMX 从 MMD 单位（约 8cm）换成米。物理库假定缩放是 1，会临时改掉它。 */
 const MMD_MODEL_SCALE = 0.08;
 
+type AmmoWorldParts = {
+  config: object;
+  dispatcher: object;
+  broadphase: object;
+  solver: object;
+};
+
+type PhysicsHandle = MMDPhysics & { _ammoParts?: AmmoWorldParts | null };
+
+/** 刚体构造信息只在 new 的时候用，库本身不留引用，不销毁会跟着模型一起堆积。 */
+const trackedBodyInfos = new Set<object>();
+let mmdPhysicsPatched = false;
+
+function ammoDestroy(obj: object | null | undefined) {
+  if (!obj) return;
+  const ammo = (globalThis as { Ammo?: { destroy?: (obj: object) => void } }).Ammo;
+  if (typeof ammo?.destroy !== 'function') return;
+  try { ammo.destroy(obj); } catch { /* 已经释放过 */ }
+}
+
+/**
+ * MMDPhysics 用 matrixWorld 判断缩放。update 把缩放临时改成 1 之后不刷新矩阵，
+ * warmup 连续调用时下一次会误以为缩放是 1，把刚体位置写进仍是 0.08 的骨骼，角色变成十几倍。
+ * 另外世界、碰撞配置、构造信息都不释放，wasm 堆大约 64MB，连换几次模型就会耗尽。
+ */
+function installMmdPhysicsFix() {
+  const ammo = (globalThis as { Ammo?: Record<string, unknown> }).Ammo;
+  if (!ammo || mmdPhysicsPatched) return;
+  mmdPhysicsPatched = true;
+  const proto = MMDPhysics.prototype as unknown as {
+    update: (this: MMDPhysics, delta: number) => MMDPhysics;
+    _init: (
+      this: PhysicsHandle,
+      mesh: THREE.SkinnedMesh,
+      rigidBodyParams: object[],
+      constraintParams: object[],
+    ) => void;
+    _createWorld: (this: PhysicsHandle) => object;
+  };
+  const origUpdate = proto.update;
+  proto.update = function (delta: number) {
+    const mesh = this.mesh;
+    mesh.updateMatrixWorld(true);
+    const parent = mesh.parent;
+    const pos = mesh.position.clone();
+    const quat = mesh.quaternion.clone();
+    const scale = mesh.scale.clone();
+    try {
+      return origUpdate.call(this, delta);
+    } finally {
+      mesh.parent = parent;
+      mesh.position.copy(pos);
+      mesh.quaternion.copy(quat);
+      mesh.scale.copy(scale);
+      mesh.updateMatrixWorld(true);
+    }
+  };
+  const origInit = proto._init;
+  proto._init = function (mesh, rigidBodyParams, constraintParams) {
+    const parent = mesh.parent;
+    const pos = mesh.position.clone();
+    const quat = mesh.quaternion.clone();
+    const scale = mesh.scale.clone();
+    try {
+      origInit.call(this, mesh, rigidBodyParams, constraintParams);
+    } catch (e) {
+      mesh.parent = parent;
+      mesh.position.copy(pos);
+      mesh.quaternion.copy(quat);
+      mesh.scale.copy(scale);
+      mesh.updateMatrixWorld(true);
+      releaseMmdPhysics(this);
+      throw e;
+    }
+  };
+  proto._createWorld = function () {
+    const lib = (globalThis as unknown as { Ammo: any }).Ammo;
+    const config = new lib.btDefaultCollisionConfiguration();
+    const dispatcher = new lib.btCollisionDispatcher(config);
+    const broadphase = new lib.btDbvtBroadphase();
+    const solver = new lib.btSequentialImpulseConstraintSolver();
+    const world = new lib.btDiscreteDynamicsWorld(dispatcher, broadphase, solver, config);
+    this._ammoParts = { config, dispatcher, broadphase, solver };
+    return world;
+  };
+  const OrigInfo = ammo.btRigidBodyConstructionInfo as new (
+    mass: number, state: object, shape: object, inertia: object,
+  ) => object;
+  function InfoWrapped(this: object, mass: number, state: object, shape: object, inertia: object) {
+    const info = new OrigInfo(mass, state, shape, inertia);
+    trackedBodyInfos.add(info);
+    return info;
+  }
+  InfoWrapped.prototype = OrigInfo.prototype;
+  ammo.btRigidBodyConstructionInfo = InfoWrapped;
+}
+
 /** 卸掉一套刚体。不销毁的话，wasm 堆（约 64MB）换几次模型就会耗尽，下一步初始化直接失败。 */
 function releaseMmdPhysics(physics: MMDPhysics | null) {
   if (!physics) return;
-  const ammo = (globalThis as { Ammo?: { destroy?: (obj: object) => void } }).Ammo;
-  const destroy = (obj: object | null | undefined) => {
-    if (!obj || typeof ammo?.destroy !== 'function') return;
-    try { ammo.destroy(obj); } catch { /* 已经释放过 */ }
-  };
+  const handle = physics as PhysicsHandle;
   const world = physics.world as {
     removeConstraint?: (c: object) => void;
     removeRigidBody?: (b: object) => void;
   } | null;
   for (const c of physics.constraints as Array<{ constraint?: object | null }>) {
-    const ct = c.constraint;
+    const ct = c.constraint as object | null;
     if (!ct) continue;
     try { world?.removeConstraint?.(ct); } catch { /* */ }
-    destroy(ct);
+    ammoDestroy(ct);
     c.constraint = null;
   }
-  for (const b of physics.bodies as Array<{
-    body?: {
+  for (const b of physics.bodies) {
+    ammoDestroy(b.boneOffsetForm);
+    ammoDestroy(b.boneOffsetFormInverse);
+    b.boneOffsetForm = null as unknown as object;
+    b.boneOffsetFormInverse = null as unknown as object;
+    const body = b.body as {
       getCollisionShape?: () => object;
       getMotionState?: () => object;
     } | null;
-  }>) {
-    const body = b.body;
     if (!body) continue;
     let shape: object | null = null;
     let state: object | null = null;
     try { shape = body.getCollisionShape?.() ?? null; } catch { /* */ }
     try { state = body.getMotionState?.() ?? null; } catch { /* */ }
     try { world?.removeRigidBody?.(body); } catch { /* */ }
-    destroy(body);
-    destroy(shape);
-    destroy(state);
-    b.body = null;
+    ammoDestroy(body);
+    ammoDestroy(shape);
+    ammoDestroy(state);
+    b.body = null as unknown as object;
   }
-  destroy(world);
+  const manager = physics.manager;
+  if (manager) {
+    for (const t of manager.transforms) ammoDestroy(t);
+    for (const q of manager.quaternions) ammoDestroy(q);
+    for (const v of manager.vector3s) ammoDestroy(v);
+    manager.transforms = [];
+    manager.quaternions = [];
+    manager.vector3s = [];
+  }
+  ammoDestroy(world);
+  const parts = handle._ammoParts;
+  if (parts) {
+    ammoDestroy(parts.solver);
+    ammoDestroy(parts.broadphase);
+    ammoDestroy(parts.dispatcher);
+    ammoDestroy(parts.config);
+    handle._ammoParts = null;
+  }
   (physics as { world: object | null }).world = null;
   physics.bodies = [];
   physics.constraints = [];
+  for (const info of trackedBodyInfos) ammoDestroy(info);
+  trackedBodyInfos.clear();
 }
 
 /** 1080p @ 2x；更高分辨率不再叠 DPR，避免 4K 开 2x 吃掉上百 MB 显存 */
@@ -196,6 +310,8 @@ export class Stage {
   private mmdHoldPos = new THREE.Vector3();
   private mmdHoldQuat = new THREE.Quaternion();
   private mmdHoldScale = new THREE.Vector3(1, 1, 1);
+  /** 开物理之前的姿势。初始化或步进失败时拉回来，避免骨骼停在被拉大的位置。 */
+  private mmdPose: { bone: THREE.Bone; pos: THREE.Vector3; quat: THREE.Quaternion }[] = [];
   private modelKind = '';
   private phyAcc = 0;
   private disposed = false;
@@ -380,6 +496,7 @@ export class Stage {
     }
 
     this.animate();
+    return rebuilt;
   }
 
   setQuality(opts: Partial<QualityOptions>) {
@@ -873,6 +990,7 @@ export class Stage {
     // 若记录的是 T-pose，恢复后闲置动画会瞬间拉回自然位、把挂饰链抽飞
     this.motion.attach(mmd);
     this.motion.onPhysicsReset = () => this.physics?.reset();
+    this.rememberMmdPose(mmd);
     const info = this.finishSetup(mmd, url, 'pmx', true);
     await this.attachPhysics();
     return info;
@@ -893,6 +1011,23 @@ export class Stage {
     this.physicsHeld = null;
     this.phyAcc = 0;
     releaseMmdPhysics(held);
+  }
+
+  private rememberMmdPose(mesh: THREE.SkinnedMesh) {
+    this.mmdPose = mesh.skeleton.bones.map((bone) => ({
+      bone,
+      pos: bone.position.clone(),
+      quat: bone.quaternion.clone(),
+    }));
+  }
+
+  private restoreMmdPose() {
+    if (!this.mmdPose.length) return;
+    for (const item of this.mmdPose) {
+      item.bone.position.copy(item.pos);
+      item.bone.quaternion.copy(item.quat);
+    }
+    this.modelRoot?.updateMatrixWorld(true);
   }
 
   /**
@@ -942,6 +1077,7 @@ export class Stage {
       physics.update(dt);
     } catch (e) {
       console.warn('MMD 物理步进失败，已关闭：', e);
+      this.restoreMmdPose();
       this.dropPhysics();
     } finally {
       if (this.modelRoot === mesh) this.restoreMmdMesh(mesh);
@@ -962,6 +1098,7 @@ export class Stage {
     try {
       await this.ensureAmmo();
       if (gen !== this.physicsGen || !this.quality.physics) return;
+      installMmdPhysicsFix();
       const ud = (mmd.geometry as THREE.BufferGeometry).userData.MMD;
       if (!ud?.rigidBodies?.length) return;
       let created: MMDPhysics | null = null;
@@ -978,6 +1115,7 @@ export class Stage {
       } catch (e) {
         console.warn('MMD 物理初始化失败，继续以无物理模式运行：', e);
         releaseMmdPhysics(created);
+        this.restoreMmdPose();
         if (gen === this.physicsGen) {
           this.physics = null;
           this.physicsHeld = null;
@@ -1065,6 +1203,7 @@ export class Stage {
     this.walkLocActive = false;
     this.walkLocUrl = '';
     this.dropPhysics();
+    this.mmdPose = [];
     this.modelKind = '';
     this.expr.reset();
     this.director.reset();

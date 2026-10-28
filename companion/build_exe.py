@@ -167,15 +167,53 @@ def step_electron(dist_dir: Path) -> None:
     if app_dir.exists():
         shutil.rmtree(app_dir)
     app_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("main.js", "preload.js", "petScreen.js", "package.json", "icon.png"):
+    # trayMenu.js 被 main.js 同步 require，漏拷会在主进程启动时直接崩溃。
+    # 图标缺失时主进程会回退，所以只强制代码文件。
+    required = ("main.js", "preload.js", "petScreen.js", "trayMenu.js", "package.json")
+    optional = ("icon.png", "tray-icon.png")
+    for name in required + optional:
         src_file = DESKTOP / name
         if src_file.is_file():
             shutil.copy2(src_file, app_dir / name)
-        elif name != "icon.png":
+        elif name in required:
             raise SystemExit(f"缺少桌面壳文件：{src_file}")
     if not (dest / "electron.exe").is_file():
         raise SystemExit("electron/electron.exe 缺失")
     print(f"  ok {dest / 'electron.exe'}")
+
+
+def _dist_name(info: Path) -> str:
+    meta = info / "METADATA"
+    try:
+        for line in meta.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("Name:"):
+                return line.split(":", 1)[1].strip().lower()
+            if line == "":
+                break
+    except OSError:
+        return ""
+    return ""
+
+
+def drop_stale_dist_info(src_sp: Path, dest_sp: Path) -> None:
+    """上一版 runtime 留下的旧 dist-info 会让 importlib 读到旧版本号。"""
+    if not src_sp.is_dir() or not dest_sp.is_dir():
+        return
+    wanted: dict[str, str] = {}
+    for info in src_sp.glob("*.dist-info"):
+        name = _dist_name(info)
+        if name:
+            wanted[name] = info.name
+    removed = 0
+    for info in list(dest_sp.glob("*.dist-info")):
+        name = _dist_name(info)
+        keep = wanted.get(name)
+        if keep and info.name != keep:
+            shutil.rmtree(info, ignore_errors=True)
+            removed += 1
+            print(f"  去掉过期 {info.name}")
+    if removed:
+        print(f"  去掉 {removed} 个过期 dist-info")
 
 
 def step_copy_runtime(dist_dir: Path, py: Path) -> None:
@@ -186,6 +224,7 @@ def step_copy_runtime(dist_dir: Path, py: Path) -> None:
         venv_sp = BACKEND / ".venv" / "Lib" / "site-packages"
         if venv_sp.is_dir():
             robocopy(venv_sp, runtime / "Lib" / "site-packages")
+            drop_stale_dist_info(venv_sp, runtime / "Lib" / "site-packages")
         return
     prev = latest_pack_dir(exclude=dist_dir)
     if prev is not None:
@@ -194,6 +233,7 @@ def step_copy_runtime(dist_dir: Path, py: Path) -> None:
         venv_sp = BACKEND / ".venv" / "Lib" / "site-packages"
         if venv_sp.is_dir():
             robocopy(venv_sp, runtime / "Lib" / "site-packages")
+            drop_stale_dist_info(venv_sp, runtime / "Lib" / "site-packages")
         if (runtime / "python.exe").is_file():
             return
         print("  上一版 runtime 不完整，改从当前 Python 环境拷")
@@ -212,6 +252,7 @@ def step_copy_runtime(dist_dir: Path, py: Path) -> None:
     if venv_sp.is_dir():
         print("  叠加 venv site-packages")
         robocopy(venv_sp, runtime / "Lib" / "site-packages")
+        drop_stale_dist_info(venv_sp, runtime / "Lib" / "site-packages")
     if not (runtime / "python.exe").is_file():
         raise SystemExit("runtime/python.exe 缺失")
 
@@ -241,6 +282,21 @@ if str(BACKEND) not in sys.path:
 from app.personas import GENERIC_PERSONA, QINGXIAO_GREETING, QINGXIAO_PERSONA
 
 PACK_KEEP_TABLES = ("cam_review", "character", "asset")
+# 发行包只带这三个人。名字和开发库 character.name 一致。
+PACK_CHARACTERS = ("清宵", "kelu", "chun")
+PACK_MODEL_DIR_FALLBACK = ("qingxiao", "_可露凯速度之星", "椿_魔化")
+
+
+def _character_kept(name: str) -> bool:
+    raw = (name or "").strip()
+    if raw == "清宵":
+        return True
+    return raw.lower() in {"kelu", "chun"}
+
+
+def _model_path_kept(path: str) -> bool:
+    norm = (path or "").replace("\\", "/").lstrip("/")
+    return any(norm.startswith(f"models/{folder}/") for folder in PACK_MODEL_DIR_FALLBACK)
 
 
 def _pack_asset_ok(path_str: str) -> bool:
@@ -288,6 +344,36 @@ def export_pack_db(src: Path, dst: Path) -> dict:
         ]
         if gone:
             dst_conn.executemany("DELETE FROM asset WHERE id = ?", [(i,) for i in gone])
+    keep_model_ids: set[int] = set()
+    if "character" in tables:
+        for name, aid in dst_conn.execute("SELECT name, model_asset_id FROM character"):
+            if _character_kept(name) and aid is not None:
+                keep_model_ids.add(int(aid))
+        dropped_chars = [
+            row[0]
+            for row in dst_conn.execute("SELECT id, name FROM character")
+            if not _character_kept(row[1])
+        ]
+        if dropped_chars:
+            dst_conn.executemany(
+                "DELETE FROM character WHERE id = ?",
+                [(i,) for i in dropped_chars],
+            )
+    if "asset" in tables and not keep_model_ids:
+        for aid, path in dst_conn.execute("SELECT id, path FROM asset WHERE kind = 'model'"):
+            if _model_path_kept(path):
+                keep_model_ids.add(int(aid))
+    if "asset" in tables:
+        extra_models = [
+            row[0]
+            for row in dst_conn.execute("SELECT id FROM asset WHERE kind = 'model'")
+            if int(row[0]) not in keep_model_ids
+        ]
+        if extra_models:
+            dst_conn.executemany(
+                "DELETE FROM asset WHERE id = ?",
+                [(i,) for i in extra_models],
+            )
     if "character" in tables:
         dst_conn.execute(
             "DELETE FROM character WHERE model_asset_id NOT IN "
@@ -304,6 +390,8 @@ def export_pack_db(src: Path, dst: Path) -> dict:
         ):
             aid, name, label, path, fmt = row
             if (fmt or "").lower() != "pmx" or not _pack_asset_ok(path):
+                continue
+            if int(aid) not in keep_model_ids:
                 continue
             if int(aid) in used:
                 continue
@@ -335,6 +423,59 @@ def export_pack_db(src: Path, dst: Path) -> dict:
     dst_conn.execute("VACUUM")
     dst_conn.close()
     return counts
+
+
+def pack_model_dirs() -> list[Path]:
+    """发行包里的角色目录：清宵、kelu、chun。优先按开发库里的模型路径。"""
+    import sqlite3
+
+    found: list[Path] = []
+    db = BACKEND / "data" / "app.db"
+    if db.is_file():
+        conn = sqlite3.connect(str(db))
+        try:
+            rows = conn.execute(
+                "SELECT c.name, a.path FROM character c "
+                "JOIN asset a ON a.id = c.model_asset_id "
+                "WHERE a.kind = 'model'"
+            ).fetchall()
+        except sqlite3.Error:
+            rows = []
+        finally:
+            conn.close()
+        for name, path in rows:
+            if not _character_kept(str(name or "")):
+                continue
+            parts = Path(str(path or "").replace("\\", "/")).parts
+            if len(parts) < 2 or parts[0] != "models":
+                continue
+            folder = COMPANION / "assets" / "models" / parts[1]
+            if folder.is_dir() and folder not in found:
+                found.append(folder)
+    if found:
+        return found
+    root = COMPANION / "assets" / "models"
+    return [root / name for name in PACK_MODEL_DIR_FALLBACK if (root / name).is_dir()]
+
+
+def copy_content_assets(dist_dir: Path) -> None:
+    """动作、镜头、歌曲整目录拷。角色模型只拷清宵、kelu、chun。"""
+    for name in CONTENT_ASSET_DIRS:
+        if name == "models":
+            dest = dist_dir / "assets" / "models"
+            folders = pack_model_dirs()
+            if not folders:
+                print("  skip assets/models（没有清宵 / kelu / chun）")
+                continue
+            for folder in folders:
+                print(f"  角色模型 {folder.name} …")
+                robocopy(folder, dest / folder.name)
+            continue
+        src = COMPANION / "assets" / name
+        if src.exists():
+            robocopy(src, dist_dir / "assets" / name)
+        else:
+            print(f"  skip assets/{name}")
 
 
 CONTENT_ASSET_DIRS = ("models", "motions", "cameras", "audio", "music")
@@ -780,12 +921,7 @@ def step_copy_payload_full(dist_dir: Path) -> None:
     """旧一体包：A 的轻量文件 + 全部大资源。"""
     step_copy_payload(dist_dir)
     print("\n[5b/8] 一体包：再拷模型 / 动作 / 语音权重")
-    for name in CONTENT_ASSET_DIRS:
-        src = COMPANION / "assets" / name
-        if src.exists():
-            robocopy(src, dist_dir / "assets" / name)
-        else:
-            print(f"  skip assets/{name}")
+    copy_content_assets(dist_dir)
     speech_src = BACKEND / "data" / "speech"
     speech_dst = dist_dir / "data" / "speech"
     speech_dst.mkdir(parents=True, exist_ok=True)
@@ -813,12 +949,7 @@ def step_copy_payload_full(dist_dir: Path) -> None:
 def step_copy_online_assets(dist_dir: Path) -> None:
     """在线包自带角色、动作、镜头、歌曲。不带 SenseVoice / Qwen / MiniLM。"""
     print("\n[5b/8] 在线包：拷动作资产（不含离线语音 / 向量 / PyTorch）")
-    for name in CONTENT_ASSET_DIRS:
-        src = COMPANION / "assets" / name
-        if src.exists():
-            robocopy(src, dist_dir / "assets" / name)
-        else:
-            print(f"  skip assets/{name}")
+    copy_content_assets(dist_dir)
     marker = {
         "name": "xiaoke-ai-online",
         "kind": "online",
@@ -902,12 +1033,7 @@ def step_copy_content(dist_dir: Path) -> None:
         encoding="utf-8",
     )
     print("  ok xiaoke-content.json")
-    for name in CONTENT_ASSET_DIRS:
-        src = COMPANION / "assets" / name
-        if src.exists():
-            robocopy(src, dist_dir / "assets" / name)
-        else:
-            print(f"  skip assets/{name}")
+    copy_content_assets(dist_dir)
     speech_src = BACKEND / "data" / "speech"
     speech_dst = dist_dir / "data" / "speech"
     speech_dst.mkdir(parents=True, exist_ok=True)
@@ -1044,7 +1170,7 @@ def write_readme_b(dist_dir: Path) -> None:
 
 这是大资源，一般不用重打：
 
-  assets/models     角色模型
+  assets/models     角色模型（清宵、kelu、chun）
   assets/motions    动作
   assets/cameras    镜头
   assets/audio      动作自带音频
