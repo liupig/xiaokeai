@@ -79,6 +79,28 @@ def process_cwd(workspace: Path) -> str | None:
     return None
 
 
+ENDPOINT_HINT = (
+    "豆包角色模型不能走 harness 的 Messages 接口。"
+    "请在模型一栏填入方舟推理接入点（ep- 开头），不要填模型名。"
+)
+
+
+def character_model_needs_endpoint(model: str | None, base_url: str | None) -> bool:
+    """角色模型名没有 Messages 权限。接入点 id（ep-）可以，模型名不行。"""
+    name = (model or "").strip()
+    if not name or name.lower().startswith("ep-"):
+        return False
+    if "character" not in name.lower():
+        return False
+    raw = (base_url or "").strip()
+    if not raw:
+        return True
+    host = (urlsplit(raw).hostname or "").lower()
+    if not host:
+        return True
+    return host.endswith("volces.com") or host.endswith("volcengine.com")
+
+
 def messages_base(base_url: str | None) -> str | None:
     """dsh 官方适配器走 Anthropic Messages，钥匙放在 x-api-key。
 
@@ -410,7 +432,10 @@ class Runtime:
             conf = apply_llm_overlay(llm_conf)
             api_key = (conf.get("api_key") or "").strip()
             model = (conf.get("model") or "").strip() or "deepseek-v4-flash"
-            base_url = messages_base((conf.get("base_url") or "").strip() or None)
+            raw_base = (conf.get("base_url") or "").strip()
+            if character_model_needs_endpoint(model, raw_base):
+                raise HarnessError(ENDPOINT_HINT)
+            base_url = messages_base(raw_base or None)
             effort = reasoning_effort_for(conf.get("thinking"))
             cap = turn_max_tokens(base_url, int(conf.get("max_tokens") or 0), conf.get("thinking"))
             launch = (model, base_url, effort, cap)

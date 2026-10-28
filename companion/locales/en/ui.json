@@ -512,6 +512,7 @@
   "set.llm.key": "API Key",
   "set.llm.keyPh": "Empty uses the environment or .env",
   "set.llm.model": "Model",
+  "set.llm.endpoint": "Doubao character models cannot use the Messages API that chat uses. In the model field, enter the Ark endpoint id (starts with ep-), not the model name.",
   "set.llm.env": "No key in settings. Using the environment or a local .env. The secret is not written to the database.",
   "set.llm.hint": "These providers speak the OpenAI-compatible API. Picking one fills the address and a suggested model; the key still has to be that provider's own. Local Ollama, vLLM, and SGLang get the placeholder key ollama when the field is empty. Azure and Cloudflare addresses contain your resource or account, so paste those yourself. Test the connection, then save.",
   "set.llm.think": "Thinking",

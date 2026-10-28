@@ -482,9 +482,9 @@ CONTENT_ASSET_DIRS = ("models", "motions", "cameras", "audio", "music")
 
 # 本地 Qwen TTS 要的 CUDA / PyTorch，放进 B，A 只留瘦 Python。
 ML_DIR_NAMES = {
-    "torch", "torchaudio", "torchvision", "torchgen", "triton", "functorch", "nvidia",
+    "torch", "torchaudio", "torchvision", "torchgen", "triton", "functorch", "nvidia", "torio",
 }
-ML_NAME_PREFIXES = ("torch-", "torchaudio-", "torchvision-", "triton", "nvidia-")
+ML_NAME_PREFIXES = ("torch-", "torchaudio-", "torchvision-", "triton", "nvidia-", "torio-")
 
 
 def _is_ml_name(name: str) -> bool:
@@ -1178,7 +1178,7 @@ def write_readme_b(dist_dir: Path) -> None:
   data/speech       SenseVoice + Qwen3-TTS
   data/embed        记忆用 MiniLM / fastembed
   runtime/Lib/.../torch   本地 Qwen TTS 用的 PyTorch / CUDA
-  eyes/                 MiniCPM-V 4.7 1B 视觉服务（单独进程）
+  eyes/                 MiniCPM-V 4.7 1B 视觉服务（单独进程，共用上面的 PyTorch）
   models/MiniCPM-V-4.7-1B   视觉模型权重
 
 解压后，和同一时间戳的程序包 A 放在同一层，打开 A 会自动认。
@@ -1315,27 +1315,31 @@ def _donor_runtime(explicit: Path | None) -> Path:
     raise SystemExit("没有可借用的 Python 运行时，眼睛服务打不进 B")
 
 
-def _smoke_eyes(py: Path) -> None:
-    code = "import torch, transformers, fastapi\nprint('EYES_IMPORT_OK')\n"
+def _smoke_eyes(py: Path, ml_sp: Path) -> None:
+    if not (ml_sp / "torch").is_dir():
+        raise SystemExit(f"眼睛要共用的 PyTorch 不在 {ml_sp}")
+    code = (
+        "import torch, transformers, fastapi\n"
+        "from transformers import AutoProcessor\n"
+        "print('EYES_IMPORT_OK', torch.__version__, AutoProcessor.__name__)\n"
+    )
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONNOUSERSITE"] = "1"
+    env["PYTHONPATH"] = str(ml_sp)
     runtime = py.parent
-    parts = [str(runtime), str(runtime / "Library" / "bin")]
-    lib = runtime / "Lib" / "site-packages" / "torch" / "lib"
-    if lib.is_dir():
-        parts.append(str(lib))
+    parts = [str(runtime), str(runtime / "Library" / "bin"), str(ml_sp / "torch" / "lib")]
     env["PATH"] = os.pathsep.join(parts + [env.get("PATH", "")])
     r = subprocess.run([str(py), "-c", code], env=env, capture_output=True)
     out = ((r.stdout or b"") + b"\n" + (r.stderr or b"")).decode("utf-8", "replace")
     if r.returncode != 0 or "EYES_IMPORT_OK" not in out:
         raise SystemExit(f"眼睛运行时无法导入：\n{out[-2400:]}")
-    print("  ok MiniCPM 运行时")
+    print("  ok MiniCPM 运行时（共用 PyTorch）")
 
 
 def step_copy_eyes(dist_dir: Path, donor_runtime: Path | None) -> None:
-    """视觉服务单独放进 B，不跟 Qwen TTS 共用同一套 transformers。"""
+    """视觉服务放进 B。PyTorch 用语音那一份，不再拷第二套 CUDA 库。"""
     print("\n[*] 复制 MiniCPM-V 4.7 1B 眼睛")
     if not (EYES_SRC / "app.py").is_file():
         raise SystemExit(f"没有眼睛服务：{EYES_SRC}")
@@ -1365,11 +1369,18 @@ def step_copy_eyes(dist_dir: Path, donor_runtime: Path | None) -> None:
     site = EYES_SRC / ".venv" / "Lib" / "site-packages"
     if not site.is_dir():
         raise SystemExit(f"眼睛虚拟环境不存在：{site}")
-    print("  眼睛 Python 依赖 …")
-    robocopy(site, runtime / "Lib" / "site-packages")
+    print("  眼睛 Python 依赖（不含 PyTorch）…")
+    eyes_sp = runtime / "Lib" / "site-packages"
+    robocopy(site, eyes_sp, extra_xd=sorted(ML_DIR_NAMES))
+    for leftover in ml_entries(eyes_sp):
+        if leftover.is_dir():
+            shutil.rmtree(leftover, ignore_errors=True)
+        else:
+            leftover.unlink(missing_ok=True)
+        print(f"  眼睛不重复携带 {leftover.name}")
     print("  MiniCPM 权重 …")
     robocopy(EYES_MODEL, dist_dir / "models" / "MiniCPM-V-4.7-1B")
-    _smoke_eyes(runtime / "python.exe")
+    _smoke_eyes(runtime / "python.exe", dist_dir / "runtime" / "Lib" / "site-packages")
 
 
 def build_b(skip_7z: bool, stamp: str, donor_runtime: Path | None = None) -> Path:

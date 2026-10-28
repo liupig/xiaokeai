@@ -204,6 +204,25 @@ def eyes_python(home: Path) -> Path:
     return home / ".venv" / "Scripts" / "python.exe"
 
 
+def _shared_torch(home: Path) -> Path | None:
+    """打包后的眼睛不再自带 PyTorch，用资源包里语音那一份。"""
+    local = home / "runtime" / "Lib" / "site-packages" / "torch"
+    if local.is_dir():
+        return local.parent
+    venv_torch = home / ".venv" / "Lib" / "site-packages" / "torch"
+    if venv_torch.is_dir():
+        return None
+    content = (os.environ.get("COMPANION_CONTENT") or "").strip()
+    if content:
+        shared = Path(content) / "runtime" / "Lib" / "site-packages"
+        if (shared / "torch").is_dir():
+            return shared
+    sibling = home.parent / "runtime" / "Lib" / "site-packages"
+    if (sibling / "torch").is_dir():
+        return sibling
+    return None
+
+
 def _log_path(home: Path) -> Path:
     root = (os.environ.get("COMPANION_ROOT") or "").strip()
     if root:
@@ -247,7 +266,10 @@ def ensure() -> str:
         if runtime.is_dir():
             path_parts.append(str(runtime))
             path_parts.append(str(runtime / "Library" / "bin"))
-            torch_lib = runtime / "Lib" / "site-packages" / "torch" / "lib"
+        shared = _shared_torch(home)
+        if shared is not None:
+            env["PYTHONPATH"] = str(shared) + os.pathsep + env.get("PYTHONPATH", "")
+            torch_lib = shared / "torch" / "lib"
             if torch_lib.is_dir():
                 path_parts.append(str(torch_lib))
         if path_parts:

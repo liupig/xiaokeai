@@ -264,6 +264,20 @@ def test_skill_catalog_talk_is_not_spoken():
     assert gate.flush() == ""
 
 
+def test_character_model_asks_for_an_endpoint():
+    from app.modules.harness.service import ENDPOINT_HINT, character_model_needs_endpoint
+
+    ark = "https://ark.cn-beijing.volces.com/api/v3"
+    assert character_model_needs_endpoint("doubao-seed-character-260628", ark)
+    assert character_model_needs_endpoint("Doubao-Seed-Character-260628", "")
+    assert not character_model_needs_endpoint("ep-20260405035755-f27w6", ark)
+    assert not character_model_needs_endpoint("doubao-seed-2-0-lite-260428", ark)
+    assert not character_model_needs_endpoint(
+        "doubao-seed-character-260628", "https://api.openai.com/v1"
+    )
+    assert "ep-" in ENDPOINT_HINT
+
+
 def test_volc_openai_base_becomes_the_messages_base():
     from app.modules.harness.service import messages_base
 

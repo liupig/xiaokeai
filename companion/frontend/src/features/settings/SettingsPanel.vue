@@ -141,6 +141,20 @@ const currentPreset = computed(() => {
   return found ? found[0] : null;
 });
 
+function characterModelNeedsEndpoint(model: string, base: string): boolean {
+  const name = (model || '').trim();
+  if (!name || name.toLowerCase().startsWith('ep-')) return false;
+  if (!name.toLowerCase().includes('character')) return false;
+  const raw = (base || '').trim();
+  if (!raw) return true;
+  try {
+    const host = new URL(raw).hostname.toLowerCase();
+    return host.endsWith('volces.com') || host.endsWith('volcengine.com');
+  } catch {
+    return true;
+  }
+}
+
 function applyLlmPreset(key: string) {
   const p = LLM_PRESETS[key];
   if (!p) return;
@@ -220,11 +234,20 @@ watch(() => settings.content.path, (v) => {
   if (v && !contentPath.value) contentPath.value = v;
 });
 
+const showEndpointHint = computed(() => {
+  settings.locale.ui;
+  return settings.modules.harness
+    && characterModelNeedsEndpoint(settings.llm.model, settings.llm.base_url);
+});
+
 const testing = ref(false);
 async function testLlm() {
   testing.value = true;
   try {
     const r = await api.testLlm(settings.llm);
+    if (showEndpointHint.value) {
+      message.warning(t('set.llm.endpoint'), { duration: 8000, closable: true });
+    }
     if (r.ok) message.success(r.message);
     else message.error(r.message, { duration: 8000, closable: true });
   } catch (e) {
@@ -912,7 +935,8 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
                    show-password-on="click" :placeholder="t('set.llm.keyPh')" />
           <label>{{ t('set.llm.model') }}</label>
           <n-input v-model:value="settings.llm.model"
-                   placeholder="qwen-plus / deepseek-chat / doubao-seed-1-6 …" />
+                   placeholder="qwen-plus / deepseek-chat / ep-…" />
+          <p v-if="showEndpointHint" class="hint warn">{{ t('set.llm.endpoint') }}</p>
           <div>
             <n-button size="small" type="primary" secondary
                       :loading="testing" @click="testLlm">{{ t('settings.test') }}</n-button>
@@ -1267,6 +1291,11 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
   opacity: 0.55;
   line-height: 1.7;
   margin-top: 4px;
+}
+
+.hint.warn {
+  opacity: 1;
+  color: #e8b86d;
 }
 
 .omni-actions {

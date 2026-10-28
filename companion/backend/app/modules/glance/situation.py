@@ -240,7 +240,7 @@ def _han(text: str) -> str:
 def _line(text: str) -> bool:
     """一句能接的原文，或一个像名字的标题。认不出的字就不交。"""
     raw = (text or "").strip()
-    if not raw or _caption(raw):
+    if not raw or _caption(raw) or raw in {"MSCTFIME UI", "Default IME", "Chrome Legacy Window"}:
         return False
     han = _han(raw)
     letters = re.findall(r"[A-Za-z]{2,}", raw)

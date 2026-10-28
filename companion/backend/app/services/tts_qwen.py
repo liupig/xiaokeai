@@ -409,7 +409,12 @@ def _stream_chunks(
     )
     if instruct.strip() and size != "0.6b":
         kwargs["instruct"] = instruct.strip()
-    backends = ("faster", "dynamic") if str(_state.get("device") or "").startswith("cuda") else ("dynamic",)
+    backends = ("dynamic",)
+    if (
+        os.environ.get("COMPANION_TTS_CUDA_GRAPH") == "1"
+        and str(_state.get("device") or "").startswith("cuda")
+    ):
+        backends = ("faster", "dynamic")
     last_err: Optional[Exception] = None
     import torch
     with torch.inference_mode():
@@ -437,7 +442,7 @@ def _warmup_inproc(size: str = DEFAULT_SIZE) -> Dict[str, Any]:
     label = VARIANTS[size]["label"]
     with _lock:
         _load_model(size)
-        _state["message"] = f"正在预热 {label} 本地流式（首次 CUDA Graph 可能要几十秒）…"
+        _state["message"] = f"正在预热 {label} 本地流式…"
         try:
             for _ in _stream_chunks("你好。", "Vivian", "Chinese", size):
                 pass

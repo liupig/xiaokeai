@@ -172,9 +172,39 @@ def grab_png(hwnd: int, edge: int = 768) -> bytes | None:
         return None
 
 
+def _ime(window: str, process: str = "") -> bool:
+    title = (window or "").strip()
+    if title in _CHROME:
+        return True
+    return (process or "").lower() in {"ctfmon.exe"}
+
+
+def _real_window(user32, hwnd: int) -> int:
+    """桌宠在前台时，紧挨着的常是输入法空窗。跳过它，才看得到片子。"""
+    for _ in range(24):
+        hwnd = int(user32.GetWindow(hwnd, 2) or 0)
+        if not hwnd:
+            return 0
+        if not user32.IsWindowVisible(hwnd):
+            continue
+        window = _window_text(hwnd)
+        process = _process_name(hwnd)
+        if _ours(window) or _ime(window, process):
+            continue
+        if (process or "").lower() in _SHELL and not window:
+            continue
+        box = window_box(hwnd)
+        if box is None:
+            continue
+        width, height = box[2] - box[0], box[3] - box[1]
+        if width < 200 or height < 200:
+            continue
+        return hwnd
+    return 0
+
+
 def _read_win32() -> Desk:
     import ctypes
-    from ctypes import wintypes
 
     user32 = ctypes.windll.user32
     try:
@@ -186,14 +216,11 @@ def _read_win32() -> Desk:
         return Desk()
     process = _process_name(hwnd)
     window = _window_text(hwnd)
-    if _ours(window):
-        nxt = int(user32.GetWindow(hwnd, 2) or 0)
-        if nxt:
-            hwnd = nxt
-            process = _process_name(hwnd)
-            window = _window_text(hwnd)
-    if (process or "").lower() in _SHELL and not window:
-        return Desk(ok=True, process=process, kind="unknown")
+    if _ours(window) or _ime(window, process):
+        nxt = _real_window(user32, hwnd)
+        if not nxt:
+            return Desk()
+        hwnd = nxt
     return _desk_of(hwnd)
 
 

@@ -89,7 +89,7 @@ To build a double-click Windows exe (bundled Chromium, Python runtime, models an
 
 ### Ready-made pack (no compile)
 
-Windows packs are on Baidu Netdisk: **A / B as two 7z files**, plus one **all-in-one** 7z. Same share. Use the newest A below. If you already have B, replace only A, then quit and open again.
+Windows packs are on Baidu Netdisk. Same share. From 2026-10-28 the pair is `xiaoke-ai-agent-A-时间戳` and `xiaoke-ai-agent-B-同一时间戳`. **Download both of this date.** An older `xiaoke-ai-B` does not run this A. A is also on GitHub. B stays on Baidu because of the models. Packs dated 2026-10-21 and earlier can still replace only A when that older B already runs.
 
 [xiaoke.ai local 3D companion · Baidu Netdisk](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)　password: `xkai`
 
@@ -99,6 +99,7 @@ Newest first. The link above does not change when a new A is uploaded.
 
 | Date | Pack | What changed |
 |---|---|---|
+| 2026-10-28 | `xiaoke-ai-agent-A-20261028135252.7z` + `xiaoke-ai-agent-B-20261028135252.7z` | **Both packs are required.** Extract them side by side with the same timestamp; A finds that B on its own. The old unversioned `xiaoke-ai-B` does not work. Since 2026-10-21: she can watch a movie, a short video, or a song with you. B carries the local MiniCPM-V 4.7 1B eye as its own process, sharing the speech PyTorch. Say “一起看” or press the eye. The picture stays on this machine, and she speaks only when a moment is worth it. She looks at the show, not her own window or the input-method window. The watch log opens from Settings, not at startup. Ordinary talk goes through the built-in dsh. She can draw a picture onto a card (Volcengine) and look up weather, prices, and news. Local Qwen speech returns without hanging on the first warmup. A physics error no longer leaves a PMX stuck at 12.5×, including after a character switch. This B ships 清宵, kelu, and chun. The desktop pet keeps the current character when the window is rebuilt. Chat, speech, and the stage keep moving while the wallet and the eyes work. Wishes are 50 a day. A Doubao character model needs an Ark endpoint id that starts with `ep-` while Harness is on. A is also on [GitHub](https://github.com/liupig/xiaokeai/releases/tag/a-20261028). B is on the Baidu share only. |
 | 2026-10-21 | `xiaoke-ai-A-20261021090448.7z` | Coins and a wishing pool. Idle time, chat, and one wish a day mint coins. Say you want to make a wish and painted props drop into the pool, then coins rain beside it. The pool and prop art ship in A. `xiaoke-ai-B.7z` was packed the same day; keep an older B if it already runs. Also on [GitHub](https://github.com/liupig/xiaokeai/releases/tag/a-20261021). |
 | 2026-10-19 | `xiaoke-ai-A-20261019211256.7z` | The pet window opens: the screen helper ships in A. Spoken tarot works in the pet because the locale files sit next to the exe. Local Qwen TTS can load again. The title bar shows the QQ group and Discord invite; a click copies them. `xiaoke-ai-B.7z` was packed the same day; keep an older B if it already runs. |
 | 2026-10-17 | `xiaoke-ai-A-20261017202306.7z` | The pet remembers her screen and where she stood, and lands on a display that is still there if that screen is unplugged. Tarot controls follow her while she floats. Online speech vendors, a window reload, and memory that keeps pinned lines and emotional events after they leave the chat. Keep the 2026-10-12 B if it already runs. Also on [GitHub](https://github.com/liupig/xiaokeai/releases/tag/a-20261017). |
@@ -108,21 +109,23 @@ Newest first. The link above does not change when a new A is uploaded.
 
 | You downloaded | What it is | How to open |
 |---|---|---|
-| `xiaoke-ai-A-….7z` | **A program pack**: window, code, slim Python. Swap this when you update | Extract A and B as **siblings**, then double-click `xiaoke-ai.exe` inside A |
-| `xiaoke-ai-B.7z` | **B content pack**: characters, motions, songs, offline speech, PyTorch/CUDA. Rarely re-download | After extract you should see `xiaoke-content.json` |
+| `xiaoke-ai-agent-A-….7z` | **A program pack** from 2026-10-28 on: window, code, slim Python | Extract next to the **same-timestamp** B, then double-click `xiaoke-ai.exe` |
+| `xiaoke-ai-agent-B-….7z` | **B content pack** for that stamp: characters, motions, songs, offline speech, PyTorch/CUDA, and the MiniCPM-V 4.7 1B eye | After extract you should see `xiaoke-content.json`. **Required** with the matching A |
+| `xiaoke-ai-A-….7z` | Older A, through 2026-10-21 | Pair it with the old `xiaoke-ai-B` |
+| `xiaoke-ai-B.7z` | Older B, no timestamp | Does **not** run the 2026-10-28 A |
 | `xiaoke-ai-20….7z` (no `-A` / `-B`) | **All-in-one**: program and content in one folder | Extract and double-click `xiaoke-ai.exe`; no B picker |
 
 Extract with [7-Zip](https://www.7-zip.org/). Do not nest A inside B or the other way around. It should look like:
 
 ```
 D:\xiaoke\
-  xiaoke-ai-A-20261021090448\   ← double-click xiaoke-ai.exe here
+  xiaoke-ai-agent-A-20261028135252\   ← double-click xiaoke-ai.exe here
     xiaoke-ai.exe
-  xiaoke-ai-B\
+  xiaoke-ai-agent-B-20261028135252\
     xiaoke-content.json
 ```
 
-**First time you open A**: Settings → Content pack → pick the sibling `xiaoke-ai-B` folder (look for `xiaoke-content.json`) → **quit and open again**. The path is stored as `content.path` in the A folder; when you replace A, copy that file over. The all-in-one pack skips this step.
+**2026-10-28 and later**: put the same-timestamp A and B side by side and open `xiaoke-ai.exe`. A recognizes that B. Both packs have to be this pair. **Older packs**: Settings → Content pack → pick the sibling `xiaoke-ai-B` folder (look for `xiaoke-content.json`) → **quit and open again**. The path is stored as `content.path` in the A folder. The all-in-one pack skips this step.
 
 The pack ships its own Chromium; you do not need a browser. Local ports are backend `127.0.0.1:5201` and frontend `127.0.0.1:5211`.
 
@@ -421,7 +424,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 ### 体验包（不用自己编译）
 
-网盘里是已经打好的 Windows 包，解压就能开。里面有 **A / B 两份 7z**，以及一份 **一体包**。链接不变。用下面最新的 A。已经有 B 的话，只换 A，关掉再开。
+网盘里是已经打好的 Windows 包，解压就能开。链接不变。从 2026-10-28 起，一对包叫 `xiaoke-ai-agent-A-时间戳` 和 `xiaoke-ai-agent-B-同一时间戳`。**这一天的 A 和 B 都要下。** 旧的 `xiaoke-ai-B` 开不了这份 A。A 在 GitHub 上也有一份。B 因为带着模型，只在百度网盘。2026-10-21 及更早的包，旧 B 还能用的话仍可以只换 A。
 
 [xiaoke.ai 3D本地陪聊 · 百度网盘](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)　提取码：`xkai`
 
@@ -431,6 +434,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 | 日期 | 包 | 这一版 |
 |---|---|---|
+| 2026-10-28 | `xiaoke-ai-agent-A-20261028135252.7z` + `xiaoke-ai-agent-B-20261028135252.7z` | **两包都要下，缺一不可。** 解压到同一层，时间戳必须一样，A 会自己认出这份 B。旧的不带版本号的 `xiaoke-ai-B` 不能配这份 A。相对 10 月 21 日：可以一起看电影、刷视频、听音乐。B 里带本机 MiniCPM-V 4.7 1B 眼睛，单独进程，和语音共用一套 PyTorch。说「一起看」或点眼睛。画面留在这台电脑上，有一句值得说她才开口。她看的是正在放的片子，不再停在自己的窗口或输入法空窗上。一起看记录从设置里打开，启动时不再自动弹出。平常说话走内置 dsh。可以说「画个图」，图进右侧的牌和证物；也可以查天气、股价和新闻。本地 Qwen 语音预热不再卡住，能开口。物理出错或换人之后，PMX 不会再停在 12.5 倍那么大。这份 B 带的角色是清宵、kelu、chun。桌宠重建窗口后还记得当前角色。钱包和眼睛在干活时，聊天、语音和舞台照常动。许愿一天 50 次。Harness 开着时，豆包角色模型要填方舟接入点，`ep-` 开头，不要填模型名。A 也在 GitHub：[2026-10-28 · A 程序包](https://github.com/liupig/xiaokeai/releases/tag/a-20261028)。B 只在百度网盘。 |
 | 2026-10-21 | `xiaoke-ai-A-20261021090448.7z` | 金币和许愿池。挂机、聊天、每天一次许愿会计金币。说「许愿」，道具会扔进池子，旁边再下一阵金币雨。许愿贴图在 A 里。当天也重打了 `xiaoke-ai-B.7z`；旧 B 还能用就不用换。GitHub 上也有这一份：[2026-10-21 · A 程序包](https://github.com/liupig/xiaokeai/releases/tag/a-20261021)。 |
 | 2026-10-19 | `xiaoke-ai-A-20261019211256.7z` | 桌宠窗口能开：屏幕助手打进了 A。语言包跟在 exe 旁边，桌宠里说「塔罗」能开局。本地 Qwen 语音又能加载。标题栏有 QQ 群和 Discord，点一下就复制。当天也重打了 `xiaoke-ai-B.7z`；旧 B 还能用就不用换。 |
 | 2026-10-17 | `xiaoke-ai-A-20261017202306.7z` | 桌宠记住屏幕和站位，屏幕拔掉后落到仍可见的工作区。塔罗操作跟着她。在线语音、窗口重载；钉住的句子和情绪事件离开对话窗后还在。B 仍用 10 月 12 日那份，这次没有重打。GitHub 上也有这一份：[2026-10-17 · A 程序包](https://github.com/liupig/xiaokeai/releases/tag/a-20261017)。 |
@@ -440,21 +444,23 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 | 你下到的 | 是什么 | 怎么开 |
 |---|---|---|
-| `xiaoke-ai-A-….7z` | **A 程序包**：窗口、代码、瘦 Python。日常换版本只换这个 | 和 B 解压到**同一层目录**，双击 A 里的 `xiaoke-ai.exe` |
-| `xiaoke-ai-B.7z` | **B 资源包**：角色、动作、歌曲、离线语音、PyTorch/CUDA。很少重下 | 解压后目录里能看到 `xiaoke-content.json` |
+| `xiaoke-ai-agent-A-….7z` | **2026-10-28 起的 A 程序包**：窗口、代码、瘦 Python | 和**同一时间戳**的 B 解压到同一层，双击 A 里的 `xiaoke-ai.exe` |
+| `xiaoke-ai-agent-B-….7z` | **同一时间戳的 B 资源包**：角色、动作、歌曲、离线语音、PyTorch/CUDA，以及 MiniCPM-V 4.7 1B 眼睛 | 解压后能看到 `xiaoke-content.json`。和对应的 A **必须成对** |
+| `xiaoke-ai-A-….7z` | 2026-10-21 及更早的 A | 配旧的 `xiaoke-ai-B` |
+| `xiaoke-ai-B.7z` | 旧资源包，没有时间戳 | **不能**配 2026-10-28 的 A |
 | `xiaoke-ai-20….7z`（没有 `-A` / `-B`） | **一体包**：程序和资源打在同一个文件夹 | 解压后直接双击 `xiaoke-ai.exe`，不用选 B |
 
 用 [7-Zip](https://www.7-zip.org/) 解压。A 和 B 不要一套再套一层，正确样子是：
 
 ```
 某盘:\xiaoke\
-  xiaoke-ai-A-20261021090448\   ← 双击这里的 xiaoke-ai.exe
+  xiaoke-ai-agent-A-20261028135252\   ← 双击这里的 xiaoke-ai.exe
     xiaoke-ai.exe
-  xiaoke-ai-B\
+  xiaoke-ai-agent-B-20261028135252\
     xiaoke-content.json
 ```
 
-**第一次开 A**：设置 → 资源包 → 选旁边的 `xiaoke-ai-B` 文件夹（看到 `xiaoke-content.json` 就对了）→ **关掉窗口再开一次**。路径会记在 A 目录的 `content.path`，以后只换新 A 时把这个文件拷过去即可。一体包跳过这一步。
+**2026-10-28 及以后**：同一时间戳的 A 和 B 放在同一层，直接双击 `xiaoke-ai.exe`。A 会认出旁边这份 B。两包必须是这一对。**更早的包**：设置 → 资源包 → 选旁边的 `xiaoke-ai-B` 文件夹（看到 `xiaoke-content.json` 就对了）→ **关掉窗口再开一次**。路径会记在 A 目录的 `content.path`。一体包跳过这一步。
 
 打包版自己带 Chromium，不用再开浏览器。本机端口是后端 `127.0.0.1:5201`、前端 `127.0.0.1:5211`。
 

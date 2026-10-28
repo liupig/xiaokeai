@@ -512,6 +512,7 @@
   "set.llm.key": "API Key",
   "set.llm.keyPh": "空なら環境変数 / .env",
   "set.llm.model": "モデル名",
+  "set.llm.endpoint": "豆包のキャラクターモデルは、対話が使う Messages API を呼べません。モデル欄にはモデル名ではなく、方舟の推論エンドポイント（ep- で始まるもの）を入れてください。",
   "set.llm.env": "設定に Key がない。環境変数か手元の .env を使う。秘密はデータベースに書かない。",
   "set.llm.hint": "これらのサービスは OpenAI 互換。選ぶとアドレスと推奨モデルが入る。Key はそのサービスのものを使う。手元の Ollama / vLLM / SGLang は Key が空なら ollama を入れる。Azure と Cloudflare はリソース名やアカウントがアドレスに入るので、自分で貼る。接続を試してから保存。",
   "set.llm.think": "思考",

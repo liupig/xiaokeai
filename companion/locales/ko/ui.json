@@ -512,6 +512,7 @@
   "set.llm.key": "API Key",
   "set.llm.keyPh": "비우면 환경 변수 또는 .env",
   "set.llm.model": "모델",
+  "set.llm.endpoint": "더우바오 캐릭터 모델은 대화에 쓰는 Messages API를 호출할 수 없습니다. 모델란에는 모델 이름 대신 방주 추론 엔드포인트(ep-로 시작)를 넣으세요.",
   "set.llm.env": "설정에 키가 없다. 환경 변수 또는 로컬 .env 를 쓴다. 비밀은 데이터베이스에 쓰지 않는다.",
   "set.llm.hint": "이 제공자들은 OpenAI 호환이다. 고르면 주소와 추천 모델이 채워진다. 키는 그 제공자의 것을 쓴다. 로컬 Ollama / vLLM / SGLang 은 키가 비어 있으면 ollama 를 넣는다. Azure 와 Cloudflare 는 주소에 리소스나 계정이 들어가므로 직접 붙여 넣는다. 연결을 시험한 뒤 저장한다.",
   "set.llm.think": "생각",
