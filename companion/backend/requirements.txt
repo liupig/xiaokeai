@@ -8,10 +8,26 @@ numpy>=1.24
 sherpa-onnx>=1.10.0
 dashscope>=1.20.0
 mem0ai>=1.0.0
-qwen-tts==0.1.1
+# 现在用 dayn9t 未合并分支 fix-transformers5-compat（488343c）。
+# 2026-10-28 在 transformers 5.20.2 上测过：0.6B CustomVoice 能加载，
+# 流式合成「你好。」出了约 1.9 秒音频。发行名仍是 qwen-tts。
+# 不要和官方 PyPI 的 qwen-tts，或 qwen-tts-hf，装在同一个环境里。
+qwen-tts @ git+https://github.com/dayn9t/Qwen3-TTS.git@488343c4dbe6f992068ab993e05234dcf459cece
+transformers==5.20.2
+# 回滚到 2026-10-28 升级前：注释掉上面两行，取消下面两行的注释。
+# 然后在 backend 虚拟环境执行下面这组命令。先卸掉 git 分支，再装回官方包，
+# 两份 qwen_tts 不能叠在一起。--no-deps 是为了不让 pip 重新解析 gradio，
+# 上次那样解析会把新的 gradio / fastapi / starlette 装进虚拟环境，盖住 conda 里的原版。
+#   backend\.venv\Scripts\python.exe -m pip uninstall -y qwen-tts
+#   backend\.venv\Scripts\python.exe -m pip install --no-deps "qwen-tts==0.1.1" "transformers==4.57.3" "huggingface-hub==0.36.2" "tokenizers==0.22.2"
+# huggingface-hub==0.36.2 和 tokenizers==0.22.2 是当时环境里的版本，这份文件原先没写。
+# 5.20.2 会把它们带成 2.3.0 和 0.23.3。只恢复下面两行、留下新的 hub / tokenizers，4.57.3 导入会失败。
+# 虚拟环境里若多出 idna 3.20、httpx2、httpcore2、truststore，只卸虚拟环境里的那份。
+# conda 里的 idna 3.11 会重新生效。不要去卸 conda 本体里的包。
+# qwen-tts==0.1.1
+# transformers==4.57.3
 qwen3-tts-streaming>=0.1.2
 scipy>=1.11
-transformers==4.57.3
 accelerate==1.12.0
 onnxruntime>=1.17.0
 jieba>=0.42.1
@@ -21,6 +37,6 @@ websockets>=12
 # dsh 内核。2026-10-22 PyPI 上的最新版。SDK 会带上同版本的 runtime，
 # 可执行文件在 site-packages/deepseek_harness_runtime/runtime/ 里，打 A 包时跟着运行时走。
 deepseek-harness-sdk==0.2.1rc2
-# 不能装 vLLM-Omni：它要求 transformers>=5.5，会把 qwen-tts 的 4.57.3 升坏。
-# MiniCPM-o 4.5 本地 PyTorch 要 transformers==4.51.0，同样不能和 qwen-tts 共进程。
+# 语音已在 transformers 5.20.2 上跑通。qwen3-tts-streaming 的元数据仍写着 transformers<5，运行时用的是已装上的 5.20.2。
+# MiniCPM-o 4.5 本地 PyTorch 要 transformers==4.51.0，装进来会把 5.20.2 降坏，仍然不能进本进程。
 # 离线 TTS 权重约 2.4GB，模型目录：data/speech/qwen3-tts-0.6b-customvoice

@@ -1,7 +1,7 @@
 """MiniCPM-o 4.5 Omni：云端 Chat Completions + Realtime 全双工协议。
 
 本进程不能直接 load PyTorch 权重：官方要求 transformers==4.51.0，
-而本地 Qwen3-TTS 钉死 4.57.3。本地自建 Gateway 时把 realtime_host 指过去即可。
+而本地 Qwen3-TTS 现在是 transformers 5.20.2。本地自建 Gateway 时把 realtime_host 指过去即可。
 
   文字 / 图理解   POST {chat_url}/chat/completions   模型 MiniCPM-O-4.5-9B
   Omni 语音        WSS  {realtime_host}/v1/realtime?mode=chat

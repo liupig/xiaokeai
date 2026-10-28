@@ -1,7 +1,7 @@
 """本地推理框架选型。
 
-不能装 vLLM-Omni：官方 Qwen3-TTS 加速框架要求 transformers>=5.5，
-会把现有 qwen-tts（钉死 4.57.3）升坏。三块各自用能共处的框架：
+语音用 dayn9t 的 qwen-tts 分支，和眼睛一样钉在 transformers 5.20.2。
+三块各自用能共处的框架：
 
   ASR        ONNX Runtime      经 sherpa-onnx 跑 SenseVoice INT8
   TTS        CUDA Graph        fast_tts 捕获 Talker/Predictor（流式）
@@ -9,7 +9,7 @@
   Embedding  fastembed         ONNX Runtime 上的向量推理框架（量化 MiniLM）
 
 MiniCPM-o 4.5 Omni 不进本进程：官方 PyTorch 要 transformers==4.51.0，
-会把 qwen-tts 的 4.57.3 升坏。Omni 走云端 Chat Completions / Realtime，
+会把现在的 5.20.2 降坏。Omni 走云端 Chat Completions / Realtime，
 或把 realtime_host 指到自建 Gateway。
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ def tts_framework(device: str) -> Dict[str, Any]:
         return {
             "name": "cuda_graph",
             "via": "fast_tts",
-            "note": "Qwen 官方 vLLM-Omni 与当前 qwen-tts 的 transformers 4.57 不兼容；流式走 CUDA Graph。",
+            "note": "流式走 CUDA Graph。",
         }
     return {
         "name": "torch.inductor",

@@ -175,7 +175,7 @@ def _status_inproc() -> Dict[str, Any]:
     if msg and "不是本地 Qwen" in msg:
         msg = ""
     if not _pkg_ok():
-        msg = "未安装 qwen-tts。请用 Python 3.10+ 的后端环境执行：pip install qwen-tts qwen3-tts-streaming"
+        msg = "未安装 qwen-tts。请用 Python 3.10+ 的后端环境按 requirements.txt 安装 dayn9t 的兼容分支和 qwen3-tts-streaming"
     elif not _state["ready"] and not _state["loading"] and not _state["downloading"]:
         if sizes["0.6b"]["installed"] or sizes["1.7b"]["installed"]:
             msg = msg or "权重已在本地。点「加载 / 切换规格」载入显存（首次可能要一两分钟）"
@@ -305,7 +305,7 @@ def _load_model(size: str):
         return _model
     if not _pkg_ok():
         raise RuntimeError(
-            "未安装 qwen-tts。请在 backend 虚拟环境执行：pip install qwen-tts qwen3-tts-streaming"
+            "未安装 qwen-tts。请在 backend 虚拟环境按 requirements.txt 安装 dayn9t 的兼容分支和 qwen3-tts-streaming"
         )
     if _model is not None and _loaded_size != size:
         unload()
