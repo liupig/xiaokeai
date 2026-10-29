@@ -91,18 +91,12 @@ To build a double-click Windows exe (bundled Chromium, Python runtime, models an
 
 Windows packs are on Hugging Face, Google Drive, and Baidu Netdisk. From 2026-10-28 the pair is `xiaoke-ai-agent-A-时间戳` and `xiaoke-ai-agent-B-同一时间戳`. **Download both of this date.** An older `xiaoke-ai-B` does not run this A. A is also attached to the GitHub release. Packs dated 2026-10-21 and earlier can still replace only A when that older B already runs.
 
-[Hugging Face · liupigai/xiaokeai](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main)
+The 2026-10-28 pair sits at the Hugging Face repo root. Later packs go in a timestamp folder first, then the files. Baidu is one share for both files. Password: `xkai`.
 
-[Google Drive · xiaokeai3D](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link)
-
-[Baidu Netdisk](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)　password: `xkai`
-
-The 2026-10-28 pair sits at the Hugging Face repo root. Later packs go in a timestamp folder first, then the files.
-
-| Pack | Hugging Face | Google Drive |
-|---|---|---|
-| A `xiaoke-ai-agent-A-20261028135252.7z` | [download](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-A-20261028135252.7z) | [download](https://drive.google.com/file/d/14drCVOg5XkpM2WLABRfX7YZZWE-jTgC0/view?usp=sharing) |
-| B `xiaoke-ai-agent-B-20261028135252.7z` | [download](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-B-20261028135252.7z) | [download](https://drive.google.com/file/d/1uA5Z9FyOcEthARaUMkdu0JcEt0B-yggk/view?usp=sharing) |
+| Pack | [Hugging Face](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main) | [Google Drive](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [Baidu Netdisk](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+|---|---|---|---|
+| A `xiaoke-ai-agent-A-20261028135252.7z` | [download](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-A-20261028135252.7z) | [download](https://drive.google.com/file/d/14drCVOg5XkpM2WLABRfX7YZZWE-jTgC0/view?usp=sharing) | [same share](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+| B `xiaoke-ai-agent-B-20261028135252.7z` | [download](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-B-20261028135252.7z) | [download](https://drive.google.com/file/d/1uA5Z9FyOcEthARaUMkdu0JcEt0B-yggk/view?usp=sharing) | [same share](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
 
 #### Pack updates
 
@@ -110,7 +104,7 @@ Newest first. The link above does not change when a new A is uploaded.
 
 | Date | Pack | What changed |
 |---|---|---|
-| 2026-10-28 | `xiaoke-ai-agent-A-20261028135252.7z` + `xiaoke-ai-agent-B-20261028135252.7z` | **Both packs are required.** Extract them side by side with the same timestamp; A finds that B on its own. The old unversioned `xiaoke-ai-B` does not work. Since 2026-10-21: she can watch a movie, a short video, or a song with you. B carries the local MiniCPM-V 4.7 1B eye as its own process, sharing the speech PyTorch. Say “一起看” or press the eye. The picture stays on this machine, and she speaks only when a moment is worth it. She looks at the show, not her own window or the input-method window. The watch log opens from Settings, not at startup. Ordinary talk goes through the built-in dsh. She can draw a picture onto a card (Volcengine) and look up weather, prices, and news. Local Qwen speech returns without hanging on the first warmup. A physics error no longer leaves a PMX stuck at 12.5×, including after a character switch. This B ships 清宵, kelu, and chun. The desktop pet keeps the current character when the window is rebuilt. Chat, speech, and the stage keep moving while the wallet and the eyes work. Wishes are 50 a day. A Doubao character model needs an Ark endpoint id that starts with `ep-` while Harness is on. A is also on [GitHub](https://github.com/liupig/xiaokeai/releases/tag/a-20261028). A and B direct links are in the download table above (Hugging Face and Google Drive). Baidu still has the same share. |
+| 2026-10-28 | `xiaoke-ai-agent-A-20261028135252.7z` + `xiaoke-ai-agent-B-20261028135252.7z` | **Both packs are required.** Extract them side by side with the same timestamp; A finds that B on its own. The old unversioned `xiaoke-ai-B` does not work. Since 2026-10-21: she can watch a movie, a short video, or a song with you. B carries the local MiniCPM-V 4.7 1B eye as its own process, sharing the speech PyTorch. Say “一起看” or press the eye. The picture stays on this machine, and she speaks only when a moment is worth it. She looks at the show, not her own window or the input-method window. The watch log opens from Settings, not at startup. Ordinary talk goes through the built-in dsh. She can draw a picture onto a card (Volcengine) and look up weather, prices, and news. Local Qwen speech returns without hanging on the first warmup. A physics error no longer leaves a PMX stuck at 12.5×, including after a character switch. This B ships 清宵, kelu, and chun. The desktop pet keeps the current character when the window is rebuilt. Chat, speech, and the stage keep moving while the wallet and the eyes work. Wishes are 50 a day. A Doubao character model needs an Ark endpoint id that starts with `ep-` while Harness is on. A is also on [GitHub](https://github.com/liupig/xiaokeai/releases/tag/a-20261028). Hugging Face, Google Drive, and Baidu links are in the download table above. |
 | 2026-10-21 | `xiaoke-ai-A-20261021090448.7z` | Coins and a wishing pool. Idle time, chat, and one wish a day mint coins. Say you want to make a wish and painted props drop into the pool, then coins rain beside it. The pool and prop art ship in A. `xiaoke-ai-B.7z` was packed the same day; keep an older B if it already runs. Also on [GitHub](https://github.com/liupig/xiaokeai/releases/tag/a-20261021). |
 | 2026-10-19 | `xiaoke-ai-A-20261019211256.7z` | The pet window opens: the screen helper ships in A. Spoken tarot works in the pet because the locale files sit next to the exe. Local Qwen TTS can load again. The title bar shows the QQ group and Discord invite; a click copies them. `xiaoke-ai-B.7z` was packed the same day; keep an older B if it already runs. |
 | 2026-10-17 | `xiaoke-ai-A-20261017202306.7z` | The pet remembers her screen and where she stood, and lands on a display that is still there if that screen is unplugged. Tarot controls follow her while she floats. Online speech vendors, a window reload, and memory that keeps pinned lines and emotional events after they leave the chat. Keep the 2026-10-12 B if it already runs. Also on [GitHub](https://github.com/liupig/xiaokeai/releases/tag/a-20261017). |
@@ -437,18 +431,12 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 已经打好的 Windows 包在 Hugging Face、Google Drive 和百度网盘，解压就能开。从 2026-10-28 起，一对包叫 `xiaoke-ai-agent-A-时间戳` 和 `xiaoke-ai-agent-B-同一时间戳`。**这一天的 A 和 B 都要下。** 旧的 `xiaoke-ai-B` 开不了这份 A。A 在 GitHub Release 里也挂了一份。2026-10-21 及更早的包，旧 B 还能用的话仍可以只换 A。
 
-[Hugging Face · liupigai/xiaokeai](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main)
+2026-10-28 这一对在 Hugging Face 仓库根目录。以后的新包先建时间戳文件夹，再把文件放进去。百度网盘是同一条分享，A 和 B 都在里面。提取码：`xkai`。
 
-[Google Drive · xiaokeai3D](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link)
-
-[百度网盘](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)　提取码：`xkai`
-
-2026-10-28 这一对在 Hugging Face 仓库根目录。以后的新包先建时间戳文件夹，再把文件放进去。
-
-| 包 | Hugging Face | Google Drive |
-|---|---|---|
-| A `xiaoke-ai-agent-A-20261028135252.7z` | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-A-20261028135252.7z) | [下载](https://drive.google.com/file/d/14drCVOg5XkpM2WLABRfX7YZZWE-jTgC0/view?usp=sharing) |
-| B `xiaoke-ai-agent-B-20261028135252.7z` | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-B-20261028135252.7z) | [下载](https://drive.google.com/file/d/1uA5Z9FyOcEthARaUMkdu0JcEt0B-yggk/view?usp=sharing) |
+| 包 | [Hugging Face](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main) | [Google Drive](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [百度网盘](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+|---|---|---|---|
+| A `xiaoke-ai-agent-A-20261028135252.7z` | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-A-20261028135252.7z) | [下载](https://drive.google.com/file/d/14drCVOg5XkpM2WLABRfX7YZZWE-jTgC0/view?usp=sharing) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+| B `xiaoke-ai-agent-B-20261028135252.7z` | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-B-20261028135252.7z) | [下载](https://drive.google.com/file/d/1uA5Z9FyOcEthARaUMkdu0JcEt0B-yggk/view?usp=sharing) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
 
 #### 打包更新记录
 
@@ -456,7 +444,7 @@ If you are an author of any of the above, or of an aplaybox work we use, and som
 
 | 日期 | 包 | 这一版 |
 |---|---|---|
-| 2026-10-28 | `xiaoke-ai-agent-A-20261028135252.7z` + `xiaoke-ai-agent-B-20261028135252.7z` | **两包都要下，缺一不可。** 解压到同一层，时间戳必须一样，A 会自己认出这份 B。旧的不带版本号的 `xiaoke-ai-B` 不能配这份 A。相对 10 月 21 日：可以一起看电影、刷视频、听音乐。B 里带本机 MiniCPM-V 4.7 1B 眼睛，单独进程，和语音共用一套 PyTorch。说「一起看」或点眼睛。画面留在这台电脑上，有一句值得说她才开口。她看的是正在放的片子，不再停在自己的窗口或输入法空窗上。一起看记录从设置里打开，启动时不再自动弹出。平常说话走内置 dsh。可以说「画个图」，图进右侧的牌和证物；也可以查天气、股价和新闻。本地 Qwen 语音预热不再卡住，能开口。物理出错或换人之后，PMX 不会再停在 12.5 倍那么大。这份 B 带的角色是清宵、kelu、chun。桌宠重建窗口后还记得当前角色。钱包和眼睛在干活时，聊天、语音和舞台照常动。许愿一天 50 次。Harness 开着时，豆包角色模型要填方舟接入点，`ep-` 开头，不要填模型名。A 也在 GitHub：[2026-10-28 · A 程序包](https://github.com/liupig/xiaokeai/releases/tag/a-20261028)。A 和 B 的直链在上面的下载表（Hugging Face 与 Google Drive）。百度网盘仍是同一条分享。 |
+| 2026-10-28 | `xiaoke-ai-agent-A-20261028135252.7z` + `xiaoke-ai-agent-B-20261028135252.7z` | **两包都要下，缺一不可。** 解压到同一层，时间戳必须一样，A 会自己认出这份 B。旧的不带版本号的 `xiaoke-ai-B` 不能配这份 A。相对 10 月 21 日：可以一起看电影、刷视频、听音乐。B 里带本机 MiniCPM-V 4.7 1B 眼睛，单独进程，和语音共用一套 PyTorch。说「一起看」或点眼睛。画面留在这台电脑上，有一句值得说她才开口。她看的是正在放的片子，不再停在自己的窗口或输入法空窗上。一起看记录从设置里打开，启动时不再自动弹出。平常说话走内置 dsh。可以说「画个图」，图进右侧的牌和证物；也可以查天气、股价和新闻。本地 Qwen 语音预热不再卡住，能开口。物理出错或换人之后，PMX 不会再停在 12.5 倍那么大。这份 B 带的角色是清宵、kelu、chun。桌宠重建窗口后还记得当前角色。钱包和眼睛在干活时，聊天、语音和舞台照常动。许愿一天 50 次。Harness 开着时，豆包角色模型要填方舟接入点，`ep-` 开头，不要填模型名。A 也在 GitHub：[2026-10-28 · A 程序包](https://github.com/liupig/xiaokeai/releases/tag/a-20261028)。Hugging Face、Google Drive、百度网盘的链接都在上面同一张下载表里。 |
 | 2026-10-21 | `xiaoke-ai-A-20261021090448.7z` | 金币和许愿池。挂机、聊天、每天一次许愿会计金币。说「许愿」，道具会扔进池子，旁边再下一阵金币雨。许愿贴图在 A 里。当天也重打了 `xiaoke-ai-B.7z`；旧 B 还能用就不用换。GitHub 上也有这一份：[2026-10-21 · A 程序包](https://github.com/liupig/xiaokeai/releases/tag/a-20261021)。 |
 | 2026-10-19 | `xiaoke-ai-A-20261019211256.7z` | 桌宠窗口能开：屏幕助手打进了 A。语言包跟在 exe 旁边，桌宠里说「塔罗」能开局。本地 Qwen 语音又能加载。标题栏有 QQ 群和 Discord，点一下就复制。当天也重打了 `xiaoke-ai-B.7z`；旧 B 还能用就不用换。 |
 | 2026-10-17 | `xiaoke-ai-A-20261017202306.7z` | 桌宠记住屏幕和站位，屏幕拔掉后落到仍可见的工作区。塔罗操作跟着她。在线语音、窗口重载；钉住的句子和情绪事件离开对话窗后还在。B 仍用 10 月 12 日那份，这次没有重打。GitHub 上也有这一份：[2026-10-17 · A 程序包](https://github.com/liupig/xiaokeai/releases/tag/a-20261017)。 |
