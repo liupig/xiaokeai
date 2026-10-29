@@ -867,6 +867,13 @@ def step_copy_payload(dist_dir: Path) -> None:
         (dist_dir / "assets" / "tarot").mkdir(parents=True, exist_ok=True)
 
     # 许愿池、金币和道具牌面是小图，跟塔罗一样放在 A。漏掉的话道具只剩纯色块。
+    tavern = COMPANION / "assets" / "tavern"
+    if tavern.is_dir():
+        robocopy(tavern, dist_dir / "assets" / "tavern")
+        print("  ok assets/tavern")
+    else:
+        print("  skip assets/tavern（没有魅影酒馆牌面）")
+
     wish = COMPANION / "assets" / "wish"
     if wish.is_dir():
         robocopy(wish, dist_dir / "assets" / "wish")

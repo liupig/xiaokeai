@@ -264,6 +264,73 @@ def test_skill_catalog_talk_is_not_spoken():
     assert gate.flush() == ""
 
 
+def test_saved_model_is_not_replaced_by_the_env_character_model():
+    from app.services import settings_store
+
+    old = settings_store.env_llm
+    settings_store.env_llm = lambda: {
+        "api_key": "env-key",
+        "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+        "model": "doubao-seed-character-260628",
+    }
+    try:
+        kept = settings_store.apply_llm_overlay({
+            "api_key": "",
+            "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+            "model": "doubao-seed-evolving",
+        })
+        filled = settings_store.apply_llm_overlay({"api_key": "", "model": "", "base_url": ""})
+    finally:
+        settings_store.env_llm = old
+    assert kept["model"] == "doubao-seed-evolving"
+    assert kept["api_key"] == "env-key"
+    assert filled["model"] == "doubao-seed-character-260628"
+    assert filled["api_key"] == "env-key"
+
+
+def test_a_separate_harness_model_keeps_the_chat_model():
+    from app.modules.harness.service import harness_llm, turn_uses_harness
+
+    ark = "https://ark.cn-beijing.volces.com/api/v3"
+    conf = {
+        "model": "doubao-seed-character-260628",
+        "base_url": ark,
+        "api_key": "test-key",
+        "harness_model": "ep-20260405035755-f27w6",
+        "harness_base_url": "",
+        "harness_api_key": "",
+    }
+    other = harness_llm(conf)
+    assert other["model"] == "ep-20260405035755-f27w6"
+    assert other["base_url"] == ark
+    assert other["api_key"] == "test-key"
+    assert conf["model"] == "doubao-seed-character-260628"
+    assert turn_uses_harness(
+        enabled=True, mode="user", model=other["model"], base_url=other["base_url"],
+    )
+    assert not turn_uses_harness(
+        enabled=True, mode="welcome", model=other["model"], base_url=other["base_url"],
+    )
+
+
+def test_character_model_stays_on_chat_completions():
+    from app.modules.harness.service import turn_uses_harness
+
+    ark = "https://ark.cn-beijing.volces.com/api/v3"
+    assert not turn_uses_harness(
+        enabled=True, mode="user", model="doubao-seed-character-260628", base_url=ark,
+    )
+    assert turn_uses_harness(
+        enabled=True, mode="user", model="ep-20260405035755-f27w6", base_url=ark,
+    )
+    assert turn_uses_harness(
+        enabled=True, mode="user", model="doubao-seed-2-0-lite-260428", base_url=ark,
+    )
+    assert not turn_uses_harness(
+        enabled=False, mode="user", model="doubao-seed-2-0-lite-260428", base_url=ark,
+    )
+
+
 def test_character_model_asks_for_an_endpoint():
     from app.modules.harness.service import ENDPOINT_HINT, character_model_needs_endpoint
 

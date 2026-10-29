@@ -336,13 +336,19 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         "along": "proactive",
     }.get(mode, "rp" if isolate else "qa")
 
-    from ..modules.harness.brief import host_brief, wants_harness
-    use_harness = wants_harness(
+    from ..modules.harness.brief import host_brief
+    from ..modules.harness.service import harness_llm, turn_uses_harness
+    hconf = harness_llm(llm_conf)
+    use_harness = turn_uses_harness(
         enabled=module_on(session, "harness"),
         mode=mode,
+        model=str(hconf.get("model") or ""),
+        base_url=str(hconf.get("base_url") or ""),
         reroll=bool(req.reroll),
         afterglow=tarot_afterglow,
     )
+    if use_harness:
+        print(f"[harness] 这一轮走技能目录 model={hconf.get('model') or ''}")
     harness_brief = host_brief(messages, groups.get("dance") or []) if use_harness else ""
     harness_prior = history[:-1] if history and history[-1].get("role") == "user" else list(history)
     wish_note = ""
@@ -491,7 +497,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 glance_ask = ""
                 glance_task = None
                 async for ev in _speak_first(stream_reply(
-                    llm_conf,
+                    hconf,
                     character_id=req.character_id,
                     user_text=req.text or "",
                     brief=harness_brief,
@@ -619,7 +625,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                     return
                 if not query and saw_lookup and not dance:
                     async for ev in stream_reply(
-                        llm_conf,
+                        hconf,
                         character_id=req.character_id,
                         user_text="刚才的检索词不能查。按上一句的事自己改写成一个短词，只写 [lookup:检索词]，不要说话。",
                         brief="",
@@ -644,7 +650,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 recall = f"{wish_note}\n\n{found}".strip() if wish_note else found
                 finished = False
                 async for ev in stream_reply(
-                    llm_conf,
+                    hconf,
                     character_id=req.character_id,
                     user_text="页面到了。按【现场】把刚才要查的事实说完。搜索页上的数字优先。不要重复铺垫，不要再写标记。",
                     brief="",

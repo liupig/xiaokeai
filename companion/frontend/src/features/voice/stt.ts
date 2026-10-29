@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { speechPlayer } from './tts';
 import { peekIngressCut } from './ingress';
 import { getMicStream, noteEchoLeak, isWasmMicStream } from './aec';
+import { canWakeTavern } from '../tavern/intent';
 import { isTarotVoiceCommand } from '../tarot/intent';
 import { tarotUi } from '../tarot/session';
 import { bcp } from '../../i18n';
@@ -134,6 +135,7 @@ export function shouldDropAsEcho(text: string) {
   if (!t) return true;
 
   const phase = tarotUi.phase || '';
+  if (canWakeTavern(raw)) return false;
   if (phase === 'intent' || isTarotVoiceCommand(raw, phase)) return false;
 
   if (looksLikeAsrJunk(t)) return true;

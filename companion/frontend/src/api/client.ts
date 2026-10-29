@@ -170,6 +170,67 @@ export interface KeepsakeItem {
   created_at: string;
 }
 
+export interface TavernCard { id: string; face: string }
+export interface TavernSeat { id: string; alive: boolean; cards: number; pulls: number; out?: boolean; finish?: number }
+export interface TavernShow {
+  kind: 'reveal' | 'clear';
+  who?: string;
+  actor?: string;
+  caller?: string;
+  cards?: string[];
+  honest?: boolean;
+  shooter?: string;
+  hit?: boolean;
+}
+export interface TavernNote {
+  seq: number;
+  t: string;
+  line?: string;
+  who?: string;
+  n?: number;
+  face?: string;
+  actor?: string;
+  caller?: string;
+  cards?: string[];
+  honest?: boolean;
+  shooter?: string;
+  hit?: boolean;
+  follow?: boolean;
+  seated?: string[];
+  dealt?: boolean;
+}
+export interface TavernPlace {
+  id: string;
+  place: number;
+  points: number;
+  tag?: string;
+  rank?: number;
+}
+export interface TavernScore {
+  played: number;
+  wins: number;
+  points: number;
+}
+export interface TavernState {
+  phase: 'idle' | 'act' | 'name' | 'show' | 'over';
+  table?: string;
+  turn?: string;
+  winner?: string;
+  places?: TavernPlace[];
+  board?: Record<string, TavernScore>;
+  coin_delta?: number;
+  balance_milli?: number;
+  her_name?: string;
+  deck?: string;
+  faces?: string[];
+  round?: number;
+  pile?: { actor: string; n: number } | null;
+  show?: TavernShow | null;
+  note?: TavernNote | null;
+  you?: { alive: boolean; pulls: number; hand: TavernCard[] };
+  seats?: TavernSeat[];
+}
+
 export interface TarotCard {
   id: string;
   name: string;
@@ -303,6 +364,28 @@ export interface CoinPreview {
   per_min: number;
   earned_milli: number;
   ladder: CoinTier[];
+}
+
+export interface LiveDanmaku {
+  seq: number;
+  msg_id: string;
+  kind: 'comment' | 'gift' | 'like' | 'follow' | 'control';
+  nickname: string;
+  content: string;
+  gift?: string;
+  count?: number;
+  source?: string;
+  ts?: number;
+}
+
+export interface LiveDouyinFeed {
+  listening: boolean;
+  room: string;
+  web_rid: string;
+  room_id: string;
+  error: string;
+  seq: number;
+  items?: LiveDanmaku[];
 }
 
 export interface GlanceAlong {
@@ -825,6 +908,66 @@ export const api = {
     return request<TarotSession>(`/api/modules/tarot/session/${characterId}`);
   },
 
+  tavernState(characterId: number) {
+    return request<TavernState>(`/api/modules/tavern/state?character_id=${characterId}`);
+  },
+  tavernStart(characterId: number, herName: string, deck = 'rose') {
+    return request<TavernState>('/api/modules/tavern/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, her_name: herName, deck }),
+    });
+  },
+  tavernName(characterId: number, face: string) {
+    return request<TavernState>('/api/modules/tavern/name', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, face }),
+    });
+  },
+  tavernPlay(characterId: number, cards: string[]) {
+    return request<TavernState>('/api/modules/tavern/play', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, cards }),
+    });
+  },
+  tavernCall(characterId: number) {
+    return request<TavernState>('/api/modules/tavern/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tavernAck(characterId: number) {
+    return request<TavernState>('/api/modules/tavern/ack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tavernNext(characterId: number) {
+    return request<TavernState>('/api/modules/tavern/next', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tavernEnd(characterId: number) {
+    return request<TavernState>('/api/modules/tavern/end', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tavernStep(characterId: number) {
+    return request<TavernState>('/api/modules/tavern/step', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+
   glanceAlong() {
     return request<GlanceAlong>('/api/modules/glance/along');
   },
@@ -847,6 +990,19 @@ export const api = {
   },
   glanceLabOpen() {
     return request<{ ok: boolean; url: string }>('/api/modules/glance/lab/open', { method: 'POST' });
+  },
+  liveDouyinFeed(after = 0) {
+    return request<LiveDouyinFeed>(`/api/modules/live/douyin/feed?after=${after}`);
+  },
+  liveDouyinListen(room: string) {
+    return request<LiveDouyinFeed>('/api/modules/live/douyin/listen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room }),
+    });
+  },
+  liveDouyinStop() {
+    return request<LiveDouyinFeed>('/api/modules/live/douyin/stop', { method: 'POST' });
   },
   codewatchStatus() {
     return request<CodewatchStatus>('/api/modules/codewatch/status');

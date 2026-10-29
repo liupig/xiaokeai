@@ -15,6 +15,7 @@ EDGE_VOICES = [
     {"id": "zh-CN-XiaoxiaoNeural", "label": "晓晓（温柔女声）"},
     {"id": "zh-CN-YunxiNeural", "label": "云希（少年）"},
     {"id": "zh-CN-YunjianNeural", "label": "云健（青年男声）"},
+    {"id": "zh-CN-YunyangNeural", "label": "云扬（主持）"},
     {"id": "zh-CN-liaoning-XiaobeiNeural", "label": "晓北（东北话）"},
     {"id": "zh-TW-HsiaoChenNeural", "label": "晓臻（台湾腔）", "lang": "zh-CN"},
     {"id": "en-US-AriaNeural", "label": "Aria（英语）", "lang": "en"},

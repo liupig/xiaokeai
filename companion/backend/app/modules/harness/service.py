@@ -85,6 +85,54 @@ ENDPOINT_HINT = (
 )
 
 
+def harness_llm(llm: Dict[str, Any] | None) -> Dict[str, Any]:
+    """技能目录用自己的模型。地址和钥匙空着就跟对话模型。
+
+    对话钥匙来自环境变量时，先补上钥匙，再把模型换回技能目录那一个。
+    """
+    src = dict(llm or {})
+    model = str(src.get("harness_model") or "").strip()
+    if not model:
+        return src
+    from ...services.settings_store import apply_llm_overlay
+
+    out = dict(apply_llm_overlay(src))
+    out["model"] = model
+    base = str(src.get("harness_base_url") or "").strip()
+    if base:
+        out["base_url"] = base
+    key = str(src.get("harness_api_key") or "").strip()
+    if key:
+        out["api_key"] = key
+    return out
+
+
+def turn_uses_harness(
+    *,
+    enabled: bool,
+    mode: str,
+    model: str | None,
+    base_url: str | None,
+    reroll: bool = False,
+    afterglow: bool = False,
+) -> bool:
+    """角色模型名没有 Messages 权限，这一轮留在原来的对话接口。填了 ep- 才进 dsh。"""
+    from .brief import wants_harness
+
+    if not wants_harness(enabled=enabled, mode=mode, reroll=reroll, afterglow=afterglow):
+        return False
+    if not character_model_needs_endpoint(model, base_url):
+        return True
+    global _CHARACTER_BYPASS_NOTED
+    if not _CHARACTER_BYPASS_NOTED:
+        _CHARACTER_BYPASS_NOTED = True
+        print("[harness] 豆包角色模型走原来的对话接口，不进 dsh")
+    return False
+
+
+_CHARACTER_BYPASS_NOTED = False
+
+
 def character_model_needs_endpoint(model: str | None, base_url: str | None) -> bool:
     """角色模型名没有 Messages 权限。接入点 id（ep-）可以，模型名不行。"""
     name = (model or "").strip()
@@ -204,7 +252,7 @@ def _profile_patch(*, glance: bool = False) -> str:
         "  config:\n"
         "    personaPrefix: |\n"
         "      系统提醒、技能名单、技能名字和你自己的推理，一个字都不要说出来。对方听得见的只有口语。\n"
-        "      闲聊、看牌、画画直接开口，不要为它们调用 skill。对方要跳舞时，铺垫已经说了，接着调用 dance 技能，回来后再说一句并写 [dance:]。对方要核对现在的事时，调用 lookup 技能，检索词由你自己改写，只写 [lookup:检索词]。宿主按原词去查。不要自己打开搜索网站，不要编。"
+        "      闲聊、看牌、画画、魅影酒馆直接开口，不要为它们调用 skill。对方要去魅影酒馆时，牌桌已经由宿主打开，用一两句邀对方选牌组再入座，不要宣布已经发牌。对方要跳舞时，铺垫已经说了，接着调用 dance 技能，回来后再说一句并写 [dance:]。对方要核对现在的事时，调用 lookup 技能，检索词由你自己改写，只写 [lookup:检索词]。宿主按原词去查。不要自己打开搜索网站，不要编。"
         f"{eyes}不要把技能说出来。\n"
         f"{rules}\n"
     )

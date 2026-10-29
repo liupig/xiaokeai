@@ -24,6 +24,7 @@ export const useSettingsStore = defineStore('settings', {
       base_url: 'https://ark.cn-beijing.volces.com/api/v3', api_key: '',
       model: 'doubao-seed-character-260628', temperature: 0.85, top_p: 1.0,
       max_tokens: 0, thinking: 'off',
+      harness_model: '', harness_base_url: '', harness_api_key: '',
     },
     tts: { engine: 'qwen' as 'cosy' | 'edge' | 'qwen' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'browser' | 'off',
            voice: 'Serena', rate: '+0%', qwen_size: '0.6b' as '0.6b' | '1.7b',
@@ -57,7 +58,8 @@ export const useSettingsStore = defineStore('settings', {
       stage_show: true, stage_color: '#232342', stage_glow: '#5b5bd6', stage_style: 'classic',
       stage_texture: '', stage_opacity: 1,
     },
-    modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, codewatch: true, touch: true, harness: true, glance: false },
+    modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, tavern: true, codewatch: true, touch: true, harness: true, glance: false, live_douyin: false },
+    live: { douyin: { room: '', push_secret: '' } },
     vision: { provider: 'minicpm' as 'minicpm' | 'openai', base_url: '', api_key: '', model: '' },
     memory: { embedder: 'auto' as 'auto' | 'local' | 'doubao' | 'qwen' | 'openai' | 'gemini' },
     hardware: {
@@ -86,6 +88,9 @@ export const useSettingsStore = defineStore('settings', {
       this.llm_env = !!(flags.llm_env || flags.llm_local);
       this.llm_local = this.llm_env;
       // 旧数据可能缺 engine 字段
+      if (this.llm.harness_model == null) this.llm.harness_model = '';
+      if (this.llm.harness_base_url == null) this.llm.harness_base_url = '';
+      if (this.llm.harness_api_key == null) this.llm.harness_api_key = '';
       if (!this.tts.engine) this.tts.engine = 'edge';
       if (!this.tts.qwen_size) this.tts.qwen_size = '0.6b';
       if (!this.tts.qwen_style) this.tts.qwen_style = 'yujie';
@@ -176,10 +181,19 @@ export const useSettingsStore = defineStore('settings', {
         rewrite: mods?.rewrite !== false,
         keepsake: mods?.keepsake !== false,
         tarot: mods?.tarot !== false,
+        tavern: mods?.tavern !== false,
         codewatch: mods?.codewatch !== false,
         touch: mods?.touch !== false,
         harness: mods?.harness === true,
         glance: mods?.glance === true,
+        live_douyin: mods?.live_douyin === true,
+      };
+      const live = (data as { live?: { douyin?: { room?: string; push_secret?: string } } }).live;
+      this.live = {
+        douyin: {
+          room: String(live?.douyin?.room || ''),
+          push_secret: String(live?.douyin?.push_secret || ''),
+        },
       };
       const vision = (data as { vision?: { provider?: string; base_url?: string; api_key?: string; model?: string } }).vision;
       this.vision = {
@@ -233,6 +247,7 @@ export const useSettingsStore = defineStore('settings', {
         llm: this.llm, tts: this.tts, stt: this.stt, omni: this.omni, vision: this.vision,
         locale: this.locale,
         download: this.download, quality: this.quality, modules: this.modules,
+        live: this.live,
         memory: this.memory,
       });
       const flags = data as { llm_env?: boolean; llm_local?: boolean; omni_env?: boolean };

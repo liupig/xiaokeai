@@ -34,6 +34,8 @@ jieba>=0.42.1
 fastembed>=0.5.0,<1
 # 本地推理框架：ASR=onnxruntime(sherpa-onnx)；embedding=fastembed(ORT)；TTS=CUDA Graph(fast_tts)
 websockets>=12
+# 抖音直播页的调试通道。和上面的 websockets 不是同一个包。
+websocket-client>=1.8
 # dsh 内核。2026-10-22 PyPI 上的最新版。SDK 会带上同版本的 runtime，
 # 可执行文件在 site-packages/deepseek_harness_runtime/runtime/ 里，打 A 包时跟着运行时走。
 deepseek-harness-sdk==0.2.1rc2

@@ -16,6 +16,7 @@ import { api } from '../../api/client';
 import { friendlyWhen } from './when';
 import XkIcon from '../icons/XkIcon.vue';
 import { tarotGameLock, tarotUi } from '../tarot/session';
+import { openTavern } from '../tavern/session';
 import { featureOn, t } from '../../i18n';
 
 const TarotDock = defineAsyncComponent(() => import('../tarot/Dock.vue'));
@@ -417,6 +418,9 @@ async function toggleMsgPin(id?: number) {
         <XkIcon name="mic" :size="18" />
       </n-button>
       <TarotDock v-if="tarotOn" />
+      <n-button v-if="mods.tavern" quaternary circle size="small" :title="t('mod.tavern')" @click="openTavern">
+        <span class="tavern-mark">魅</span>
+      </n-button>
       <CodewatchDock v-if="mods.codewatch" />
       <n-button v-if="mods.keepsake" quaternary circle size="small"
                 :disabled="keepsakeSession.saving || keepsakeSession.recording"
@@ -800,4 +804,9 @@ async function toggleMsgPin(id?: number) {
 .vmark.drop { background: rgba(100,116,139,0.12); color: #94a3b8; border-color: rgba(100,116,139,0.28); }
 .vmark.echo { background: rgba(148,163,184,0.1); color: #94a3b8; border-color: rgba(148,163,184,0.22); }
 .vmark.fail { background: rgba(239,68,68,0.16); color: #fca5a5; border-color: rgba(239,68,68,0.4); }
+.tavern-mark {
+  font-family: "Palatino Linotype", "Songti SC", serif;
+  font-size: 15px;
+  color: #e4c56a;
+}
 </style>

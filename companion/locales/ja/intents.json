@@ -62,6 +62,10 @@
     "hint": "タロット|カードを引|一枚引|三枚|今日のカード|draw (?:a |one |three )?cards?|one card|three cards|daily card|yes or no|tarot|read my cards|celtic|a reading",
     "ritual": "カット|あなたが引|めくって|もう一枚|しまって|どういう意味|左|右|真ん中|過去|現在|未来|\\bcut\\b|you pick|you choose|flip|turn it over|another card|put the cards away|what does it mean|the left|the right|the middle|past|present|future"
   },
+  "tavern": {
+    "open": "魅影酒場|酒場に行|酒場を開|酒場で遊|ライアーズバー|phantom tavern",
+    "close": "酒場に行かない|酒場を出|酒場を閉|魅影はいい"
+  },
   "wish": {
     "hint": "お願いしたい|願い事を|祈願して|もう一回願い|願いの池|願い事しよう|make a wish|我要许愿|许个愿"
   }

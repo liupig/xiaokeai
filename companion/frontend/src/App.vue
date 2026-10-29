@@ -19,6 +19,7 @@ import { useCharacterStore } from './stores/character';
 import { useChatStore } from './stores/chat';
 import { useSettingsStore } from './stores/settings';
 import { tarotLayerOn } from './features/tarot/gate';
+import { tavernUi } from './features/tavern/session';
 import { wishUi } from './features/wish';
 import { featureOn } from './i18n';
 import { isPetShell } from './features/shell/mode';
@@ -40,8 +41,10 @@ const CamReviewPanel = defineAsyncComponent(() => import('./features/review/CamR
 const KeepsakeGallery = defineAsyncComponent(() => import('./features/keepsake/KeepsakeGallery.vue'));
 const TranscriptPanel = defineAsyncComponent(() => import('./features/chat/TranscriptPanel.vue'));
 const TarotLayer = defineAsyncComponent(() => import('./features/tarot/Layer.vue'));
+const TavernLayer = defineAsyncComponent(() => import('./features/tavern/Layer.vue'));
 const WishLayer = defineAsyncComponent(() => import('./features/wish/Layer.vue'));
 const CodewatchHud = defineAsyncComponent(() => import('./features/codewatch/Hud.vue'));
+const DanmakuStage = defineAsyncComponent(() => import('./features/live/DanmakuStage.vue'));
 
 /** 右侧面板互斥：同一时间只显示一个 */
 type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake' | 'log';
@@ -143,20 +146,22 @@ onMounted(async () => {
       <div class="layout">
         <StageView />
         <DrawCard />
-        <DeskChrome v-if="!isPetShell" />
+        <DeskChrome v-if="!isPetShell && !tavernUi.on" />
         <CoinPill v-if="isPetShell" class="pet-coin" />
         <UserCenter />
         <ContentSetup />
-        <TopBar v-if="!isPetShell" :active="activePanel" @toggle="togglePanel" />
-        <LiveBeatHud v-if="!isPetShell && !tarotLayerOn && !wishUi.on && (!activePanel || activePanel === 'characters')" />
+        <TopBar v-if="!isPetShell && !tavernUi.on" :active="activePanel" @toggle="togglePanel" />
+        <LiveBeatHud v-if="!isPetShell && !tavernUi.on && !tarotLayerOn && !wishUi.on && (!activePanel || activePanel === 'characters')" />
         <MocapOverlay v-if="!isPetShell" />
         <SpeechCaption />
         <TarotLayer v-if="tarotLayerOn" />
+        <TavernLayer v-if="settings.modules.tavern && tavernUi.on" />
         <WishLayer v-if="wishUi.on" />
         <CodewatchHud v-if="!isPetShell && settings.modules.codewatch" />
+        <DanmakuStage v-if="!isPetShell && settings.modules.live_douyin" />
         <QuickPanel :show="activePanel === 'quick'"
                     @update:show="(v: boolean) => setPanel('quick', v)" />
-        <ChatBar v-if="!isPetShell" />
+        <ChatBar v-if="!isPetShell && !tavernUi.on" />
         <PetBar v-if="isPetShell" />
         <AssetCenter :show="activePanel === 'assets'"
                      @update:show="(v: boolean) => setPanel('assets', v)" />

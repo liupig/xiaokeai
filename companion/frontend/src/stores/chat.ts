@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
 import { api } from '../api/client';
 import { caster } from '../features/performance/caster';
+import { canWakeTavern } from '../features/tavern/intent';
+import { openTavern, tavernUi } from '../features/tavern/session';
 import { orchestrator } from '../features/performance/orchestrator';
 import { shots } from '../features/performance/shotConductor';
 import { speechPlayer } from '../features/voice/tts';
@@ -313,6 +315,10 @@ export const useChatStore = defineStore('chat', {
     },
   },
   actions: {
+    pauseSidecar() {
+      clearDelayed();
+      silencePhase = 'idle';
+    },
     async bargeIn() {
       clearDelayed();
       clearTarotNext();
@@ -420,6 +426,7 @@ export const useChatStore = defineStore('chat', {
     },
     async classifyIngress(text: string, busy: IngressBusy) {
       const settings = useSettingsStore();
+      if (settings.modules.tavern && canWakeTavern(text)) return 'cut' as const;
       const { deskActivity } = await import('../features/desk/activity');
       const onDesk = deskActivity();
       if (settings.modules.tarot && onDesk !== 'dance') {
@@ -583,6 +590,7 @@ export const useChatStore = defineStore('chat', {
     /** 双方都沉默、当前音频播完后：Delayed → Proactive → Goodbye */
     async scheduleDelayed() {
       clearDelayed();
+      if (tavernUi.on) return;
       if (sessionClosed || this.sending || speechPlayer.streamOpen) return;
       if (useSettingsStore().modules.tarot) {
         const chars = useCharacterStore();
@@ -830,7 +838,7 @@ export const useChatStore = defineStore('chat', {
         }
       }
 
-      if (!wishSpeak && useSettingsStore().modules.tarot && chars.currentId) {
+      if (!wishSpeak && useSettingsStore().modules.tarot && chars.currentId && !canWakeTavern(input)) {
         try {
           const tarot = await import('../features/tarot');
           const live = tarot.tarotLive.value
@@ -842,6 +850,7 @@ export const useChatStore = defineStore('chat', {
           console.warn('[tarot]', e);
         }
       }
+      if (useSettingsStore().modules.tavern && canWakeTavern(input)) openTavern();
 
       let apiKeyMissing = false;
       const bag = { speech: false };
@@ -917,6 +926,7 @@ export const useChatStore = defineStore('chat', {
       return 'sent';
     },
     async sidecarChat(mode: 'continue' | 'proactive' | 'goodbye' | 'welcome', reason = '', extra: ChatExtra = {}) {
+      if (tavernUi.on) return;
       if (mode === 'continue' || mode === 'proactive' || mode === 'goodbye') {
         const { alongLive } = await import('../features/glance/along');
         if (alongLive.on) return;

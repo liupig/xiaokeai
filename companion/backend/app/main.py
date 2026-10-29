@@ -20,9 +20,11 @@ from .modules.scenes.router import router as scenes_router
 from .modules.rewrite.router import router as rewrite_router
 from .modules.keepsake.router import router as keepsake_router
 from .modules.tarot.router import router as tarot_router
+from .modules.tavern.router import router as tavern_router
 from .modules.codewatch.router import router as codewatch_router
 from .modules.harness.router import router as harness_router
 from .modules.glance.router import router as glance_router
+from .modules.live.douyin.router import router as live_douyin_router
 from .services import catalog
 from .services import asr as asr_svc
 from .services import review_store
@@ -55,9 +57,11 @@ app.include_router(scenes_router)
 app.include_router(rewrite_router)
 app.include_router(keepsake_router)
 app.include_router(tarot_router)
+app.include_router(tavern_router)
 app.include_router(codewatch_router)
 app.include_router(harness_router)
 app.include_router(glance_router)
+app.include_router(live_douyin_router)
 
 
 @app.get("/lab/watch", include_in_schema=False)
@@ -236,6 +240,11 @@ def shutdown() -> None:
     except Exception:
         pass
     _release_glance()
+    try:
+        from .modules.live.douyin.listen import stop as live_douyin_stop
+        live_douyin_stop()
+    except Exception:
+        pass
     try:
         from .services import ledger
         ledger.stop()

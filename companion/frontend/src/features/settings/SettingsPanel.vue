@@ -5,6 +5,9 @@ import {
   NSlider, NSwitch, NTabPane, NTabs, useMessage,
 } from 'naive-ui';
 import { api } from '../../api/client';
+import {
+  douyinFeed, resetDouyinFeed, startDouyinFeed, stopDouyinFeed,
+} from '../live/douyinFeed';
 import { useSettingsStore } from '../../stores/settings';
 import { useCharacterStore } from '../../stores/character';
 import { useChatStore } from '../../stores/chat';
@@ -236,8 +239,11 @@ watch(() => settings.content.path, (v) => {
 
 const showEndpointHint = computed(() => {
   settings.locale.ui;
-  return settings.modules.harness
-    && characterModelNeedsEndpoint(settings.llm.model, settings.llm.base_url);
+  if (!settings.modules.harness) return false;
+  const name = (settings.llm.harness_model || '').trim();
+  if (!name) return characterModelNeedsEndpoint(settings.llm.model, settings.llm.base_url);
+  const base = (settings.llm.harness_base_url || '').trim() || settings.llm.base_url;
+  return characterModelNeedsEndpoint(name, base);
 });
 
 const testing = ref(false);
@@ -245,10 +251,7 @@ async function testLlm() {
   testing.value = true;
   try {
     const r = await api.testLlm(settings.llm);
-    if (showEndpointHint.value) {
-      message.warning(t('set.llm.endpoint'), { duration: 8000, closable: true });
-    }
-    if (r.ok) message.success(r.message);
+    if (r.ok) message.success(r.message, { duration: 8000 });
     else message.error(r.message, { duration: 8000, closable: true });
   } catch (e) {
     message.error(t('set.testFail', { err: String(e) }));
@@ -759,7 +762,70 @@ async function openWatchLab() {
   }
 }
 
-async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'codewatch' | 'touch' | 'harness' | 'glance', on: boolean) {
+const douyinRoom = ref('');
+const douyinSecret = ref('');
+const douyinBusy = ref(false);
+const douyinLines = computed(() => douyinFeed.lines);
+const douyinListening = computed(() => douyinFeed.listening);
+const douyinError = computed(() => douyinFeed.error);
+
+async function connectDouyin() {
+  const room = douyinRoom.value.trim();
+  if (!room) {
+    message.warning(t('live.douyin.roomPh'));
+    return;
+  }
+  douyinBusy.value = true;
+  try {
+    settings.live.douyin.room = room;
+    settings.live.douyin.push_secret = douyinSecret.value;
+    await settings.save();
+    resetDouyinFeed();
+    const data = await api.liveDouyinListen(room);
+    douyinFeed.listening = !!data.listening;
+    douyinFeed.error = data.error || '';
+    douyinFeed.open = true;
+    startDouyinFeed();
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    douyinBusy.value = false;
+  }
+}
+
+async function disconnectDouyin() {
+  douyinBusy.value = true;
+  try {
+    const data = await api.liveDouyinStop();
+    douyinFeed.listening = !!data.listening;
+    douyinFeed.error = '';
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    douyinBusy.value = false;
+  }
+}
+
+async function saveDouyinSecret() {
+  settings.live.douyin.push_secret = douyinSecret.value;
+  try {
+    await settings.save();
+  } catch (e) {
+    message.error(String(e));
+  }
+}
+
+watch(() => settings.modules.live_douyin, (on) => {
+  if (on) {
+    douyinRoom.value = settings.live.douyin.room || douyinRoom.value;
+    douyinSecret.value = settings.live.douyin.push_secret || '';
+    startDouyinFeed();
+  } else {
+    stopDouyinFeed();
+  }
+}, { immediate: true });
+
+async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'tavern' | 'codewatch' | 'touch' | 'harness' | 'glance' | 'live_douyin', on: boolean) {
   const prev = settings.modules[key];
   settings.modules[key] = on;
   try {
@@ -767,6 +833,10 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
     if (key === 'tarot' && !on) {
       const { onModuleOff } = await import('../tarot');
       await onModuleOff();
+    }
+    if (key === 'tavern' && !on) {
+      const { closeTavern } = await import('../tavern/session');
+      closeTavern();
     }
     if (key === 'codewatch' && !on) {
       const { onModuleOff } = await import('../codewatch');
@@ -778,6 +848,11 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
     if (key === 'glance') {
       await api.harnessRelease();
       if (!on) await api.glancePowerSet(false, characters.currentId || 0);
+    }
+    if (key === 'live_douyin' && !on) {
+      stopDouyinFeed();
+      await api.liveDouyinStop().catch(() => {});
+      douyinFeed.listening = false;
     }
     if (key !== 'scenes') return;
     if (on && characters.currentId) {
@@ -884,6 +959,11 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           </div>
           <p class="hint">{{ t('set.mod.tarot') }}</p>
           <div class="switch-row">
+            <span>{{ t('mod.tavern') }}</span>
+            <n-switch :value="settings.modules.tavern" @update:value="(v: boolean) => toggleMod('tavern', v)" />
+          </div>
+          <p class="hint">{{ t('set.mod.tavern') }}</p>
+          <div class="switch-row">
             <span>{{ t('mod.codewatch') }}</span>
             <n-switch :value="settings.modules.codewatch" @update:value="(v: boolean) => toggleMod('codewatch', v)" />
           </div>
@@ -905,6 +985,30 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <p class="hint">{{ t('set.mod.glance') }}</p>
           <n-button size="small" @click="openWatchLab">{{ t('set.mod.glanceLab') }}</n-button>
           <p class="hint">{{ t('set.mod.glanceLabHint') }}</p>
+          <label>{{ t('set.mod.live') }}</label>
+          <div class="switch-row">
+            <span>{{ t('mod.liveDouyin') }}</span>
+            <n-switch :value="settings.modules.live_douyin" @update:value="(v: boolean) => toggleMod('live_douyin', v)" />
+          </div>
+          <p class="hint">{{ t('set.mod.liveDouyin') }}</p>
+          <template v-if="settings.modules.live_douyin">
+            <label>{{ t('live.douyin.room') }}</label>
+            <div class="content-row">
+              <n-input v-model:value="douyinRoom" :placeholder="t('live.douyin.roomPh')" />
+              <n-button :loading="douyinBusy" @click="douyinListening ? disconnectDouyin() : connectDouyin()">
+                {{ douyinListening ? t('live.douyin.stop') : t('live.douyin.start') }}
+              </n-button>
+            </div>
+            <label>{{ t('live.douyin.secret') }}</label>
+            <n-input v-model:value="douyinSecret" type="password" show-password-on="click"
+                     :placeholder="t('live.douyin.secretPh')" @blur="saveDouyinSecret" />
+            <p class="hint">{{ douyinError || (douyinListening ? t('live.douyin.waiting') : t('live.douyin.idle')) }}</p>
+            <ul v-if="douyinLines.length" class="danmaku">
+              <li v-for="item in douyinLines" :key="item.seq">
+                <b>{{ item.nickname || '…' }}</b>{{ item.content }}
+              </li>
+            </ul>
+          </template>
           <label>{{ t('set.vision.label') }}</label>
           <n-select v-model:value="settings.vision.provider" :options="visionOptions" />
           <template v-if="settings.vision.provider === 'openai'">
@@ -936,6 +1040,16 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <label>{{ t('set.llm.model') }}</label>
           <n-input v-model:value="settings.llm.model"
                    placeholder="qwen-plus / deepseek-chat / ep-…" />
+          <label>{{ t('set.llm.harness') }}</label>
+          <n-input v-model:value="settings.llm.harness_model"
+                   :placeholder="t('set.llm.harnessPh')" />
+          <label>{{ t('set.llm.harnessUrl') }}</label>
+          <n-input v-model:value="settings.llm.harness_base_url"
+                   :placeholder="t('set.llm.harnessUrlPh')" />
+          <label>{{ t('set.llm.harnessKey') }}</label>
+          <n-input v-model:value="settings.llm.harness_api_key" type="password"
+                   show-password-on="click" :placeholder="t('set.llm.harnessKeyPh')" />
+          <p class="hint">{{ t('set.llm.harnessHint') }}</p>
           <p v-if="showEndpointHint" class="hint warn">{{ t('set.llm.endpoint') }}</p>
           <div>
             <n-button size="small" type="primary" secondary
@@ -1396,6 +1510,24 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 8px;
+}
+
+.danmaku {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.danmaku li {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 13px;
+}
+
+.danmaku b {
+  margin-right: 6px;
 }
 
 .tex-card {

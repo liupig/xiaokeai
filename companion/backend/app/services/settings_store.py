@@ -13,7 +13,8 @@ DEFAULTS: Dict[str, Any] = {
     # max_tokens 为 0 表示不传该参数（用服务商默认值）
     "llm": {"base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "",
             "model": "doubao-seed-character-260628", "temperature": 0.85, "top_p": 1.0,
-            "max_tokens": 0, "thinking": "off"},
+            "max_tokens": 0, "thinking": "off",
+            "harness_model": "", "harness_base_url": "", "harness_api_key": ""},
     "tts": {"engine": "qwen", "voice": "Serena", "rate": "+0%", "qwen_size": "0.6b",
             "qwen_style": "yujie", "qwen_instruct": "",
             "duplex_cmd": "interrupt_or_queue", "duplex_remain_sec": 3,
@@ -27,7 +28,8 @@ DEFAULTS: Dict[str, Any] = {
                 # 圆形舞台底座：显隐 / 台面颜色 / 发光环颜色 / 风格 / 台面贴图 / 不透明度
                 "stage_show": True, "stage_color": "#232342", "stage_glow": "#5b5bd6",
                 "stage_style": "classic", "stage_texture": "", "stage_opacity": 1.0},
-    "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "codewatch": True, "touch": True, "harness": True, "glance": False},
+    "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "tavern": True, "codewatch": True, "touch": True, "harness": True, "glance": False, "live_douyin": False},
+    "live": {"douyin": {"room": "", "push_secret": ""}},
     "locale": {"ui": "zh-CN", "reply": "zh-CN", "reply_mode": "fixed"},
     "memory": {"embedder": "auto"},
     "hardware": {
@@ -135,15 +137,19 @@ def llm_overlay() -> Dict[str, Any]:
 
 
 def apply_llm_overlay(llm: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """前端没填 API Key 时，回退到环境变量。前端有 Key 则完全以前端为准。"""
+    """前端没填 API Key 时，只补钥匙。
+
+    设置里已经写了模型名或地址就保持。钥匙留空不能把模型盖回 .env，
+    否则技能目录会一直被角色模型挡住。
+    """
     out = dict(llm or {})
     env = env_llm()
     if (out.get("api_key") or "").strip() or not env.get("api_key"):
         return out
     out["api_key"] = env["api_key"]
-    if env.get("base_url"):
+    if not (out.get("base_url") or "").strip() and env.get("base_url"):
         out["base_url"] = env["base_url"]
-    if env.get("model"):
+    if not (out.get("model") or "").strip() and env.get("model"):
         out["model"] = env["model"]
         if "character" in str(env["model"]).lower():
             out["thinking"] = "off"

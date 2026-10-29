@@ -361,7 +361,15 @@ export class Stage {
   }
 
   use(plugin: StagePlugin) {
-    if (plugin.id) this.plugins = this.plugins.filter((p) => p.id !== plugin.id);
+    if (plugin.id) {
+      const prev = this.plugins.filter((p) => p.id === plugin.id);
+      this.plugins = this.plugins.filter((p) => p.id !== plugin.id);
+      for (const old of prev) {
+        const drop = (old as StagePlugin & { dispose?: () => void }).dispose;
+        if (!drop) continue;
+        try { drop.call(old); } catch { /* 换掉旧插件时清掉它留在场景里的牌 */ }
+      }
+    }
     this.plugins.push(plugin);
   }
 

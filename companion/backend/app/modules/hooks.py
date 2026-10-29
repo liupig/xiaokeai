@@ -75,6 +75,11 @@ def after_messages(
             out = inject_overlay(character_id, out, mode=mode)
         except Exception as exc:
             print(f"[tarot] inject failed: {exc}")
+    if enabled(session, "tavern") and (mode or "").lower() == "user":
+        from .tavern.wake import invite_hint
+        hint = invite_hint(str(extra.get("user_text") or ""))
+        if hint:
+            out = out + [{"role": "system", "content": hint}]
     return out
 
 

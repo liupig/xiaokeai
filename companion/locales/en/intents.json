@@ -56,6 +56,10 @@
     "hint": "draw (?:a |one |three )?cards?|one card|three cards|daily card|yes or no|tarot|read my cards|celtic|a reading",
     "ritual": "\\bcut\\b|you pick|you choose|flip|turn it over|another card|put the cards away|what does it mean|the left|the right|the middle|past|present|future"
   },
+  "tavern": {
+    "open": "phantom tavern|liar'?s bar|open the tavern|go to the tavern|let'?s play the tavern|play the tavern",
+    "close": "don'?t go to the tavern|leave the tavern|close the tavern|quit the tavern"
+  },
   "wish": {
     "hint": "make a wish|wishing well|let me wish|wish again|i want to wish|play a wish|wish game|我要许愿|许个愿|许愿池"
   }

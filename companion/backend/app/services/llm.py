@@ -199,6 +199,54 @@ async def test_connection(llm_conf: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "message": f"连接成功（{ms}ms）：{reply[:40]}{thinking}"}
 
 
+async def test_messages(llm_conf: Dict[str, Any]) -> Dict[str, Any]:
+    """打 harness 用的 Messages 口。聊天那条仍走 chat/completions。"""
+    import time
+    from ..modules.harness.service import character_model_needs_endpoint, messages_base
+
+    llm_conf = _conf(llm_conf)
+    model = (llm_conf.get("model") or "").strip()
+    raw_base = (llm_conf.get("base_url") or "").strip()
+    if character_model_needs_endpoint(model, raw_base):
+        return {"ok": False, "message": "角色模型没有 Messages 权限，请另填技能目录模型"}
+    base = messages_base(raw_base)
+    if not base:
+        return {"ok": False, "message": "没有接口地址"}
+    if not llm_conf.get("api_key"):
+        return {"ok": False, "message": "未填写 API Key"}
+    payload = {
+        "model": model or "deepseek-v4-flash",
+        "max_tokens": 32,
+        "messages": [{"role": "user", "content": "回复两个字：你好"}],
+    }
+    headers = {
+        "x-api-key": llm_conf["api_key"],
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    t0 = time.time()
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10),
+                                     trust_env=False) as client:
+            resp = await client.post(f"{base.rstrip('/')}/v1/messages", headers=headers, json=payload)
+    except httpx.HTTPError as exc:
+        return {"ok": False, "message": f"网络错误：{exc}"}
+    ms = int((time.time() - t0) * 1000)
+    if resp.status_code != 200:
+        return {"ok": False, "message": f"HTTP {resp.status_code}：{resp.text[:200]}"}
+    try:
+        blocks = resp.json().get("content") or []
+    except ValueError:
+        return {"ok": False, "message": f"响应格式异常：{resp.text[:200]}"}
+    reply = ""
+    for block in blocks:
+        if isinstance(block, dict) and block.get("type") == "text":
+            reply = str(block.get("text") or "").strip()
+            if reply:
+                break
+    return {"ok": True, "message": f"Messages 连接成功（{ms}ms）：{reply[:40]}"}
+
+
 async def stream_chat(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]
                       ) -> AsyncGenerator[Dict[str, Any], None]:
     """向 OpenAI 兼容接口发起流式对话，产出结构化事件。"""
