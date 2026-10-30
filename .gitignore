@@ -172,6 +172,14 @@ companion/dist/
 # 塔罗出图运行日志（可能带请求痕迹，不入库）
 companion/assets/tarot/_logs/
 
+# 魅影酒馆出图草稿和选图页。正式牌面在 cards/<风格>/*.jpg，左轮用 revolver.png
+companion/assets/tavern/*.png
+companion/assets/tavern/revolver.jpg
+companion/assets/tavern/cards/_pick/
+
+# 空的前端锁文件，不是安装产物
+companion/package-lock.json
+
 # 版权资产与语音/视频权重（兜底，避免误 add）
 *.pmx
 *.pmd

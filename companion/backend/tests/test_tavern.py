@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.modules.flags import MODULE_KEYS, _DEFAULT_OFF  # noqa: E402
-from app.modules.tavern.judge import normalize, parse_decision  # noqa: E402
+from app.modules.tavern.judge import normalize, parse_decision, parse_lines  # noqa: E402
 from app.modules.tavern.rules import (  # noqa: E402
     COUNTS,
     Gun,
@@ -309,6 +309,7 @@ def test_a_spoken_line_is_kept_and_a_missing_one_is_filled():
     table.pile = {"actor": "you", "cards": ["girl:1"]}
     table.step({"act": "call", "line": "太顺了，我不信。"})
     assert table.note["line"] == "太顺了，我不信。"
+    assert table.note["scripted"] is False
     assert table.show["caller"] == "qin"
 
     table = _ready()
@@ -318,7 +319,13 @@ def test_a_spoken_line_is_kept_and_a_missing_one_is_filled():
     table.pile = None
     table.step({"act": "play", "cards": ["lady:1"]})
     assert table.note["line"] == "我先出。一张御姐。"
+    assert table.note["scripted"] is True
     assert table.note["follow"] is False
+    beats = parse_lines('{"line":"","verdict":"揭穿成了，轮到 XiaO。","rite":"我来。","end":"空的。"}')
+    assert beats["verdict"] == "揭穿成了，轮到 XiaO。"
+    assert beats["rite"] == "我来。"
+    assert beats["end"] == "空的。"
+    assert "line" not in beats
 
     brief = {"phase": "act", "pile": {"actor": "you", "n": 1}, "hand": ["loli:1", "girl:2"]}
     got = normalize(brief, '{"act":"call","line":"girl:1 太顺了，我不信。"}')

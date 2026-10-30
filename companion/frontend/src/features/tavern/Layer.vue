@@ -8,12 +8,13 @@ import { useSettingsStore } from '../../stores/settings';
 import { caster } from '../performance/caster';
 import { t } from '../../i18n';
 import { CARD_DECKS, CARD_STYLES, DECK_FACES, loadCardDeck, loadCardStyle, saveCardDeck, saveCardStyle, setFaceNames } from './cards';
+import { resolveCast } from './cast';
 import { artUrl, packOf } from './copy';
 import { mountTavern, refreshCardArt, syncTavern, unmountTavern } from './plugin';
 import { coins, refreshCoinsSoon } from '../coins/session';
 import { closeTavern } from './session';
 import { applause, cock, cylinder, dread, killshot, pick, primeApplause, primeCollapse, primeShot, pulse, relieved, slide, stopDread, turn, unlock } from './sound';
-import { stopTalk, talk } from './voice';
+import { prefetchTalk, stopTalk, talk } from './voice';
 
 const characters = useCharacterStore();
 const chat = useChatStore();
@@ -38,17 +39,32 @@ const spotlight = ref('');
 const spotVerb = ref('');
 let spinTimer = 0;
 let paidSeq = 0;
-let saidNow: Promise<void> = Promise.resolve();
 let pace = 0;
+const FLY_MS = 880;
 
-const RITE_FLIP = 2600;
-const RITE_GUN = 4800;
-const RITE_END = 3400;
-const LINE_HOLD = 2600;
 
 let timers: number[] = [];
+let pileSeq = 0;
+let pileFaces: string[] = [];
+let pileStamp = '';
+let playedFaces: string[] = [];
+
+function rememberPile(s: TavernState | null) {
+  if (!s?.pile?.n) {
+    pileStamp = '';
+    pileFaces = [];
+    return;
+  }
+  if (s.note?.t !== 'play' || !s.note.seq) return;
+  const stamp = `${s.pile.actor}:${s.note.seq}`;
+  if (stamp === pileStamp) return;
+  pileStamp = stamp;
+  pileSeq = s.note.seq;
+  pileFaces = s.pile.actor === 'you' ? playedFaces.slice() : [];
+}
 let epoch = 0;
-const riteBeat = ref<'flip' | 'gun' | 'end' | ''>('');
+let primed: Promise<TavernState | null> | null = null;
+const riteBeat = ref<'verdict' | 'gun' | 'end' | ''>('');
 const hold = ref<{ id: string; cards: number; pulls: number; hand: TavernCard[] } | null>(null);
 
 const lobby = computed(() => !state.value || state.value.phase === 'idle');
@@ -77,13 +93,20 @@ const hint = computed(() => {
   if (s.turn === 'you') return s.pile ? copy.value.yourTurn : copy.value.first;
   return copy.value.think(nameOf(s.turn || ''), false);
 });
+function beatLine(key: 'verdict' | 'rite' | 'end') {
+  return (state.value?.note?.beats?.[key] || '').trim();
+}
 const riteWords = computed(() => {
   const show = state.value?.show;
   const c = copy.value;
   if (!show || show.kind !== 'reveal') return log.value[log.value.length - 1]?.text || '';
-  if (riteBeat.value === 'gun') return c.sayGun(nameOf(show.shooter || ''), (hold.value?.pulls || 0) + 1);
-  if (riteBeat.value === 'end') return show.hit ? c.sayShot(nameOf(show.shooter || '')) : c.sayClick(nameOf(show.shooter || ''));
-  return c.sayReveal({
+  if (riteBeat.value === 'gun') {
+    return beatLine('rite') || c.sayGun(nameOf(show.shooter || ''), (hold.value?.pulls || 0) + 1);
+  }
+  if (riteBeat.value === 'end') {
+    return beatLine('end') || (show.hit ? c.sayShot(nameOf(show.shooter || '')) : c.sayClick(nameOf(show.shooter || '')));
+  }
+  return beatLine('verdict') || c.sayReveal({
     caller: nameOf(show.caller || ''),
     actor: nameOf(show.actor || ''),
     cards: (show.cards || []).map(faceName).join(c.comma),
@@ -92,12 +115,13 @@ const riteWords = computed(() => {
     hit: !!show.hit,
   });
 });
-const riteReady = computed(() => state.value?.show?.kind !== 'reveal' || riteBeat.value === 'end');
+const riteReady = computed(() => state.value?.show?.kind !== 'reveal' || !!riteBeat.value);
 const focusId = computed(() => {
   const s = state.value;
   if (!s || s.phase === 'idle' || s.phase === 'over') return '';
   if (s.phase === 'show' && s.show?.kind === 'reveal') {
-    return riteBeat.value === 'flip' ? (s.show.caller || '') : (s.show.shooter || '');
+    if (riteBeat.value !== 'gun' && riteBeat.value !== 'end') return spotlight.value || '';
+    return s.show.shooter || '';
   }
   if (spotlight.value) return spotlight.value;
   return s.turn || '';
@@ -105,7 +129,7 @@ const focusId = computed(() => {
 const focusText = computed(() => {
   const s = state.value;
   if (s?.phase === 'show' && s.show?.kind === 'reveal') {
-    return riteBeat.value === 'flip' ? copy.value.focusCall : copy.value.focusRite;
+    return riteBeat.value === 'verdict' ? copy.value.focusCall : copy.value.focusRite;
   }
   if (spotVerb.value && spotlight.value) return spotVerb.value;
   if (s?.phase === 'name') return copy.value.focusName;
@@ -180,14 +204,6 @@ function clearTimers() {
   for (const id of timers) window.clearTimeout(id);
   timers = [];
 }
-function later(ms: number, fn: () => void) {
-  const mine = epoch;
-  const id = window.setTimeout(() => {
-    if (mine !== epoch) return;
-    fn();
-  }, ms);
-  timers.push(id);
-}
 function stopSpin() {
   if (spinTimer) window.clearInterval(spinTimer);
   spinTimer = 0;
@@ -195,6 +211,7 @@ function stopSpin() {
 function stop() {
   epoch += 1;
   pace += 1;
+  primed = null;
   clearTimers();
   stopSpin();
   riteBeat.value = '';
@@ -211,26 +228,16 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => { window.setTimeout(resolve, ms); });
 }
 
-function voiceFor(id: string) {
-  const engine = settings.tts.engine;
-  const cast: Record<string, Record<string, string>> = {
-    edge: {
-      you: 'zh-CN-YunxiNeural',
-      qin: 'zh-CN-XiaoxiaoNeural',
-      bar: 'zh-CN-YunjianNeural',
-      her: 'zh-CN-XiaoyiNeural',
-      host: 'zh-CN-YunyangNeural',
-    },
-    qwen: { you: 'Dylan', qin: 'Vivian', bar: 'Eric', her: 'Serena', host: 'Uncle_Fu' },
-  };
-  if (id === 'host') return cast[engine]?.host || cast.edge.host;
-  if (id === 'her') {
-    const own = (characters.current?.voice || '').trim();
-    const edgeOk = engine === 'edge' && own.includes('Neural');
-    const qwenOk = engine === 'qwen' && ['Vivian', 'Serena', 'Uncle_Fu', 'Dylan', 'Eric'].includes(own);
-    if (edgeOk || qwenOk) return own;
-  }
-  return cast[engine]?.[id] || settings.tts.voice || '';
+function castOf(id: string) {
+  const table = resolveCast({
+    lang: settings.locale.ui,
+    engine: settings.tts.engine,
+    characterVoice: (characters.current?.voice || '').trim(),
+    deck: state.value?.deck || deckId.value,
+    saved: settings.tts.tavern_cast,
+    voices: settings.voices,
+  });
+  return table[id] || { engine: settings.tts.engine, voice: settings.tts.voice || '' };
 }
 
 function speakerOf(note: TavernNote) {
@@ -269,6 +276,8 @@ function verbOf(note: TavernNote) {
 function spokenLine(s: TavernState) {
   const note = s.note;
   if (!note) return '';
+  const model = (note.line || '').trim();
+  if (model && note.scripted !== true) return model;
   const c = copy.value;
   if (note.t === 'deal') {
     const ids = note.seated?.length
@@ -281,15 +290,14 @@ function spokenLine(s: TavernState) {
       return note.dealt === false ? c.lineKeep(names, face, who) : c.lineStill(names, face, who);
     }
   }
-  let line = (note.line || '').trim() || localLine(note);
-  if (!line) return '';
-  const zh = (settings.locale.ui || '').startsWith('zh');
-  if (zh && note.t === 'play' && note.follow === false && /^跟/.test(line)) {
-    line = `我先出。${line.replace(/^跟[，。,\s]*/, '')}`;
-  }
-  if (zh && note.t === 'play' && note.follow !== false && !line.includes('跟')) line = `我跟。${line}`;
-  if (zh && note.t === 'reveal' && !/[揭穿]/.test(line)) line = `揭穿。${line}`;
-  return line;
+  return localLine(note);
+}
+
+function voiceOf(who: string, text: string) {
+  const pick = castOf(who);
+  const own = (characters.current?.voice || '').trim();
+  const style = pick.engine === 'qwen' && pick.voice === own ? '' : 'off';
+  return { text, who, voice: pick.voice, engine: pick.engine, style };
 }
 
 function speak(who: string, text: string) {
@@ -297,15 +305,25 @@ function speak(who: string, text: string) {
   if (!line) return Promise.resolve();
   unlock();
   if (who === 'her') caster.onSpeakSentence(line);
-  return talk(line, who, voiceFor(who), settings.tts.engine);
+  const pick = voiceOf(who, line);
+  return talk(pick.text, pick.who, pick.voice, pick.engine, settings.locale.ui, pick.style);
+}
+
+function prefetchLine(s: TavernState) {
+  const note = s.note;
+  if (!note) return;
+  const text = spokenLine(s);
+  if (!text) return;
+  const pick = voiceOf(speakerOf(note), text);
+  prefetchTalk(pick.text, pick.voice, pick.engine, pick.style);
 }
 
 watch(riteBeat, (beat) => {
   const show = state.value?.show;
-  const shooter = show?.shooter || '';
   stopSpin();
-  if (beat === 'flip') turn();
-  else if (beat === 'gun') {
+  if (beat === 'verdict') {
+    turn();
+  } else if (beat === 'gun') {
     cyl.value = 0;
     pulse(true);
     dread();
@@ -315,17 +333,13 @@ watch(riteBeat, (beat) => {
       cyl.value += 60;
       cylinder();
     }, 720);
-    speak(shooter, copy.value.lineGun((hold.value?.pulls || 0) + 1));
   } else if (beat === 'end') {
     if (show?.kind === 'reveal' && show.hit) {
-      stopTalk();
       killshot();
       muzzle.value = true;
       window.setTimeout(() => { muzzle.value = false; }, 680);
-      window.setTimeout(() => { speak(shooter, copy.value.lineShot); }, 1100);
     } else if (show?.kind === 'reveal') {
       relieved();
-      speak(shooter, copy.value.lineClick);
     }
   } else {
     pulse(false);
@@ -334,89 +348,18 @@ watch(riteBeat, (beat) => {
   pushBoard();
 });
 
-function armShow(s: TavernState) {
-  const mine = ++pace;
-  const pending = saidNow;
-  if (s.show?.kind !== 'reveal') {
-    riteBeat.value = 'end';
-    void (async () => {
-      await Promise.race([Promise.all([pending, sleep(2200)]), sleep(8000)]);
-      if (mine !== pace) return;
-      if (state.value?.phase === 'show') void send('ack');
-    })();
-    return;
-  }
-  riteBeat.value = 'flip';
-  later(RITE_FLIP, () => { riteBeat.value = 'gun'; });
-  const endHold = s.show?.hit ? 5600 : RITE_END;
-  later(RITE_FLIP + RITE_GUN, () => {
-    riteBeat.value = 'end';
-    hold.value = null;
-    pushBoard();
-    if (state.value?.show?.hit) {
-      shock.value = true;
-      window.setTimeout(() => { shock.value = false; }, 1400);
-    }
-  });
-  later(RITE_FLIP + RITE_GUN + endHold, () => {
-    if (state.value?.phase === 'show') void send('ack');
-  });
+const heard = new Set<number>();
+
+async function sayLine(who: string, text: string) {
+  const line = (text || '').trim();
+  if (!line) return;
+  let done = false;
+  const heardLine = speak(who, line).then(() => { done = true; });
+  await Promise.race([heardLine, sleep(30000)]);
+  if (!done) stopTalk();
 }
 
-function schedule(s: TavernState) {
-  clearTimers();
-  hearing.value = false;
-  if (s.phase === 'show') {
-    armShow(s);
-    return;
-  }
-  riteBeat.value = '';
-  const mine = ++pace;
-  const pending = saidNow;
-  const aliveSeats = (s.seats || []).filter((seat) => seat.alive);
-  const tableSpent = aliveSeats.length > 1 && aliveSeats.every((seat) => !seat.cards);
-  const ai = (s.phase === 'act' || s.phase === 'name') && !!s.turn && s.turn !== 'you';
-  void (async () => {
-    const hold = spotlight.value ? LINE_HOLD : 400;
-    hearing.value = !!spotlight.value;
-    await Promise.race([Promise.all([pending, sleep(hold)]), sleep(9000)]);
-    if (mine !== pace) return;
-    hearing.value = false;
-    spotlight.value = '';
-    spotVerb.value = '';
-    pushBoard();
-    if (tableSpent || !ai) return;
-    const now = state.value;
-    const still = (now?.phase === 'act' || now?.phase === 'name') && !!now.turn && now.turn !== 'you';
-    if (still) void send('step');
-  })();
-}
-
-function pushBoard() {
-  const s = state.value;
-  syncTavern({
-    phase: s?.phase || 'idle',
-    truth: s?.table || '',
-    hand: hold.value?.id === 'you' ? hold.value.hand : (s?.you?.hand || []),
-    selected: selected.value,
-    seats: (s?.seats || []).map((seat) => ({ id: seat.id, alive: alive(seat.id), cards: shownCards(seat.id) })),
-    pile: s?.pile?.n || 0,
-    pileFrom: s?.pile?.actor || '',
-    reveal: s?.phase === 'show' && s.show?.kind === 'reveal' ? (s.show.cards || []) : [],
-    focus: focusId.value,
-    faces: suits.value,
-  });
-}
-
-function apply(s: TavernState) {
-  const hadTable = !!state.value && state.value.phase !== 'idle';
-  const prevOut = new Set((state.value?.seats || []).filter((seat) => seat.out).map((seat) => seat.id));
-  if (s.phase === 'idle') {
-    log.value = [];
-    triumphQueue = [];
-    triumph.value = null;
-    if (triumphTimer) window.clearTimeout(triumphTimer);
-  }
+function commitVisual(s: TavernState, hadTable: boolean, prevOut: Set<string>) {
   if (s.phase === 'show' && s.show?.kind === 'reveal') {
     const id = s.show.shooter || '';
     const prev = seatOf.value[id];
@@ -440,34 +383,193 @@ function apply(s: TavernState) {
   }
   const ids = new Set((s.you?.hand || []).map((card) => card.id));
   selected.value = selected.value.filter((id) => ids.has(id));
-  saidNow = Promise.resolve();
-  if (s.note?.seq && !log.value.some((row) => row.seq === s.note!.seq)) {
-    const said = spokenLine(s);
-    const who = nameOf(speakerOf(s.note));
-    const verb = verbOf(s.note);
-    const text = said ? `${who}：${said}` : say(s.note);
-    if (s.note.t === 'play') slide();
-    if (said) {
-      spotlight.value = speakerOf(s.note);
-      spotVerb.value = verb;
-      saidNow = speak(speakerOf(s.note), said);
-    } else {
-      spotlight.value = '';
-      spotVerb.value = '';
-    }
-    if (text) log.value = [...log.value, { seq: s.note.seq, verb, text }].slice(-8);
-    if (s.note.t === 'win' && s.note.seq !== paidSeq) {
-      paidSeq = s.note.seq;
-      if (typeof s.balance_milli === 'number') coins.balanceMilli = s.balance_milli;
-      if (s.coin_delta) {
-        coinNote.value = copy.value.coinLine(s.coin_delta);
-        refreshCoinsSoon();
-      }
+  if (s.note?.t === 'win' && s.note.seq !== paidSeq) {
+    paidSeq = s.note.seq;
+    if (typeof s.balance_milli === 'number') coins.balanceMilli = s.balance_milli;
+    if (s.coin_delta) {
+      coinNote.value = copy.value.coinLine(s.coin_delta);
+      refreshCoinsSoon();
     }
   }
   error.value = '';
+}
+
+function aiToMove(s: TavernState) {
+  const aliveSeats = (s.seats || []).filter((seat) => seat.alive);
+  const tableSpent = aliveSeats.length > 1 && aliveSeats.every((seat) => !seat.cards);
+  const ai = (s.phase === 'act' || s.phase === 'name') && !!s.turn && s.turn !== 'you';
+  return ai && !tableSpent;
+}
+
+function primeNext(s: TavernState) {
+  primed = null;
+  if (!aiToMove(s)) return;
+  const epochAt = epoch;
+  const cid = characters.currentId || 0;
+  primed = api.tavernStep(cid).then(
+    (next) => {
+      if (epochAt !== epoch || !next) return null;
+      prefetchLine(next);
+      return next;
+    },
+    () => null,
+  );
+}
+
+function stepIfAi(s: TavernState) {
+  if (!aiToMove(s)) {
+    spotlight.value = '';
+    spotVerb.value = '';
+    hearing.value = false;
+    return;
+  }
+  const job = primed;
+  primed = null;
+  const epochAt = epoch;
+  const finish = (next: TavernState | null) => {
+    if (epochAt !== epoch) return;
+    if (!next) {
+      void send('step');
+      return;
+    }
+    apply(next);
+  };
+  if (job) void job.then(finish);
+  else void send('step');
+}
+
+function revealLine(s: TavernState, key: 'verdict' | 'rite' | 'end') {
+  const beats = s.note?.beats || {};
+  const ready = (beats[key] || '').trim();
+  if (ready) return ready;
+  const show = s.show;
+  if (!show || show.kind !== 'reveal') return '';
+  if (key === 'verdict') {
+    return copy.value.sayReveal({
+      caller: nameOf(show.caller || ''),
+      actor: nameOf(show.actor || ''),
+      cards: (show.cards || []).map(faceName).join(copy.value.comma),
+      honest: !!show.honest,
+      shooter: nameOf(show.shooter || ''),
+      hit: !!show.hit,
+    });
+  }
+  const shooter = show.shooter || '';
+  if (key === 'rite') return copy.value.lineGun((hold.value?.pulls || 0) + 1);
+  return show.hit ? copy.value.lineShot : copy.value.lineClick;
+}
+
+async function runReveal(s: TavernState, mine: number, said: string, who: string, hadTable: boolean, prevOut: Set<string>) {
+  commitVisual(s, hadTable, prevOut);
+  riteBeat.value = 'verdict';
+  hearing.value = false;
   pushBoard();
-  schedule(s);
+  const hostLine = revealLine(s, 'verdict');
+  const shooter = s.show?.shooter || '';
+  const riteLine = revealLine(s, 'rite');
+  const endLine = revealLine(s, 'end');
+  if (said && said !== hostLine) void sayLine(who, said);
+  if (hostLine && hostLine !== said) void sayLine('host', hostLine);
+  await sleep(380);
+  if (mine !== pace) return;
+  riteBeat.value = 'gun';
+  if (riteLine) void sayLine(shooter, riteLine);
+  await sleep(480);
+  if (mine !== pace) return;
+  hold.value = null;
+  riteBeat.value = 'end';
+  hearing.value = false;
+  if (s.show?.hit) {
+    shock.value = true;
+    window.setTimeout(() => { shock.value = false; }, 900);
+  }
+  if (endLine) void sayLine(shooter, endLine);
+}
+
+async function runBeat(s: TavernState, said: string, who: string, hadTable: boolean, prevOut: Set<string>, mine: number) {
+  clearTimers();
+  hearing.value = true;
+  if (s.phase !== 'show') riteBeat.value = '';
+  primeNext(s);
+  if (s.phase === 'show' && s.show?.kind === 'reveal') {
+    await runReveal(s, mine, said, who, hadTable, prevOut);
+    return;
+  }
+  if (said) {
+    spotlight.value = who;
+    spotVerb.value = s.note ? verbOf(s.note) : '';
+  }
+  const talking = said ? sayLine(who, said) : Promise.resolve();
+  if (s.note?.t === 'play') slide();
+  commitVisual(s, hadTable, prevOut);
+  pushBoard();
+  const yours = (s.phase === 'act' || s.phase === 'name') && s.turn === 'you';
+  if (yours) hearing.value = false;
+  const motion = s.note?.t === 'play' ? FLY_MS : s.note?.t === 'deal' ? 240 : 0;
+  if (yours) void talking;
+  else await Promise.all([talking, sleep(motion)]);
+  if (yours && motion) await sleep(motion);
+  if (mine !== pace) return;
+  if (s.phase === 'show') {
+    spotlight.value = '';
+    spotVerb.value = '';
+    if (state.value?.phase === 'show') void send('ack');
+    return;
+  }
+  stepIfAi(s);
+}
+
+function pushBoard() {
+  const s = state.value;
+  rememberPile(s);
+  syncTavern({
+    phase: s?.phase || 'idle',
+    truth: s?.table || '',
+    hand: hold.value?.id === 'you' ? hold.value.hand : (s?.you?.hand || []),
+    selected: selected.value,
+    seats: (s?.seats || []).map((seat) => ({ id: seat.id, alive: alive(seat.id), cards: shownCards(seat.id) })),
+    pile: s?.pile?.n || 0,
+    pileFrom: s?.pile?.actor || '',
+    pileSeq: pileSeq,
+    pileFaces: s?.pile?.actor === 'you' ? pileFaces : [],
+    reveal: s?.phase === 'show' && s.show?.kind === 'reveal' ? (s.show.cards || []) : [],
+    focus: focusId.value,
+    faces: suits.value,
+  });
+}
+
+function apply(s: TavernState, quiet = false) {
+  const mine = ++pace;
+  stopTalk();
+  const hadTable = !!state.value && state.value.phase !== 'idle';
+  const prevOut = new Set((state.value?.seats || []).filter((seat) => seat.out).map((seat) => seat.id));
+  if (s.phase === 'idle') {
+    log.value = [];
+    heard.clear();
+    triumphQueue = [];
+    triumph.value = null;
+    if (triumphTimer) window.clearTimeout(triumphTimer);
+  }
+  const seq = s.note?.seq || 0;
+  const fresh = !!(seq && !heard.has(seq));
+  if (seq) heard.add(seq);
+  const said = fresh && s.note ? spokenLine(s) : '';
+  const who = s.note ? speakerOf(s.note) : '';
+  if (fresh && s.note) {
+    const text = said ? `${nameOf(who)}：${said}` : say(s.note);
+    if (text) log.value = [...log.value, { seq, verb: verbOf(s.note), text }].slice(-8);
+  }
+  if (quiet || !fresh) {
+    commitVisual(s, hadTable, prevOut);
+    if (s.phase === 'show' && s.show?.kind === 'reveal') riteBeat.value = 'end';
+    pushBoard();
+    if (!quiet) return;
+    if (s.phase === 'show') void send('ack');
+    else stepIfAi(s);
+    return;
+  }
+  hearing.value = true;
+  void runBeat(s, said, who, hadTable, prevOut, mine);
 }
 
 async function send(kind: 'refresh' | 'start' | 'play' | 'call' | 'ack' | 'step' | 'name' | 'next' | 'end', face = '') {
@@ -486,9 +588,10 @@ async function send(kind: 'refresh' | 'start' | 'play' | 'call' | 'ack' | 'step'
     else if (kind === 'end') next = await api.tavernEnd(cid);
     else next = await api.tavernStep(cid);
     if (mine !== epoch) return;
-    apply(next);
+    apply(next, kind === 'refresh');
   } catch (err) {
     if (mine !== epoch) return;
+    hearing.value = false;
     const code = err instanceof Error ? err.message : 'wait';
     error.value = copy.value.err[code] || code;
   } finally {
@@ -529,6 +632,7 @@ function onName(face: string) {
 }
 function onPlay() {
   if (!selected.value.length) return;
+  playedFaces = selected.value.slice();
   unlock();
   stop();
   void send('play');
@@ -576,12 +680,6 @@ function shownCards(id: string) {
   if (hold.value?.id === id) return hold.value.cards;
   return seatOf.value[id]?.cards || 0;
 }
-function seatMark(id: string) {
-  if (!alive(id)) return copy.value.dead;
-  if (seatOf.value[id]?.out) return copy.value.aside;
-  if (!shownCards(id) && (state.value?.phase === 'act' || state.value?.phase === 'name')) return copy.value.bye;
-  return String(shownCards(id));
-}
 function chamberClass(n: number) {
   const show = state.value?.show;
   if (!show || show.kind !== 'reveal') return '';
@@ -609,12 +707,50 @@ const FACE_SRC: Record<string, string> = {
 function faceOf(id: string) {
   return FACE_SRC[id] || '';
 }
-function acting(id: string) {
-  return state.value?.turn === id || focusId.value === id;
+function pose(id: string) {
+  if (!alive(id)) return 'shot';
+  if (seatOf.value[id]?.out) return 'done';
+  const show = state.value?.show;
+  if (
+    state.value?.phase === 'show'
+    && show?.kind === 'reveal'
+    && (riteBeat.value === 'gun' || riteBeat.value === 'end')
+    && show.shooter === id
+  ) return 'rite';
+  if (spotlight.value === id && state.value?.phase !== 'show') return 'talk';
+  if (!shownCards(id) && (state.value?.phase === 'act' || state.value?.phase === 'name')) return 'wait';
+  return '';
 }
-const riteFace = computed(() => {
+function stampOf(kind: string) {
+  const c = copy.value;
+  if (kind === 'talk') return c.stampTalk;
+  if (kind === 'rite') return c.stampRite;
+  if (kind === 'shot') return c.stampShot;
+  if (kind === 'done') return c.stampDone;
+  if (kind === 'wait') return c.stampWait;
+  return '';
+}
+function seatClass(id: string) {
+  return {
+    turn: state.value?.turn === id,
+    talk: pose(id) === 'talk',
+    rite: pose(id) === 'rite',
+    shot: pose(id) === 'shot',
+    done: pose(id) === 'done',
+    wait: pose(id) === 'wait',
+    focus: focusId.value === id,
+    leaving: farewell.value === id,
+    victor: triumph.value?.id === id,
+  };
+}
+function cardCount(id: string) {
+  if (!alive(id) || seatOf.value[id]?.out) return '';
+  const n = shownCards(id);
+  return n ? String(n) : '';
+}
+const riteWhoId = computed(() => {
   if (riteBeat.value !== 'gun' && riteBeat.value !== 'end') return '';
-  return faceOf(state.value?.show?.shooter || '');
+  return state.value?.show?.kind === 'reveal' ? (state.value.show.shooter || '') : '';
 });
 const gunPose = computed(() => {
   if (riteBeat.value === 'gun') return 'cocked';
@@ -675,7 +811,7 @@ onUnmounted(() => {
       <div class="head-actions">
         <button type="button" class="ghost" @click="boardOpen = !boardOpen">{{ copy.board }}</button>
         <button v-if="!lobby" type="button" class="ghost" :disabled="busy" @click="endNight">{{ t('tavern.endNight') }}</button>
-        <button v-if="lobby" type="button" class="gold" :disabled="busy" @click="enter">{{ copy.enter }}</button>
+        <button v-if="lobby" type="button" class="gold" :disabled="busy || hearing" @click="enter">{{ copy.enter }}</button>
         <button type="button" class="ghost" @click="closeTavern">{{ t('tavern.leaveScene') }}</button>
       </div>
     </header>
@@ -706,47 +842,50 @@ onUnmounted(() => {
     <p v-if="lobby" class="rules">{{ copy.rules }}</p>
 
     <div v-else class="marks">
-      <p class="who her" :class="{ turn: state?.turn === 'her', dead: !alive('her'), out: !!seatOf.her?.out, focus: focusId === 'her', leaving: farewell === 'her', victor: triumph?.id === 'her' }">
+      <p class="who her" :class="seatClass('her')">
         <span v-if="shownCards('her')" class="minis tiny">
           <img v-for="n in shownCards('her')" :key="n" :src="artUrl('back')" alt="" />
         </span>
-        <span class="face" :class="{ live: acting('her') }">
+        <span class="face" :class="{ live: pose('her') === 'talk' }">
           <b class="mono">{{ (state?.her_name || copy.seat.her).slice(0, 1) }}</b>
           <span class="wave"></span>
           <span class="wave late"></span>
         </span>
         <span class="rounds"><i v-for="n in 3" :key="n" :class="{ spent: n <= pulls('her') }" /></span>
         <b>{{ state?.her_name || copy.seat.her }}</b>
-        <em v-if="focusId === 'her'" class="mark">{{ focusText }}</em>
-        <span>{{ seatMark('her') }}</span>
+        <em v-if="pose('her')" class="stamp" :class="pose('her')">{{ stampOf(pose('her')) }}</em>
+        <em v-else-if="focusId === 'her'" class="mark">{{ focusText }}</em>
+        <span v-if="cardCount('her')">{{ cardCount('her') }}</span>
       </p>
-      <p class="who qin" :class="{ turn: state?.turn === 'qin', dead: !alive('qin'), out: !!seatOf.qin?.out, focus: focusId === 'qin', leaving: farewell === 'qin', victor: triumph?.id === 'qin' }">
+      <p class="who qin" :class="seatClass('qin')">
         <span v-if="shownCards('qin')" class="minis">
           <img v-for="n in shownCards('qin')" :key="n" :src="artUrl('back')" alt="" />
         </span>
-        <span class="face" :class="{ live: acting('qin') }">
+        <span class="face" :class="{ live: pose('qin') === 'talk' }">
           <img :src="faceOf('qin')" alt="" />
           <span class="wave"></span>
           <span class="wave late"></span>
         </span>
         <span class="rounds"><i v-for="n in 3" :key="n" :class="{ spent: n <= pulls('qin') }" /></span>
         <b>{{ copy.seat.qin }}</b>
-        <em v-if="focusId === 'qin'" class="mark">{{ focusText }}</em>
-        <span>{{ seatMark('qin') }}</span>
+        <em v-if="pose('qin')" class="stamp" :class="pose('qin')">{{ stampOf(pose('qin')) }}</em>
+        <em v-else-if="focusId === 'qin'" class="mark">{{ focusText }}</em>
+        <span v-if="cardCount('qin')">{{ cardCount('qin') }}</span>
       </p>
-      <p class="who bar" :class="{ turn: state?.turn === 'bar', dead: !alive('bar'), out: !!seatOf.bar?.out, focus: focusId === 'bar', leaving: farewell === 'bar', victor: triumph?.id === 'bar' }">
+      <p class="who bar" :class="seatClass('bar')">
         <span v-if="shownCards('bar')" class="minis">
           <img v-for="n in shownCards('bar')" :key="n" :src="artUrl('back')" alt="" />
         </span>
-        <span class="face" :class="{ live: acting('bar') }">
+        <span class="face" :class="{ live: pose('bar') === 'talk' }">
           <img :src="faceOf('bar')" alt="" />
           <span class="wave"></span>
           <span class="wave late"></span>
         </span>
         <span class="rounds"><i v-for="n in 3" :key="n" :class="{ spent: n <= pulls('bar') }" /></span>
         <b>{{ copy.seat.bar }}</b>
-        <em v-if="focusId === 'bar'" class="mark">{{ focusText }}</em>
-        <span>{{ seatMark('bar') }}</span>
+        <em v-if="pose('bar')" class="stamp" :class="pose('bar')">{{ stampOf(pose('bar')) }}</em>
+        <em v-else-if="focusId === 'bar'" class="mark">{{ focusText }}</em>
+        <span v-if="cardCount('bar')">{{ cardCount('bar') }}</span>
       </p>
       <div v-if="state?.table" class="tablecard">
         <span class="pip">
@@ -759,18 +898,21 @@ onUnmounted(() => {
           <b>{{ faceName(state.table) }}</b>
         </div>
       </div>
-      <p class="who you" :class="{ turn: state?.turn === 'you', dead: !alive('you'), out: !!seatOf.you?.out, focus: focusId === 'you', leaving: farewell === 'you', victor: triumph?.id === 'you' }">
-        <span class="face" :class="{ live: acting('you') }">
-          <img :src="faceOf('you')" alt="" />
-          <span class="wave"></span>
-          <span class="wave late"></span>
+      <p class="who you" :class="seatClass('you')">
+        <span class="you-meta">
+          <b>{{ copy.seat.you }}</b>
+          <em v-if="pose('you')" class="stamp" :class="pose('you')">{{ stampOf(pose('you')) }}</em>
+          <em v-else-if="focusId === 'you'" class="mark">{{ focusText }}</em>
+          <span v-if="cardCount('you')" class="count">{{ cardCount('you') }}</span>
         </span>
-        <span class="rounds"><i v-for="n in 3" :key="n" :class="{ spent: n <= pulls('you') }" /></span>
-        <b>{{ copy.seat.you }}</b>
-        <em v-if="focusId === 'you'" class="mark">{{ focusText }}</em>
-        <em v-if="!alive('you')">{{ copy.dead }}</em>
-        <em v-else-if="seatOf.you?.out">{{ copy.aside }}</em>
-        <em v-else-if="!(state?.you?.hand || []).length && (state?.phase === 'act' || state?.phase === 'name')">{{ copy.bye }}</em>
+        <span class="you-portrait">
+          <span class="face" :class="{ live: pose('you') === 'talk' }">
+            <img :src="faceOf('you')" alt="" />
+            <span class="wave"></span>
+            <span class="wave late"></span>
+          </span>
+          <span class="rounds"><i v-for="n in 3" :key="n" :class="{ spent: n <= pulls('you') }" /></span>
+        </span>
       </p>
     </div>
 
@@ -799,26 +941,31 @@ onUnmounted(() => {
       <p class="words">{{ copy.triumphLine(nameOf(triumph.id), triumph.rank) }}</p>
     </div>
 
-    <div v-if="state?.phase === 'show'" class="rite">
-      <p v-if="state.show?.kind === 'reveal'" class="tag">{{ riteBeat === 'flip' ? copy.flipTitle : copy.riteTitle }}</p>
-      <p v-if="log.length" class="quote">{{ log[log.length - 1].text }}</p>
+    <div v-if="state?.phase === 'show' && (state.show?.kind !== 'reveal' || riteBeat)" class="rite" :class="{ verdict: riteBeat === 'verdict' }">
+      <p v-if="state.show?.kind === 'reveal' && riteBeat === 'verdict'" class="stamp-xl" :class="state.show.honest ? 'fail' : 'ok'">
+        {{ state.show.honest ? copy.verdictFail : copy.verdictOk }}
+      </p>
+      <p v-else-if="state.show?.kind === 'reveal'" class="rite-who">{{ copy.riteWho(nameOf(state.show.shooter || '')) }}</p>
+      <p v-else class="tag">{{ copy.riteTitle }}</p>
       <p class="words">{{ riteWords }}</p>
-      <div v-if="riteFace" class="victim" :class="{ hit: riteBeat === 'end' && state.show?.hit, safe: riteBeat === 'end' && state.show && !state.show.hit }">
+      <div v-if="riteWhoId" class="victim" :class="{ hit: riteBeat === 'end' && state.show?.hit, safe: riteBeat === 'end' && state.show && !state.show.hit }">
         <span class="face big" :class="{ live: riteBeat === 'gun' || (riteBeat === 'end' && state.show?.hit), smug: riteBeat === 'end' && state.show && !state.show.hit }">
-          <img :src="riteFace" alt="" />
+          <img v-if="faceOf(riteWhoId)" :src="faceOf(riteWhoId)" alt="" />
+          <b v-else class="mono">{{ nameOf(riteWhoId).slice(0, 1) }}</b>
           <span class="wave"></span>
           <span class="wave late"></span>
         </span>
+        <b class="rite-name">{{ nameOf(riteWhoId) }}</b>
       </div>
-      <div v-if="state.show?.kind === 'reveal' && riteBeat && riteBeat !== 'flip'" class="gun" :class="gunPose">
+      <div v-if="state.show?.kind === 'reveal' && riteBeat && riteBeat !== 'verdict'" class="gun" :class="gunPose">
         <img :src="gunSrc" alt="" />
         <i class="flash" />
         <i class="blast" />
       </div>
-      <div v-if="state.show?.kind === 'reveal' && riteBeat !== 'flip'" class="chambers">
+      <div v-if="state.show?.kind === 'reveal' && riteBeat !== 'verdict'" class="chambers">
         <i v-for="n in 3" :key="n" :class="chamberClass(n)" />
       </div>
-      <button v-if="riteReady" type="button" class="gold" :disabled="busy" @click="cont">{{ copy.goon }}</button>
+      <button v-if="riteReady" type="button" class="gold" :disabled="busy" @click="cont">{{ state.show?.kind === 'reveal' ? copy.approve : copy.goon }}</button>
     </div>
 
     <ul v-if="shownLog.length && !lobby" class="said">
@@ -828,22 +975,22 @@ onUnmounted(() => {
       </li>
     </ul>
 
+    <p v-if="hint && !lobby" class="hint">{{ hint }}</p>
     <div class="dock">
-      <p v-if="hint" class="hint">{{ hint }}</p>
       <p v-if="error" class="error">{{ error }}</p>
       <div v-if="tableEmpty" class="btns">
-        <button type="button" class="gold" :disabled="busy" @click="onNext">{{ copy.nextRound }}</button>
+        <button type="button" class="gold" :disabled="busy || hearing" @click="onNext">{{ copy.nextRound }}</button>
       </div>
       <div v-else-if="canName" class="btns suits">
-        <button v-for="face in suits" :key="face" type="button" class="gold" :disabled="busy" @click="onName(face)">
+        <button v-for="face in suits" :key="face" type="button" class="gold" :disabled="!canName" @click="onName(face)">
           {{ faceName(face) }}
         </button>
       </div>
-      <div v-if="!lobby && !tableEmpty && state?.phase === 'act'" class="btns">
-        <button type="button" class="gold" :disabled="!canAct || !selected.length" @click="onPlay">
+      <div v-if="!lobby && !tableEmpty && state?.phase === 'act'" class="btns acts">
+        <button type="button" class="act play" :disabled="!canAct || !selected.length" @click="onPlay">
           {{ copy.play }}<span v-if="selected.length"> · {{ selected.length }}</span>
         </button>
-        <button type="button" class="ghost" :disabled="!canCall" @click="onCall">{{ copy.call }}</button>
+        <button type="button" class="act call" :disabled="!canCall" @click="onCall">{{ copy.call }}</button>
       </div>
       <div v-if="state?.phase === 'over'" class="sheet">
         <p class="line">{{ copy.sayWin(nameOf(state.winner || '')) }}</p>
@@ -854,7 +1001,7 @@ onUnmounted(() => {
         </ul>
         <p v-if="coinNote" class="line">{{ coinNote }}</p>
         <p class="line">{{ copy.againHint }}</p>
-        <button type="button" class="gold" :disabled="busy" @click="enter">{{ copy.again }}</button>
+        <button type="button" class="gold" :disabled="busy || hearing" @click="enter">{{ copy.again }}</button>
       </div>
     </div>
   </div>
@@ -887,7 +1034,7 @@ onUnmounted(() => {
 }
 .board {
   position: absolute;
-  top: 78px;
+  top: calc(86px + max(var(--desk-chrome, 0px), 58px));
   right: 22px;
   z-index: 4;
   pointer-events: auto;
@@ -919,7 +1066,27 @@ onUnmounted(() => {
 .gun.cocked img { animation: raise 0.9s ease forwards; }
 .gun.dry img { animation: twitch 0.16s ease-out; }
 .gun.bang img { animation: recoil 0.22s ease-out; }
-.victim { display: flex; justify-content: center; margin: 8px 0 0; }
+.victim { display: flex; flex-direction: column; align-items: center; margin: 8px 0 0; }
+.rite-name {
+  display: block;
+  margin-top: 8px;
+  font-size: 26px;
+  letter-spacing: 0.32em;
+  color: #fff6e8;
+}
+.stamp-xl {
+  margin: 4px 0 10px;
+  font-size: 40px;
+  letter-spacing: 0.42em;
+}
+.stamp-xl.ok { color: #ffe08a; text-shadow: 0 0 18px rgba(255, 196, 80, 0.85); }
+.stamp-xl.fail { color: #ffb4b4; text-shadow: 0 0 18px rgba(180, 32, 32, 0.85); }
+.rite-who {
+  margin: 0 0 8px;
+  font-size: 28px;
+  letter-spacing: 0.28em;
+  color: #ffd0d0;
+}
 .victim.hit .face img { animation: tremble 0.05s linear infinite; filter: saturate(0.2) contrast(1.2); }
 .victim.hit .wave { border-color: #ff6a6a; }
 .gun .blast {
@@ -955,11 +1122,26 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding: 18px 22px 0;
+  padding: calc(12px + max(var(--desk-chrome, 0px), 58px)) 22px 0;
 }
 .head-actions, .btns, .sheet { pointer-events: auto; }
-.head-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: min(520px, 62vw); }
-.head-actions button.ghost { margin-left: 0; }
+.head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: min(520px, 62vw);
+  margin-top: 6px;
+}
+.head-actions button {
+  margin-left: 0;
+  padding: 9px 18px;
+  background: rgba(18, 10, 16, 0.88);
+  border-color: rgba(231, 194, 122, 0.85);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
+  font-size: 14px;
+}
+.head-actions button.gold { background: #e7c27a; color: #2a1c10; }
 .kicker {
   margin: 0;
   letter-spacing: 0.42em;
@@ -988,7 +1170,7 @@ button.ghost { margin-left: 8px; }
 button:disabled { opacity: 0.45; cursor: default; }
 .picks {
   position: absolute;
-  top: 72px;
+  top: calc(94px + max(var(--desk-chrome, 0px), 58px));
   right: 22px;
   z-index: 12;
   width: min(320px, 42vw);
@@ -1012,7 +1194,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .picks button { margin: 0; padding: 6px 10px; letter-spacing: 0.08em; }
 .rules {
   position: absolute;
-  top: 78px;
+  top: calc(78px + max(var(--desk-chrome, 0px), 58px));
   left: 22px;
   width: min(280px, 34vw);
   margin: 0;
@@ -1095,8 +1277,10 @@ button:disabled { opacity: 0.45; cursor: default; }
 .face.live img, .face.live .mono { animation: tremble 0.16s linear infinite; }
 .face.live .wave { animation: sonar 1.15s ease-out infinite; }
 .face.live .wave.late { animation-delay: 0.5s; }
-.face.big { width: 92px; height: 92px; }
-.face.big img, .face.big .mono { width: 92px; height: 92px; font-size: 36px; }
+.qin .face, .bar .face { width: 92px; height: 92px; }
+.qin .face img, .bar .face img { width: 92px; height: 92px; }
+.face.big { width: 128px; height: 128px; }
+.face.big img, .face.big .mono { width: 128px; height: 128px; font-size: 48px; }
 .who.leaving .face img,
 .who.leaving .face .mono { animation: drop-face 1.15s ease-in forwards; }
 .who.victor .face img,
@@ -1176,9 +1360,38 @@ button:disabled { opacity: 0.45; cursor: default; }
   text-shadow: 0 2px 10px #000;
 }
 .face.smug img { animation: boast 0.5s ease; }
-.who.dead .face img { filter: grayscale(1) brightness(0.55); }
-.who.out { opacity: 0.62; }
-.tavern.has-focus .who:not(.focus) { opacity: 0.38; }
+.who.shot .face img, .who.shot .face .mono {
+  filter: grayscale(1) brightness(0.45);
+  transform: rotate(-8deg);
+  border-color: #e07070;
+}
+.who.done .face img, .who.done .face .mono {
+  filter: none;
+  box-shadow: 0 0 0 3px #9fd0ff, 0 0 16px rgba(140, 190, 255, 0.75);
+}
+.who.wait .face img, .who.wait .face .mono { filter: saturate(0.35) brightness(0.85); }
+.who.talk .face img, .who.talk .face .mono {
+  box-shadow: 0 0 0 3px #e7c27a, 0 0 18px rgba(231, 194, 122, 0.9);
+}
+.who.rite .face img, .who.rite .face .mono {
+  box-shadow: 0 0 0 4px #ff6a6a, 0 0 22px rgba(224, 40, 40, 0.95);
+  animation: tremble 0.1s linear infinite;
+}
+.who .stamp {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  background: rgba(12, 8, 16, 0.72);
+}
+.who .stamp.talk { background: #e7c27a; color: #2a1c10; }
+.who .stamp.rite { background: #e07070; color: #2a080c; animation: pulse 0.8s ease-in-out infinite; }
+.who .stamp.shot { background: #6a1820; color: #ffd6d6; }
+.who .stamp.done { background: #d7ecff; color: #1c3048; }
+.who .stamp.wait { background: transparent; color: #d9d0c4; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45); }
+.tavern.has-focus .who:not(.focus):not(.shot):not(.done) { opacity: 0.38; }
+.tavern.has-focus .who.shot,
+.tavern.has-focus .who.done { opacity: 0.95; }
 .who .mark {
   margin-left: 4px;
   padding: 1px 8px;
@@ -1267,15 +1480,70 @@ button:disabled { opacity: 0.45; cursor: default; }
 .her { top: 132px; left: 25%; transform: translateX(-50%); }
 .qin { top: 34%; left: 16px; }
 .bar { top: 34%; right: 16px; }
-.you { bottom: 156px; left: 50%; transform: translateX(-50%); }
-.you .face,
-.you .rounds {
-  position: absolute;
+.you {
+  bottom: 16px;
   left: 50%;
-  z-index: 3;
+  transform: translateX(-50%);
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
 }
-.you .face { bottom: -128px; transform: translateX(-50%); }
-.you .rounds { bottom: -146px; transform: translateX(-50%); }
+.you-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 52px;
+}
+.you-meta b {
+  font-size: 18px;
+  letter-spacing: 0.16em;
+}
+.you-meta .count {
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  color: #fff6d0;
+}
+.you-portrait {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.acts { gap: 18px; }
+.acts .act {
+  position: relative;
+  min-width: 220px;
+  min-height: 78px;
+  margin: 0;
+  padding: 0 36px;
+  border: none;
+  border-radius: 16px;
+  background-color: transparent;
+  background-position: center;
+  background-size: cover;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-indent: 0.22em;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+}
+.acts .play {
+  color: #2a1408;
+  background-image: url('/assets/tavern/btn-play.jpg');
+  text-shadow: 0 1px 0 rgba(255, 248, 230, 0.65);
+}
+.acts .call {
+  color: #fff8ee;
+  background-image: url('/assets/tavern/btn-call.jpg');
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);
+}
+.acts .act:disabled {
+  opacity: 0.94;
+  filter: saturate(0.9);
+  cursor: default;
+}
 .tablecard {
   position: absolute;
   top: 96px;
@@ -1334,14 +1602,28 @@ button:disabled { opacity: 0.45; cursor: default; }
 .dock {
   position: absolute;
   left: 50%;
-  bottom: 78px;
+  bottom: 128px;
   transform: translateX(-50%);
   width: min(640px, 92vw);
   text-align: center;
 }
 .hint, .line, .error {
-  margin: 0 0 8px;
+  margin: 0 auto 10px;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+}
+.hint {
+  position: absolute;
+  left: 50%;
+  top: 43%;
+  z-index: 3;
+  transform: translateX(-50%);
+  margin: 0;
+  max-width: min(640px, 88vw);
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(12, 8, 16, 0.72);
+  white-space: nowrap;
+  pointer-events: none;
 }
 .said {
   position: absolute;

@@ -26,6 +26,7 @@ export interface TavernPack {
   play: string;
   call: string;
   goon: string;
+  approve: string;
   yourTurn: string;
   first: string;
   nameHint: string;
@@ -37,6 +38,14 @@ export interface TavernPack {
   focusName: string;
   focusCall: string;
   focusRite: string;
+  stampTalk: string;
+  stampRite: string;
+  stampShot: string;
+  stampDone: string;
+  stampWait: string;
+  verdictOk: string;
+  verdictFail: string;
+  riteWho: (who: string) => string;
   back: string;
   dead: string;
   comma: string;
@@ -97,8 +106,8 @@ const FACE_ZH: Record<string, FaceCopy> = {
 
 const ZH: TavernPack = {
   title: '魅影酒馆',
-  kicker: '骗子酒馆',
-  rules: '二十张牌。入座前可选牌组和画风。一副是萝莉、少女、御姐，另一副是犬系、正太、爹系，各六张。出牌按逆时针，KE 的下家在右边。第一轮由系统随机指定桌牌和先手。打出去的牌离开手牌。手里出完就轮空，不会补牌。场上只剩两个人时，上家打出最后一手，下家必须揭穿，不能再出牌。有人中弹离席也不发牌，没打完的人继续打剩下的牌。只有还坐着的人自己把牌打光，才重新发。先出完的人不再回到最后两人的新局，离席的也不会回来。XiaO、AI 和她会自己想这一手是揭穿还是跟牌，并且把这句说出来。被揭穿之后，先进仪式。空膛就继续坐着，并由这个人指定下一轮牌型；手里还有牌，就再出一到三张。实弹就离席。魅和影都算这张桌牌。每人三膛一颗实弹。最后两个人里有一个出完牌，仪式裁决完，就只在这两个人之间重发，不再单人把剩下的牌打完。提前出完的人按先后加 50、20、10 分。离席的人按先后扣 50、30、10 分。最后活下来的人，和提前出完的人，都算胜利。',
+  kicker: '魅影酒馆',
+  rules: '二十张牌。入座前可选牌组和画风。一副是萝莉、少女、御姐，另一副是犬系、正太、爹系，各六张。出牌按逆时针，KE 的下家在右边。第一轮由系统随机指定桌牌和先手。打出去的牌离开手牌。手里出完就轮空，不会补牌。场上只剩两个人时，上家打出最后一手，下家必须揭穿，不能再出牌。有人中弹离席也不发牌，没打完的人继续打剩下的牌。只有还坐着的人自己把牌打光，才重新发。先出完的人不再回到最后两人的新局，离席的也不会回来。XiaO、AI 和她会自己想这一手是揭穿还是跟牌，并且把这句说出来。被揭穿之后，先进审批。空膛就继续坐着，并由这个人指定下一轮牌型；手里还有牌，就再出一到三张。实弹就离席。魅和影都算这张桌牌。每人三膛一颗实弹。最后两个人里有一个出完牌，审批裁决完，就只在这两个人之间重发，不再单人把剩下的牌打完。提前出完的人按先后加 50、20、10 分。离席的人按先后扣 50、30、10 分。最后活下来的人，和提前出完的人，都算胜利。',
   enter: '入座',
   leave: '离桌',
   again: '再坐一局',
@@ -106,17 +115,26 @@ const ZH: TavernPack = {
   play: '出牌',
   call: '揭穿',
   goon: '继续',
+  approve: '审批',
   yourTurn: '轮到你。可以跟牌，也可以揭穿上一手。',
   first: '你先手。这一轮还没有能揭穿的牌。',
-  nameHint: '仪式结束。由你指定这一轮的桌牌。手里还有牌就接着出，出完了这一轮就轮空。',
+  nameHint: '审批结束。由你指定这一轮的桌牌。手里还有牌就接着出，出完了这一轮就轮空。',
   wait: '别人在想。',
   flipTitle: '揭穿',
-  riteTitle: '仪式',
+  riteTitle: '审批',
   think: (who, naming) => (naming ? `${who}在定这一轮的牌型。` : `${who}在看牌，决定要揭穿还是跟。`),
   focusPlay: '出牌',
   focusName: '定牌',
   focusCall: '揭穿',
-  focusRite: '仪式',
+  focusRite: '审批',
+  stampTalk: '发言',
+  stampRite: '审批',
+  stampShot: '中枪离席',
+  stampDone: '出完',
+  stampWait: '轮空',
+  verdictOk: '质疑成功',
+  verdictFail: '质疑失败',
+  riteWho: (who) => `${who}的审批`,
   back: '牌背',
   dead: '已离席',
   comma: '、',
@@ -136,7 +154,7 @@ const ZH: TavernPack = {
   seat: { you: 'KE', qin: 'XiaO', bar: 'AI', her: '她' },
   sayPlay: (who, n) => `${who}扣下 ${n} 张。`,
   sayDeal: (face, who) => `系统指定本轮桌牌：${face}。先手是${who}。`,
-  sayRite: (who) => `${who}仪式结束。这一轮的牌型和张数由${who}来定。`,
+  sayRite: (who) => `${who}审批结束。这一轮的牌型和张数由${who}来定。`,
   sayName: (who, face) => `${who}指定本轮桌牌：${face}。`,
   sayClear: (who) => `${who}把手里的牌出完了，没人揭穿。`,
   sayWin: (who) => `${who}赢下这一夜。`,
@@ -194,17 +212,26 @@ const EN: TavernPack = {
   play: 'Play',
   call: 'Call',
   goon: 'Continue',
+  approve: 'Approve',
   yourTurn: 'Your turn. Follow, or call the last play.',
   first: 'You open. Nothing to call yet.',
   nameHint: 'The rite is over. Name this round’s card, then play one to three.',
   wait: 'Someone else is thinking.',
   flipTitle: 'Called',
-  riteTitle: 'The rite',
+  riteTitle: 'Approval',
   think: (who, naming) => (naming ? `${who} is choosing the card.` : `${who} is deciding whether to call or follow.`),
   focusPlay: 'Play',
   focusName: 'Name',
   focusCall: 'Call',
   focusRite: 'Rite',
+  stampTalk: 'Speaking',
+  stampRite: 'Rite',
+  stampShot: 'Shot',
+  stampDone: 'Finished',
+  stampWait: 'Passed',
+  verdictOk: 'Call lands',
+  verdictFail: 'Call fails',
+  riteWho: (who) => `${who}'s rite`,
   back: 'Back',
   dead: 'Out',
   comma: ', ',
@@ -288,17 +315,26 @@ const JA: TavernPack = {
   play: '出す',
   call: '暴く',
   goon: '続ける',
+  approve: '承認',
   yourTurn: 'あなたの番。続けるか、前の手を暴く。',
   first: 'あなたが先手。まだ暴く手がない。',
   nameHint: '儀式が終わった。この回の卓札を決め、一枚から三枚出す。',
   wait: '誰かが考えている。',
   flipTitle: '暴露',
-  riteTitle: '儀式',
+  riteTitle: '承認',
   think: (who, naming) => (naming ? `${who}がこの回の卓札を決めている。` : `${who}が暴くか、出すか考えている。`),
   focusPlay: '出す',
   focusName: '指定',
   focusCall: '暴く',
   focusRite: '儀式',
+  stampTalk: '発言',
+  stampRite: '儀式',
+  stampShot: '被弾退席',
+  stampDone: '出し切り',
+  stampWait: 'パス',
+  verdictOk: '暴き成功',
+  verdictFail: '暴き失敗',
+  riteWho: (who) => `${who}の儀式`,
   back: '裏',
   dead: '退席',
   comma: '、',
@@ -382,17 +418,26 @@ const KO: TavernPack = {
   play: '내기',
   call: '들통',
   goon: '계속',
+  approve: '승인',
   yourTurn: '당신 차례. 잇거나, 앞 패를 들통낸다.',
   first: '당신이 먼저. 아직 들통낼 패가 없다.',
   nameHint: '의식이 끝났다. 이번 패를 정하고 한 장에서 세 장을 낸다.',
   wait: '다른 사람이 생각하는 중.',
   flipTitle: '들춤',
-  riteTitle: '의식',
+  riteTitle: '승인',
   think: (who, naming) => (naming ? `${who}가 이번 패를 정하는 중이다.` : `${who}가 들통낼지 따라낼지 보는 중이다.`),
   focusPlay: '내기',
   focusName: '지정',
   focusCall: '들춤',
   focusRite: '의식',
+  stampTalk: '발언',
+  stampRite: '의식',
+  stampShot: '피격 퇴장',
+  stampDone: '소진',
+  stampWait: '쉼',
+  verdictOk: '들통 성공',
+  verdictFail: '들통 실패',
+  riteWho: (who) => `${who}의 의식`,
   back: '뒷면',
   dead: '퇴장',
   comma: ', ',

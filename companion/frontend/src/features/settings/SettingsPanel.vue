@@ -565,6 +565,36 @@ const voiceOptions = computed(() =>
     .filter((v) => !v.engine || v.engine === settings.tts.engine)
     .map((v) => ({ label: v.label, value: v.id }))
 );
+const tavernSeats = ['you', 'qin', 'bar', 'her', 'host'] as const;
+const tavernCastOptions = computed(() => {
+  const lang = settings.locale.ui;
+  const rows = settings.voices.filter((v) => (
+    (v.engine === 'qwen' || v.engine === 'edge') && (!v.lang || v.lang === lang)
+  ));
+  return [
+    { label: t('set.tavern.auto'), value: '' },
+    ...rows.map((v) => ({
+      label: `${v.engine === 'qwen' ? t('set.tavern.local') : t('set.tavern.online')} · ${v.label}`,
+      value: `${v.engine}:${v.id}`,
+    })),
+  ];
+});
+function tavernCastValue(seat: string) {
+  const row = settings.tts.tavern_cast?.[settings.locale.ui]?.[seat];
+  return row?.voice ? `${row.engine}:${row.voice}` : '';
+}
+function setTavernCast(seat: string, value: string) {
+  const lang = settings.locale.ui;
+  const book = { ...(settings.tts.tavern_cast || {}) };
+  const page = { ...(book[lang] || {}) };
+  if (!value) delete page[seat];
+  else {
+    const cut = value.indexOf(':');
+    page[seat] = { engine: value.slice(0, cut), voice: value.slice(cut + 1) };
+  }
+  book[lang] = page;
+  settings.tts.tavern_cast = book;
+}
 const ttsEngineOptions = computed(() => {
   settings.locale.ui;
   return [
@@ -1154,6 +1184,13 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
                     :fallback-option="false" :placeholder="t('set.tts.voicePh')"
                     :disabled="!ttsNeedsVoice" />
           <p class="hint">{{ t('set.tts.voiceHint') }}</p>
+          <h3 class="section-title">{{ t('set.tavern.cast') }}</h3>
+          <p class="hint">{{ t('set.tavern.castHint') }}</p>
+          <template v-for="seat in tavernSeats" :key="seat">
+            <label>{{ t('set.tavern.' + seat) }}</label>
+            <n-select :value="tavernCastValue(seat)" :options="tavernCastOptions" filterable
+                      @update:value="(value) => setTavernCast(seat, String(value || ''))" />
+          </template>
           <label>{{ t('set.tts.duplex') }}</label>
           <n-select v-model:value="settings.tts.duplex_cmd" :options="duplexCmdOptions" />
           <label>{{ t('set.tts.remain', { n: Number(settings.tts.duplex_remain_sec).toFixed(1) }) }}</label>

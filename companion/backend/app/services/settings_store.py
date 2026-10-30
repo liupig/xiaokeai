@@ -20,7 +20,8 @@ DEFAULTS: Dict[str, Any] = {
             "duplex_cmd": "interrupt_or_queue", "duplex_remain_sec": 3,
             "duplex_delayed_sec": 16, "duplex_proactive_sec": 45,
             "duplex_goodbye_sec": 140, "duplex_session_max_min": 0,
-            "duplex_filler": False, "duplex_ingress": True},
+            "duplex_filler": False, "duplex_ingress": True,
+            "tavern_cast": {}},
     "stt": {"engine": "sensevoice"},  # browser=在线 Web Speech；sensevoice=离线 SenseVoice
     "download": {"aplaybox_token": ""},
     "quality": {"physics": False, "pixel_ratio_cap": 2, "camera_follow": False, "bgm_volume": 0.5,

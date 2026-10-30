@@ -406,6 +406,7 @@ class Table:
             self.turn = self.index(other.id)
             self.call()
             self.note["line"] = "只剩我们两个。揭穿。"
+            self.note["scripted"] = True
             return
         nxt = self._next_with_cards(self.turn)
         if nxt is None:
@@ -617,7 +618,12 @@ class Table:
     def _say(self, decision: dict | None, fallback: str) -> None:
         raw = str((decision or {}).get("line") or "")
         cleaned = " ".join("".join(ch for ch in raw if ch not in "{}\"[]`").split())
-        self.note["line"] = (cleaned[:22] or fallback)
+        if cleaned:
+            self.note["line"] = cleaned[:36]
+            self.note["scripted"] = False
+            return
+        self.note["line"] = fallback
+        self.note["scripted"] = True
 
     def _legal(self, seat: Seat, cards: list[str]) -> bool:
         return bool(cards) and len(cards) == len(set(cards)) and 1 <= len(cards) <= 3 and all(card in seat.hand for card in cards)

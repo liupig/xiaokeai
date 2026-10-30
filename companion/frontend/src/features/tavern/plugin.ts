@@ -15,6 +15,10 @@ export interface TavernBoard {
   seats: { id: string; alive: boolean; cards: number }[];
   pile: number;
   pileFrom: string;
+  /** 这一手的序号。变了才重新飞一次，避免每帧重播。 */
+  pileSeq?: number;
+  /** 只有 KE 自己打出的牌才有牌面，飞的时候翻过去。别人的牌始终是牌背。 */
+  pileFaces?: string[];
   reveal: string[];
   focus: string;
   faces?: string[];
@@ -37,6 +41,10 @@ interface Slot {
   /** 新牌从这里飞出来，再落到 nx/ny。 */
   bornNx?: number;
   bornNy?: number;
+  /** 从 KE 手里这张牌的位置起飞。 */
+  bornId?: string;
+  /** 正在从手里飘到落点。 */
+  glide?: boolean;
   /** 朝镜头再近一点，选中的牌压在其余牌前面。 */
   near?: number;
   /** 按当前镜头把这一排排开，排不下就缩小，不重叠。 */
@@ -272,18 +280,36 @@ class TavernPlugin {
         ty += -e[9] * slot.near;
         tz += -e[10] * slot.near;
       }
-      const dist = Math.hypot(tx - card.position.x, ty - card.position.y, tz - card.position.z);
-      const rate = dist > 0.22 ? 3.4 : 9;
-      const fly = 1 - Math.exp(-dt * rate);
-      card.position.x += (tx - card.position.x) * fly;
-      card.position.y += (ty - card.position.y) * fly;
-      card.position.z += (tz - card.position.z) * fly;
+      const flight = card.userData.flight as { from: THREE.Vector3; t: number } | undefined;
+      if (flight && flight.t < 1) {
+        flight.t = Math.min(1, flight.t + dt / 0.9);
+        const ease = 1 - (1 - flight.t) ** 3;
+        this.tmp.set(tx, ty, tz);
+        card.position.lerpVectors(flight.from, this.tmp, ease);
+        const cam = stage.threeCamera;
+        if (cam) {
+          const e = cam.matrixWorld.elements;
+          const arc = Math.sin(Math.PI * flight.t) * 0.18;
+          card.position.x += e[4] * arc;
+          card.position.y += e[5] * arc;
+          card.position.z += e[6] * arc;
+        }
+        if (flight.t >= 1) delete card.userData.flight;
+      } else {
+        const dist = Math.hypot(tx - card.position.x, ty - card.position.y, tz - card.position.z);
+        const rate = dist > 0.22 ? 3.4 : 9;
+        const fly = 1 - Math.exp(-dt * rate);
+        card.position.x += (tx - card.position.x) * fly;
+        card.position.y += (ty - card.position.y) * fly;
+        card.position.z += (tz - card.position.z) * fly;
+      }
       const s = card.scale.x + (slot.scale - card.scale.x) * (1 - Math.exp(-dt * 8));
       card.scale.setScalar(s);
       this.faceCamera(card, slot.rotZ);
       const flip = card.userData.flip as THREE.Group;
       const want = slot.faceUp ? 0 : Math.PI;
-      const spin = 1 - Math.exp(-dt * (slot.flipIn ? 1.35 : 8));
+      const turning = card.userData.flight ? 4 : (slot.flipIn ? 1.35 : 8);
+      const spin = 1 - Math.exp(-dt * turning);
       flip.rotation.y += (want - flip.rotation.y) * spin;
       tintCard(card, slot.hot !== false);
     }
@@ -322,28 +348,41 @@ class TavernPlugin {
 
   private ensure() {
     const keep = new Set(this.slots.map((s) => s.key));
+    const births = new Map<string, THREE.Vector3>();
+    for (const slot of this.slots) {
+      if (!slot.glide || this.cards.has(slot.key) || !slot.bornId) continue;
+      const src = this.cards.get(`hand:${slot.bornId}`);
+      if (src) births.set(slot.key, src.position.clone());
+    }
     this.dropSpare(keep);
     for (const slot of this.slots) {
       let card = this.cards.get(slot.key);
       if (!card) {
         card = makeCard(textureOf(slot.art, cornerOf(slot.art, slot.faceUp)), this.back);
-        if (slot.fixed && slot.bornNx != null && slot.bornNy != null) {
+        const remembered = births.get(slot.key);
+        let born: THREE.Vector3 | null = remembered || null;
+        if (!born && slot.glide && slot.bornNx != null && slot.bornNy != null) {
           this.placeView(slot.bornNx, slot.bornNy, 1.35, this.tmp);
-          card.position.copy(this.tmp);
-          this.desk.add(card);
-        } else if (slot.fixed && slot.nx != null && slot.ny != null) {
+          born = this.tmp.clone();
+        }
+        if (slot.fixed && slot.nx != null && slot.ny != null) {
           this.placeView(slot.nx, slot.ny, 1.35, this.tmp);
-          card.position.copy(this.tmp);
+          card.position.copy(born || this.tmp);
+          this.desk.add(card);
+        } else if (born) {
+          card.position.copy(born);
           this.desk.add(card);
         } else {
           card.position.set(slot.x, this.chestY + slot.y - 0.2, slot.z);
           this.rig.add(card);
         }
-        if (slot.flipIn) {
-          const flip = card.userData.flip as THREE.Group;
-          flip.rotation.y = Math.PI;
+        const flip = card.userData.flip as THREE.Group;
+        if (slot.flipIn || !slot.bornId) flip.rotation.y = Math.PI;
+        if (born && slot.glide) {
+          card.userData.flight = { from: born.clone(), t: 0 };
+          if (slot.bornId) flip.rotation.y = 0;
         }
-        card.scale.setScalar(slot.scale * 0.86);
+        card.scale.setScalar(slot.bornId ? 0.5 : slot.scale * 0.86);
         this.cards.set(slot.key, card);
       }
       paintMap(card, 'front', textureOf(slot.art, cornerOf(slot.art, slot.faceUp)));
@@ -537,11 +576,15 @@ function viewFan(
   return out;
 }
 
+/** 落牌在画面上半，手牌贴在出牌按钮上方。ny 越大越靠上。 */
+const PILE_NY = 0.3;
+const HAND_NY = -0.17;
+
 const SEAT_AT: Record<string, [number, number]> = {
-  you: [0.32, -0.4],
-  qin: [-0.7, 0.1],
-  bar: [0.7, 0.1],
-  her: [0, 0.24],
+  you: [0, HAND_NY],
+  qin: [-0.78, 0.08],
+  bar: [0.78, 0.08],
+  her: [0, 0.46],
 };
 
 function layout(board: TavernBoard): Slot[] {
@@ -570,28 +613,33 @@ function layout(board: TavernBoard): Slot[] {
   const slots: Slot[] = [];
   const pile = Math.min(board.pile, 3);
   const from = SEAT_AT[board.pileFrom] || SEAT_AT.you;
+  const faces = board.pileFrom === 'you' ? (board.pileFaces || []) : [];
+  const seq = board.pileSeq || 0;
   for (let i = 0; i < pile; i++) {
+    const face = faces[i] || '';
     slots.push({
-      key: `pile:${i}`,
-      art: artUrl('back'),
+      key: `pile:${seq}:${i}`,
+      art: face ? artUrl(face) : artUrl('back'),
       faceUp: false,
       x: 0,
       y: 0,
       z: 0,
-      nx: 0.12,
-      ny: -0.08,
+      nx: 0,
+      ny: PILE_NY,
       rotZ: 0,
       scale: 0.4,
       fixed: true,
       hot: true,
-      fit: { center: 0.12, index: i, count: pile, max: 0.9, base: 0.4 },
+      glide: true,
+      bornId: face,
       bornNx: from[0],
       bornNy: from[1],
+      fit: { center: 0, index: i, count: pile, max: 0.72, base: 0.4 },
     });
   }
   if (board.reveal.length) {
     slots.push(...viewFan(
-      'reveal', board.reveal.length, 0.1, -0.1, 0.5,
+      'reveal', board.reveal.length, 0, PILE_NY, 0.5,
       (i) => artUrl(board.reveal[i]), true,
       undefined,
       1.05,
@@ -604,15 +652,15 @@ function layout(board: TavernBoard): Slot[] {
   }
   const hand = board.hand;
   slots.push(...viewFan(
-    'hand', hand.length, 0.22, -0.4, 0.42,
+    'hand', hand.length, 0, HAND_NY, 0.5,
     (i) => artUrl(hand[i].id), true,
     (i) => hand[i].id,
-    1.35,
+    1.2,
   ).map((slot, i) => {
     slot.key = `hand:${hand[i].id}`;
     slot.hot = true;
     if (board.selected.includes(hand[i].id)) {
-      slot.ny = (slot.ny || 0) + 0.18;
+      slot.ny = (slot.ny || 0) + 0.1;
       slot.extraScale = 0.04;
       slot.near = 0.14;
       slot.hot = true;

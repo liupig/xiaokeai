@@ -186,6 +186,8 @@ export interface TavernNote {
   seq: number;
   t: string;
   line?: string;
+  scripted?: boolean;
+  beats?: { verdict?: string; rite?: string; end?: string };
   who?: string;
   n?: number;
   face?: string;

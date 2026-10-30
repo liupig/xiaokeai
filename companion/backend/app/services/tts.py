@@ -29,12 +29,34 @@ EDGE_VOICES = [
 VOICES = EDGE_VOICES
 
 
+def _edge_lang(voice: Dict[str, str]) -> str:
+    named = str(voice.get("lang") or "")
+    if named in ("zh-CN", "en", "ja", "ko"):
+        return named
+    vid = voice.get("id") or ""
+    if vid.startswith("en"):
+        return "en"
+    if vid.startswith("ja"):
+        return "ja"
+    if vid.startswith("ko"):
+        return "ko"
+    return "zh-CN"
+
+
+_QWEN_LANG = {"Chinese": "zh-CN", "English": "en", "Japanese": "ja", "Korean": "ko"}
+
+
 def list_voices(engine: str = "") -> List[Dict[str, str]]:
     items: List[Dict[str, str]] = []
     for v in EDGE_VOICES:
-        items.append({**v, "engine": "edge"})
+        items.append({**v, "engine": "edge", "lang": _edge_lang(v)})
     for v in tts_qwen.QWEN_VOICES:
-        items.append({"id": v["id"], "label": v["label"], "engine": "qwen"})
+        items.append({
+            "id": v["id"],
+            "label": v["label"],
+            "engine": "qwen",
+            "lang": _QWEN_LANG.get(v.get("language") or "", ""),
+        })
     for v in tts_cosy.list_voices():
         items.append(v)
     for v in tts_volc.list_voices():

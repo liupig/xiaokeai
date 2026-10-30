@@ -31,11 +31,10 @@ _SYSTEM = """你在魅影酒馆替一名玩家决定这一手。只输出一行 
 要指定下一轮桌牌时，输出 {"face":"loli","line":"这一轮，萝莉。"}。
 要揭穿上一手时，输出 {"act":"call","line":"我不信。"}。
 要跟牌时，输出 {"act":"play","cards":["牌的id"],"line":"两张少女，我跟。"}，id 必须来自你自己的手牌。
-line 是说给桌上人听的一句台词，不超过18个字。
-跟牌时 line 以「跟」开头，只声称出了几张本轮桌牌，不要说出真实花色。
-揭穿时 line 以「揭穿」开头，说你为什么不信。
-先手、桌上还没有牌时，line 以「我先出」开头。
-定牌时说你定的花色。
+line 是这个人此刻嘴里说的一句，口语，不超过24个字。不要套固定开头，不要每句都一个样子。
+跟牌或先出时，只声称出了几张本轮桌牌，绝不能说出真实花色。
+揭穿时说出你为什么不信。定牌时说出你定的花色。
+局面里如果指定了台词语言，line 就用那种语言。
 这一局你有一个目标，同时给你一段局面分析。两条都要用来决定跟还是揭穿。
 目标不是人设，下一局会换，不要因为自己是谁就固定爱揭或爱跟。
 分析明显不支持目标时，以分析为准。习性是分析的一部分。"""
@@ -91,7 +90,7 @@ def _line(data: dict[str, Any]) -> str:
     cleaned = "".join(ch for ch in raw if ch not in "{}\"[]`")
     cleaned = re.sub(r"(?:loli|girl|lady|pup|boy|sire|mei|ying):\d+", "", cleaned)
     cleaned = " ".join(cleaned.split())
-    return cleaned[:22]
+    return cleaned[:36]
 
 
 def _with_line(data: dict[str, Any], found: dict[str, Any]) -> dict[str, Any]:
@@ -116,6 +115,8 @@ def normalize(brief: dict[str, Any], text: str) -> dict[str, Any] | None:
         return _with_line(data, {"act": "play", "cards": cards}) if cards else None
     return None
 
+
+_LANG_NAME = {"zh-CN": "中文", "en": "English", "ja": "日本語", "ko": "한국어"}
 
 _GOAL = {
     "scrape": "这一局的目标是混苟分。少碰枪，能跟小牌就跟，假牌少出。只有上一手张数多、而且这个人以往爱诈，才揭穿。",
@@ -176,7 +177,9 @@ def _situation(brief: dict[str, Any], voice: str) -> str:
     pulls = int(brief.get("pulls") or 0)
     left = max(1, 3 - pulls)
     goal = _GOAL.get(str(brief.get("goal") or ""), "")
+    lang = _LANG_NAME.get(str(brief.get("lang") or "zh-CN"), "中文")
     lines = [
+        f"台词用{lang}。",
         f"你扮演{who}。",
         voice.strip()[:220],
         goal,
@@ -201,7 +204,7 @@ def _situation(brief: dict[str, Any], voice: str) -> str:
         actor = names.get(str(pile.get("actor") or ""), "上家")
         lines.append(f"上一手是{actor}扣下的{int(pile.get('n') or 0)}张，牌面盖着。你可以揭穿，也可以跟牌。")
     elif brief.get("phase") == "name":
-        lines.append("仪式刚结束，这一轮的桌牌还没定。请指定萝莉、少女或御姐。")
+        lines.append("审批刚结束，这一轮的桌牌还没定。请指定萝莉、少女或御姐。")
     else:
         lines.append("这一轮还没有上一手，不能揭穿，请出 1 到 3 张。")
     return "\n".join(line for line in lines if line)
@@ -229,7 +232,7 @@ def decide(conf: dict[str, Any], brief: dict[str, Any], voice: str) -> dict[str,
             f"{base}/chat/completions",
             headers=auth_headers(base, key),
             json=body,
-            timeout=httpx.Timeout(22.0, connect=8.0),
+            timeout=httpx.Timeout(9.0, connect=4.0),
             trust_env=False,
         )
         resp.raise_for_status()
@@ -258,4 +261,103 @@ def decide(conf: dict[str, Any], brief: dict[str, Any], voice: str) -> dict[str,
         return None
     label = found.get("act") or found.get("face") or "ok"
     print(f"[tavern] judge {who} -> {label}", flush=True)
+    return found
+
+
+_COLOR = """你在魅影酒馆替桌上的人写此刻要说出口的台词。只输出一行 JSON，不要 markdown，不要解释。
+每句都是嘴里说的话，不超过24个字。不要动作，不要旁白，不要解释规则，不要用固定套话，不要每句同一个开头。
+跟牌或先出时只报张数和本轮桌牌的名字，不能透露真实花色。
+语言用用户指定的那一种，不要夹杂别的语言。
+普通事件输出 {"line":"一句"}。
+揭穿揭晓输出 {"line":"质疑者这句","verdict":"馆主宣布成败并点名谁做审批","rite":"做审批的人举起枪时说的","end":"空膛或中弹时这个人说的"}。
+verdict 必须让人一听就知道质疑成功还是失败。"""
+
+
+def parse_lines(text: str) -> dict[str, str]:
+    data = parse_decision(text)
+    if not data:
+        bare = _line({"line": text})
+        return {"line": bare} if bare else {}
+    found: dict[str, str] = {}
+    for key in ("line", "verdict", "rite", "end"):
+        clipped = _line({"line": data.get(key)})
+        if clipped:
+            found[key] = clipped
+    return found
+
+
+def _color_user(facts: dict[str, Any]) -> str:
+    lang = _LANG_NAME.get(str(facts.get("lang") or "zh-CN"), "中文")
+    kind = str(facts.get("kind") or "")
+    speaker = str(facts.get("speaker") or "这个人")
+    face = str(facts.get("face") or "这张")
+    rows = [f"台词语言：{lang}。"]
+    if kind == "reveal":
+        result = "质疑失败，翻出来全是真话" if facts.get("honest") else "质疑成功，里面有别的牌"
+        shot = "这一枪是实弹，人要离席" if facts.get("hit") else "这一枪是空膛，人还坐着"
+        rows.append(
+            f"{facts.get('caller') or '质疑的人'}揭穿了{facts.get('actor') or '上家'}。"
+            f"翻开的牌是{facts.get('cards') or '这几张'}。{result}。"
+            f"去做审批的是{facts.get('shooter') or '这个人'}。{shot}。"
+        )
+        if not facts.get("need_line"):
+            rows.append("质疑者已经有自己的台词，line 留空。")
+    elif kind == "play":
+        verb = "在跟牌" if facts.get("follow") else "在先出"
+        rows.append(f"{speaker}{verb}，声称{facts.get('n') or 1}张{face}。不能说真实花色。")
+    elif kind == "name":
+        rows.append(f"{speaker}把这一轮的桌牌定成{face}。")
+    elif kind == "deal":
+        seated = facts.get("seated") or ""
+        dealt = "刚发了牌" if facts.get("dealt") else "牌没有重发"
+        rows.append(f"馆主在宣布。本轮桌牌是{face}。先手是{speaker}。还坐着的有{seated}。{dealt}。")
+    elif kind == "clear":
+        rows.append(f"{speaker}把手里的牌出完了，没有人揭穿。")
+    elif kind == "win":
+        rows.append(f"这一局结束。{speaker}留到了最后。")
+    else:
+        rows.append(f"{speaker}要说一句。")
+    return "\n".join(rows)
+
+
+def color(conf: dict[str, Any], facts: dict[str, Any]) -> dict[str, str] | None:
+    """给这一手里还没有人话的地方补一句。模型没有就返回空，调用方留着兜底。"""
+    kind = str(facts.get("kind") or "")
+    if kind not in ("play", "name", "deal", "clear", "win", "reveal"):
+        return None
+    base = str((conf or {}).get("base_url") or "").rstrip("/")
+    key = str((conf or {}).get("api_key") or "")
+    if not base or not key:
+        return None
+    payload = build_payload(conf, [
+        {"role": "system", "content": _COLOR},
+        {"role": "user", "content": _color_user(facts)},
+    ])
+    payload["stream"] = False
+    payload["temperature"] = 0.9
+    payload["max_tokens"] = 220
+    model = str(payload.get("model") or "")
+    if "character" not in model.lower() and ("volces.com" in base or "bigmodel.cn" in base):
+        payload["thinking"] = {"type": "disabled"}
+    try:
+        resp = httpx.post(
+            f"{base}/chat/completions",
+            headers=auth_headers(base, key),
+            json=payload,
+            timeout=httpx.Timeout(2.2, connect=2.0),
+            trust_env=False,
+        )
+        resp.raise_for_status()
+        message = resp.json()["choices"][0]["message"]
+        text = message.get("content") if isinstance(message, dict) else ""
+        if isinstance(text, list):
+            text = "\n".join(str(item.get("text") or "") for item in text if isinstance(item, dict))
+        found = parse_lines(str(text or ""))
+    except Exception as exc:
+        print(f"[tavern] line fallback ({type(exc).__name__})", flush=True)
+        return None
+    if not found:
+        print("[tavern] line fallback (unparsed)", flush=True)
+        return None
+    print(f"[tavern] line {kind}", flush=True)
     return found

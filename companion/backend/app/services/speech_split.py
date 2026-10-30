@@ -128,13 +128,10 @@ def glue_parts(parts: List[str]) -> List[str]:
 
 
 def pack_complete(text: str) -> List[str]:
-    """完整短句整段送；超过 SENTENCE_MAX 才按逗号拆成约 20 字。"""
+    """按标点切开再并回约 20 字。有句号也不整段放行。"""
     s = (text or "").strip()
     if not s:
         return []
-    complete = bool(HARD_END.search(s))
-    if len(s) <= SENTENCE_MAX and (complete or len(s) <= TARGET_MAX):
-        return [s]
     glued = glue_parts(split_punct(s))
     out: List[str] = []
     for part in glued:

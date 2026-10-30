@@ -36,7 +36,8 @@ export const useSettingsStore = defineStore('settings', {
            duplex_goodbye_sec: DEFAULT_DUPLEX_GOODBYE_SEC,
            duplex_session_max_min: DEFAULT_DUPLEX_SESSION_MAX_MIN,
            duplex_filler: false, duplex_ingress: true,
-           voice_by_lang: {} as Record<string, string> },
+           voice_by_lang: {} as Record<string, string>,
+           tavern_cast: {} as Record<string, Record<string, { engine: string; voice: string }>> },
     stt: { engine: 'sensevoice' as 'browser' | 'sensevoice' | 'ali' | 'volc' | 'openai' | 'eleven' | 'gemini' },
     omni: {
       chat_url: 'https://api.modelbest.cn/v1',
@@ -67,7 +68,7 @@ export const useSettingsStore = defineStore('settings', {
       reason: '', fingerprint: '',
       failed: { stt: '', tts: '', memory: '' },
     },
-    voices: [] as { id: string; label: string; engine?: string }[],
+    voices: [] as { id: string; label: string; engine?: string; lang?: string }[],
     content: {
       packed: false,
       path: '',
@@ -121,6 +122,9 @@ export const useSettingsStore = defineStore('settings', {
       if (this.tts.duplex_ingress == null) this.tts.duplex_ingress = true;
       if (!this.tts.voice_by_lang || typeof this.tts.voice_by_lang !== 'object') {
         this.tts.voice_by_lang = {};
+      }
+      if (!this.tts.tavern_cast || typeof this.tts.tavern_cast !== 'object') {
+        this.tts.tavern_cast = {};
       }
       if (!this.stt.engine) this.stt.engine = 'browser';
       const omni = (data as { omni?: Record<string, unknown>; omni_env?: boolean }).omni;

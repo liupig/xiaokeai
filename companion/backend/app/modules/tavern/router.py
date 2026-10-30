@@ -96,14 +96,31 @@ def _present(table: Table, cid: int) -> dict:
     return view
 
 
-def _run(cid: int, fn) -> dict:
+def _lang(session: Session) -> str:
+    loc = settings_store.get_all(session).get("locale") or {}
+    ui = str(loc.get("ui") or "zh-CN")
+    return ui if ui in ("zh-CN", "en", "ja", "ko") else "zh-CN"
+
+
+def _after(cid: int, session: Session, token: tuple) -> dict:
+    """出手已经落定就返回。不再等模型润色台词，那一下会把入座和出手都卡住。"""
+    del session, token
+    with _LOCK:
+        table = _TABLES.get(cid)
+        if table is None:
+            return {"phase": "idle", "board": board.load(cid)}
+        return _present(table, cid)
+
+
+def _run(cid: int, session: Session, fn) -> dict:
     with _LOCK:
         table = _table(cid)
         try:
             fn(table)
         except RuleError as exc:
             raise HTTPException(400, str(exc)) from exc
-        return _present(table, cid)
+        token = (id(table), table.seq)
+    return _after(cid, session, token)
 
 
 @router.get("/state")
@@ -124,7 +141,8 @@ def start(body: StartIn, session: Session = Depends(get_session)) -> Dict[str, A
         table = Table(her_name=name, deck=(body.deck or "rose").strip())
         table.start()
         _TABLES[body.character_id] = table
-        return _present(table, body.character_id)
+        token = (id(table), table.seq)
+    return _after(body.character_id, session, token)
 
 
 @router.post("/name")
@@ -136,7 +154,7 @@ def name_suit(body: NameIn, session: Session = Depends(get_session)) -> Dict[str
             raise RuleError("turn")
         table.name(body.face)
 
-    return _run(body.character_id, act)
+    return _run(body.character_id, session, act)
 
 
 @router.post("/play")
@@ -148,7 +166,7 @@ def play(body: PlayIn, session: Session = Depends(get_session)) -> Dict[str, Any
             raise RuleError("turn")
         table.play(body.cards)
 
-    return _run(body.character_id, act)
+    return _run(body.character_id, session, act)
 
 
 @router.post("/call")
@@ -160,19 +178,19 @@ def call(body: IdIn, session: Session = Depends(get_session)) -> Dict[str, Any]:
             raise RuleError("turn")
         table.call()
 
-    return _run(body.character_id, act)
+    return _run(body.character_id, session, act)
 
 
 @router.post("/ack")
 def ack(body: IdIn, session: Session = Depends(get_session)) -> Dict[str, Any]:
     _guard(session)
-    return _run(body.character_id, lambda table: table.ack())
+    return _run(body.character_id, session, lambda table: table.ack())
 
 
 @router.post("/next")
 def next_round(body: IdIn, session: Session = Depends(get_session)) -> Dict[str, Any]:
     _guard(session)
-    return _run(body.character_id, lambda table: table.open_next())
+    return _run(body.character_id, session, lambda table: table.open_next())
 
 
 @router.post("/end")
@@ -214,6 +232,7 @@ def step(body: IdIn, session: Session = Depends(get_session)) -> Dict[str, Any]:
         her_name = table.her_name
         brief = table.brief()
         brief["dossier"] = habits.lines(body.character_id, her_name)
+        brief["lang"] = _lang(session)
         token = (id(table), table.seq)
         who = seat.id
     decision = judge.decide(
@@ -229,4 +248,5 @@ def step(body: IdIn, session: Session = Depends(get_session)) -> Dict[str, Any]:
             table.step(decision)
         except RuleError as exc:
             raise HTTPException(400, str(exc)) from exc
-        return _present(table, body.character_id)
+        painted = (id(table), table.seq)
+    return _after(body.character_id, session, painted)

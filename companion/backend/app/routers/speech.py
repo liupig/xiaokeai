@@ -37,6 +37,93 @@ class WarmupRequest(BaseModel):
     qwen_size: str = ""
 
 
+_EDGE_QWEN = {
+    "zh-CN-XiaoyiNeural": "Serena",
+    "zh-CN-XiaoxiaoNeural": "Vivian",
+    "zh-CN-liaoning-XiaobeiNeural": "Vivian",
+    "zh-TW-HsiaoChenNeural": "Serena",
+    "zh-CN-YunxiNeural": "Eric",
+    "zh-CN-YunjianNeural": "Dylan",
+    "zh-CN-YunyangNeural": "Uncle_Fu",
+    "en-US-GuyNeural": "Ryan",
+    "en-US-DavisNeural": "Aiden",
+    "ja-JP-NanamiNeural": "Ono_Anna",
+    "ja-JP-AoiNeural": "Ono_Anna",
+    "ja-JP-MayuNeural": "Ono_Anna",
+    "ko-KR-SunHiNeural": "Sohee",
+    "ko-KR-YuJinNeural": "Sohee",
+    "ko-KR-SoonBokNeural": "Sohee",
+}
+
+
+def _qwen_stand_in(voice: str) -> str:
+    known = {row["id"] for row in tts_qwen.QWEN_VOICES}
+    if voice in known:
+        return voice
+    return _EDGE_QWEN.get(voice, "Serena")
+
+
+async def _speak_qwen(req: TTSRequest, conf: Dict[str, Any], request: Request, all_conf: Dict[str, Any], voice: str):
+    try:
+        qwen_size = tts_qwen.normalize_size(req.qwen_size or conf.get("qwen_size") or "0.6b")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    instruct = tts_qwen.resolve_instruct(
+        req.qwen_style or conf.get("qwen_style") or "",
+        req.instruct or conf.get("qwen_instruct") or "",
+    )
+    from ..locale_pack import normalize, reply_of
+    reply = normalize(reply_of(all_conf))
+    if reply != "zh-CN" and any("\u4e00" <= ch <= "\u9fff" for ch in instruct):
+        instruct = ""
+    cancel = threading.Event()
+    agen = tts_qwen.synthesize_pcm(
+        req.text, voice, qwen_size, instruct, cancel, tts_qwen.qwen_language(reply),
+    )
+    try:
+        first = await anext(agen)
+    except StopAsyncIteration:
+        cancel.set()
+        raise HTTPException(503, "本地 TTS 未返回音频") from None
+    except ValueError as exc:
+        cancel.set()
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        cancel.set()
+        talk_log.write("tts", f"本地失败 {exc}")
+        raise HTTPException(503, f"本地 TTS 失败：{exc}") from exc
+    except BaseException:
+        cancel.set()
+        raise
+
+    async def pcm_gen():
+        try:
+            yield first
+            async for chunk in agen:
+                if await request.is_disconnected():
+                    break
+                if chunk:
+                    yield chunk
+        finally:
+            cancel.set()
+            try:
+                await agen.aclose()
+            except Exception:
+                pass
+
+    return StreamingResponse(
+        pcm_gen(),
+        media_type="application/octet-stream",
+        headers={
+            "X-Audio-Format": "pcm_s16le",
+            "X-Audio-Rate": str(tts_qwen.SAMPLE_RATE),
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+            "Access-Control-Expose-Headers": "X-Audio-Format, X-Audio-Rate",
+        },
+    )
+
+
 def _tts_conf(session: Session) -> Dict[str, Any]:
     return settings_store.get_all(session).get("tts") or {}
 
@@ -177,63 +264,7 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
             },
         )
     if engine == "qwen":
-        try:
-            qwen_size = tts_qwen.normalize_size(req.qwen_size or conf.get("qwen_size") or "0.6b")
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        instruct = tts_qwen.resolve_instruct(
-            req.qwen_style or conf.get("qwen_style") or "",
-            req.instruct or conf.get("qwen_instruct") or "",
-        )
-        from ..locale_pack import normalize, reply_of
-        reply = normalize(reply_of(all_conf))
-        if reply != "zh-CN":
-            if any("\u4e00" <= ch <= "\u9fff" for ch in instruct):
-                instruct = ""
-        cancel = threading.Event()
-        agen = tts_qwen.synthesize_pcm(
-            req.text, voice, qwen_size, instruct, cancel, tts_qwen.qwen_language(reply),
-        )
-        try:
-            first = await anext(agen)
-        except StopAsyncIteration:
-            cancel.set()
-            raise HTTPException(503, "本地 TTS 未返回音频") from None
-        except ValueError as exc:
-            cancel.set()
-            raise HTTPException(400, str(exc)) from exc
-        except Exception as exc:
-            cancel.set()
-            raise HTTPException(503, f"本地 TTS 失败：{exc}") from exc
-        except BaseException:
-            cancel.set()
-            raise
-
-        async def pcm_gen():
-            try:
-                yield first
-                async for chunk in agen:
-                    if await request.is_disconnected():
-                        break
-                    yield chunk
-            finally:
-                cancel.set()
-                try:
-                    await agen.aclose()
-                except Exception:
-                    pass
-
-        return StreamingResponse(
-            pcm_gen(),
-            media_type="application/octet-stream",
-            headers={
-                "X-Audio-Format": "pcm_s16le",
-                "X-Audio-Rate": str(tts_qwen.SAMPLE_RATE),
-                "Cache-Control": "no-store",
-                "X-Accel-Buffering": "no",
-                "Access-Control-Expose-Headers": "X-Audio-Format, X-Audio-Rate",
-            },
-        )
+        return await _speak_qwen(req, conf, request, all_conf, voice)
     agen = tts.synthesize_edge(req.text, voice, rate).__aiter__()
     try:
         first = await agen.__anext__()
@@ -241,7 +272,15 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
         raise HTTPException(503, "edge TTS 没有声音") from None
     except Exception as exc:
         talk_log.write("tts", f"edge失败 {exc}")
-        raise HTTPException(503, "edge TTS 失败") from exc
+        limited = any(code in str(exc) for code in ("429", "403"))
+        if not limited:
+            raise HTTPException(503, "edge TTS 失败") from exc
+        local = _qwen_stand_in(voice)
+        talk_log.write("tts", f"edge被限流，改走本地 {local}")
+        req.engine = "qwen"
+        req.voice = local
+        req.qwen_style = ""
+        return await _speak_qwen(req, conf, request, all_conf, local)
 
     async def edge_gen():
         try:

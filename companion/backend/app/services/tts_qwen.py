@@ -398,13 +398,16 @@ def _stream_chunks(
 ):
     """同步生成器：产出 float PCM numpy / tensor 块。"""
     model = _load_model(size)
+    spoken = _speak_text(text)
+    # 12 帧大约 1 秒。滑窗从第 4 秒起会解成破音，一段最多约 20 字，封在 4 秒内。
+    max_tokens = min(48, max(36, len(spoken) * 3))
     kwargs = dict(
-        text=_speak_text(text),
+        text=spoken,
         speaker=speaker,
         language=language,
         # 库默认 12≈1 秒；2 只有约 0.17 秒，生成稍慢或经反代就会播成一字一顿
         chunk_size=8,
-        max_new_tokens=512,
+        max_new_tokens=max_tokens,
         non_streaming_mode=False,
     )
     if instruct.strip() and size != "0.6b":
