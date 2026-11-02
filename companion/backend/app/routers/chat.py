@@ -413,7 +413,9 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 from ..modules.glance.watch import along_turn, hollow_company, parse_reaction
 
                 nonlocal linked_topic
-                instruction = along_turn(situation.talk)
+                from ..modules.glance.along import candidate_instruction, generated
+
+                instruction = candidate_instruction(along_turn(situation.talk))
                 pieces: list[str] = []
                 trace_id = pending_trace()
 
@@ -430,37 +432,27 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                     {"role": "system", "content": (harness_brief + "\n\n" + note)[:6000]},
                     {"role": "user", "content": instruction},
                 ]
-                async for ev in llm_service.stream_chat(llm_conf, along_messages):
-                    if ev.get("type") in {"glance", "lookup"}:
-                        continue
-                    if ev.get("type") == "text":
-                        pieces.append(str(ev.get("delta") or ""))
-                    if ev.get("type") != "done":
-                        if pieces and not candidate_alive():
-                            finish_speak(False)
-                            _told("drop")
-                            yield {"type": "done", "full_text": ""}
-                            return
-                        continue
-                    topic = along_live.candidate.topic_id if along_live.candidate is not None else ""
-                    parsed = parse_reaction("".join(pieces), topic)
-                    if parsed is None or parsed[0] == "silent" or not candidate_alive():
-                        finish_speak(False)
-                        _told("silent")
-                        yield {"type": "done", "full_text": ""}
-                        return
-                    spoken = parsed[1]
-                    if hollow_company(spoken):
-                        finish_speak(False)
-                        _told("hollow", spoken)
-                        yield {"type": "done", "full_text": ""}
-                        return
-                    finish_speak(True, spoken)
-                    _told("speak", spoken)
-                    linked_topic = topic
-                    yield {"type": "text", "delta": spoken}
-                    yield {"type": "done", "full_text": spoken, "topic_id": topic}
+                from ..modules.glance.game_director import grounded_reply
+
+                evidence = along_live.candidate.summary if along_live.candidate else seen
+                topic = along_live.candidate.topic_id if along_live.candidate else ""
+                scene = along_live.candidate.object_id.split(":", 1)[0] if along_live.candidate else "unknown"
+                result = await grounded_reply(llm_conf, along_messages, evidence=evidence, topic=topic, valid=candidate_alive, scene=scene)
+                pieces.extend(attempt["raw"] for attempt in result["attempts"])
+                if result["action"] != "speak":
+                    finish_speak(False)
+                    _told(result["action"])
+                    yield {"type": "done", "full_text": ""}
                     return
+                spoken = result["text"]
+                generated(spoken)
+                _told("speak", spoken)
+                linked_topic = topic
+                for event in result["performance"]:
+                    yield event
+                yield {"type": "text", "delta": spoken}
+                yield {"type": "done", "full_text": spoken, "topic_id": topic}
+                return
 
             source = prompt_stack.guard_refusal(along_turns())
         elif purse_answer:
@@ -572,8 +564,10 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                         mark_trace(trace_id, xiaoke_in=found, xiaoke_out=lead, xiaoke_action="silent")
                         yield {"type": "done", "full_text": lead}
                         return
+                    from ..modules.sight.service import bound_speech
+
                     line = found.split("【眼前】")[-1].strip()
-                    ask_her = along_turn(situation.talk)
+                    ask_her = bound_speech(along_turn(situation.talk))
                     where = {
                         "movie": "片子里的一句",
                         "music": "歌里的一句",

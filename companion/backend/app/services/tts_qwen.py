@@ -781,8 +781,7 @@ async def synthesize_pcm(
                     except Exception:
                         pass
                     raise RuntimeError(
-                        "本地 TTS 超时。显存可能被其它残留 python 占满，"
-                        "请关掉旧的开发后端或任务管理器里无主 python.exe 后再试。"
+                        "本地语音超时。眼睛模型已经占着这张显卡，本地语音排不进去。"
                     )
                 continue
             kind = msg[0]

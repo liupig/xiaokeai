@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 from sqlmodel import Session, select
 
 from ..models import Setting
+from ..modules.live.config import normalize as normalize_live
 from ..paths import DATA_DIR, ROOT_DIR
 
 DEFAULTS: Dict[str, Any] = {
@@ -29,7 +30,7 @@ DEFAULTS: Dict[str, Any] = {
                 # 圆形舞台底座：显隐 / 台面颜色 / 发光环颜色 / 风格 / 台面贴图 / 不透明度
                 "stage_show": True, "stage_color": "#232342", "stage_glow": "#5b5bd6",
                 "stage_style": "classic", "stage_texture": "", "stage_opacity": 1.0},
-    "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "tavern": True, "codewatch": True, "touch": True, "harness": True, "glance": False, "live_douyin": False},
+    "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "tavern": True, "codewatch": True, "touch": True, "harness": True, "glance": False, "live_douyin": False, "live": False, "play": True, "sight": True},
     "live": {"douyin": {"room": "", "push_secret": ""}},
     "locale": {"ui": "zh-CN", "reply": "zh-CN", "reply_mode": "fixed"},
     "memory": {"embedder": "auto"},
@@ -219,6 +220,7 @@ def get_all(session: Session) -> Dict[str, Any]:
     result = _read_all(session)
     result["llm"] = apply_llm_overlay(result.get("llm") or {})
     result["omni"] = apply_omni_overlay(result.get("omni") or {})
+    result["live"] = normalize_live(result.get("live"))
     return result
 
 
@@ -232,6 +234,7 @@ def public_all(session: Session) -> Dict[str, Any]:
     omni = dict(result.get("omni") or {})
     result["omni_env"] = omni_env_fallback(omni)
     result["locale_set"] = "locale" in saved_keys(session)
+    result["live"] = normalize_live(result.get("live"))
     return result
 
 

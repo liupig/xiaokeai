@@ -56,7 +56,8 @@ const LLM_PRESETS: Record<string, { base: string; model: string }> = {
   minimax: { base: 'https://api.minimaxi.com/v1', model: 'MiniMax-M2' },
   modelscope: { base: 'https://api-inference.modelscope.cn/v1', model: 'Qwen/Qwen2.5-72B-Instruct' },
   hunyuan: { base: 'https://api.hunyuan.cloud.tencent.com/v1', model: 'hunyuan-turbos-latest' },
-  mimo: { base: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2-flash' },
+  mimo: { base: 'https://token-plan-cn.xiaomimimo.com/v1', model: 'mimo-v2.6-flash' },
+  mimo_pro: { base: 'https://token-plan-cn.xiaomimimo.com/v1', model: 'mimo-v2.6-pro' },
   moonshot_intl: { base: 'https://api.moonshot.ai/v1', model: 'kimi-k2-turbo-preview' },
   qwen_intl: { base: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
   ollama: { base: 'http://127.0.0.1:11434/v1', model: 'llama3.2' },
@@ -84,6 +85,7 @@ const llmPresetOptions = computed(() => {
     { label: t('set.llm.modelscope'), value: 'modelscope' },
     { label: t('set.llm.hunyuan'), value: 'hunyuan' },
     { label: t('set.llm.mimo'), value: 'mimo' },
+    { label: t('set.llm.mimo_pro'), value: 'mimo_pro' },
     { label: t('set.llm.aihubmix'), value: 'aihubmix' },
     { label: t('set.llm.ai302'), value: 'ai302' },
     { label: 'OpenAI', value: 'openai' },
@@ -163,7 +165,9 @@ function applyLlmPreset(key: string) {
   if (!p) return;
   settings.llm.base_url = p.base;
   settings.llm.model = p.model;
-  if (key === 'volcano_character') settings.llm.thinking = 'off';
+  if (key === 'volcano_character' || key === 'mimo' || key === 'mimo_pro') {
+    settings.llm.thinking = 'off';
+  }
   if ((key === 'ollama' || key === 'vllm' || key === 'sglang' || key === 'player2')
       && !(settings.llm.api_key || '').trim()) {
     settings.llm.api_key = 'ollama';
@@ -862,7 +866,7 @@ watch(() => settings.modules.live_douyin, (on) => {
   }
 }, { immediate: true });
 
-async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'tavern' | 'codewatch' | 'touch' | 'harness' | 'glance' | 'live_douyin', on: boolean) {
+async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'tavern' | 'codewatch' | 'touch' | 'harness' | 'glance' | 'live_douyin' | 'live' | 'play', on: boolean) {
   const prev = settings.modules[key];
   settings.modules[key] = on;
   try {
@@ -890,6 +894,11 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
       stopDouyinFeed();
       await api.liveDouyinStop().catch(() => {});
       douyinFeed.listening = false;
+    }
+    if (key === 'live' && !on) {
+      const { stopLiveLoop } = await import('../live/session');
+      stopLiveLoop();
+      await api.liveOff().catch(() => {});
     }
     if (key !== 'scenes') return;
     if (on && characters.currentId) {
@@ -1016,6 +1025,11 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           </div>
           <p class="hint">{{ t('set.mod.harness') }}</p>
           <div class="switch-row">
+            <span>{{ t('mod.play') }}</span>
+            <n-switch :value="settings.modules.play" @update:value="(v: boolean) => toggleMod('play', v)" />
+          </div>
+          <p class="hint">{{ t('set.mod.play') }}</p>
+          <div class="switch-row">
             <span>{{ t('mod.glance') }}</span>
             <n-switch :value="settings.modules.glance" @update:value="(v: boolean) => toggleMod('glance', v)" />
           </div>
@@ -1023,6 +1037,11 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <n-button size="small" @click="openWatchLab">{{ t('set.mod.glanceLab') }}</n-button>
           <p class="hint">{{ t('set.mod.glanceLabHint') }}</p>
           <label>{{ t('set.mod.live') }}</label>
+          <div class="switch-row">
+            <span>{{ t('mod.live') }}</span>
+            <n-switch :value="settings.modules.live" @update:value="(v: boolean) => toggleMod('live', v)" />
+          </div>
+          <p class="hint">{{ t('set.mod.liveHost') }}</p>
           <div class="switch-row">
             <span>{{ t('mod.liveDouyin') }}</span>
             <n-switch :value="settings.modules.live_douyin" @update:value="(v: boolean) => toggleMod('live_douyin', v)" />
@@ -1087,6 +1106,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <n-input v-model:value="settings.llm.harness_api_key" type="password"
                    show-password-on="click" :placeholder="t('set.llm.harnessKeyPh')" />
           <p class="hint">{{ t('set.llm.harnessHint') }}</p>
+          <p v-if="currentPreset === 'mimo' || currentPreset === 'mimo_pro'" class="hint">{{ t('set.llm.mimoHint') }}</p>
           <p v-if="showEndpointHint" class="hint warn">{{ t('set.llm.endpoint') }}</p>
           <div>
             <n-button size="small" type="primary" secondary

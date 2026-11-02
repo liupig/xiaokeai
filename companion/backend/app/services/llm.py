@@ -130,6 +130,8 @@ def auth_headers(base_url: str, api_key: str) -> Dict[str, str]:
     headers = {"Authorization": f"Bearer {api_key}"}
     if "api.anthropic.com" in (base_url or ""):
         headers["anthropic-version"] = "2023-06-01"
+    if "xiaomimimo.com" in (base_url or ""):
+        headers["api-key"] = api_key
     return headers
 
 
@@ -155,8 +157,9 @@ def build_payload(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]) -> D
         base_url = llm_conf.get("base_url") or ""
         if "dashscope.aliyuncs.com" in base_url:
             payload["enable_thinking"] = enabled          # 阿里云百炼
-        elif "volces.com" in base_url or "bigmodel.cn" in base_url:
-            # 火山方舟 / 智谱 GLM 共用 thinking.type 协议
+        elif "volces.com" in base_url or "bigmodel.cn" in base_url or "xiaomimimo.com" in base_url:
+            # 火山方舟 / 智谱 GLM / 小米 MiMo 共用 thinking.type。
+            # 小米 v2.6 默认开启思考，不传就会先想再答。
             payload["thinking"] = {"type": "enabled" if enabled else "disabled"}
         elif enabled and "openai.com" in base_url:
             payload["reasoning_effort"] = "medium"        # OpenAI 推理系列
@@ -219,6 +222,9 @@ async def test_messages(llm_conf: Dict[str, Any]) -> Dict[str, Any]:
         "max_tokens": 32,
         "messages": [{"role": "user", "content": "回复两个字：你好"}],
     }
+    thinking = llm_conf.get("thinking") or "default"
+    if thinking in ("on", "off") and "xiaomimimo.com" in (raw_base or "").lower():
+        payload["thinking"] = {"type": "enabled" if thinking == "on" else "disabled"}
     headers = {
         "x-api-key": llm_conf["api_key"],
         "anthropic-version": "2023-06-01",

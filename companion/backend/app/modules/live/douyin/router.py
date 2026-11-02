@@ -21,9 +21,12 @@ class ListenBody(BaseModel):
     room: str = ""
 
 
-def _guard(session: Session) -> None:
-    if not enabled(session, "live_douyin"):
-        raise HTTPException(404, "live module off")
+def _guard(session: Session, *, official: bool = False) -> None:
+    if enabled(session, "live_douyin"):
+        return
+    if official and enabled(session, "live"):
+        return
+    raise HTTPException(404, "live module off")
 
 
 def _secret(session: Session) -> str:
@@ -60,7 +63,7 @@ def listen_stop(session: Session = Depends(get_session)) -> Dict[str, Any]:
 @router.post("/callback")
 async def callback(request: Request, session: Session = Depends(get_session)):
     """抖音开放平台把评论、礼物、点赞 POST 到这里。2xx 才算收下。"""
-    _guard(session)
+    _guard(session, official=True)
     raw = await request.body()
     body = raw.decode("utf-8", "replace")
     headers = {k.lower(): v for k, v in request.headers.items()}

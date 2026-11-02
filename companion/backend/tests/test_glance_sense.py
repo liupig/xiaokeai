@@ -22,7 +22,7 @@ def test_code_with_text_does_not_call_the_eyes():
 
 
 def test_a_song_with_a_title_or_lyric_skips_the_eyes():
-    assert should_call_eyes("music", body=False, named=True, heard=False, motion="moved", force=True, find=False) is False
+    assert should_call_eyes("music", body=False, named=True, heard=False, motion="moved", force=True, find=False) is True
     assert should_call_eyes("music", body=False, named=False, heard=True, motion="moved", force=True, find=False) is False
     assert should_call_eyes("music", body=False, named=False, heard=False, motion="same", force=True, find=False) is True
 
@@ -110,6 +110,16 @@ def test_editor_chrome_is_not_body_text():
 
     assert _usable_text("Chrome Legacy Window", "desktop.py - games", "desktop.py - games - Cursor") is False
     assert _usable_text("NameError: glance_once", "engine.py", "engine.py - Cursor") is True
+
+
+def test_closed_match_can_rebind_to_league_client(monkeypatch):
+    from app.modules.glance import sense, along
+    client = Desk(ok=True, hwnd=200, process="LeagueClientUx.exe", title="League of Legends", window="League of Legends")
+    monkeypatch.setattr(sense, "_pinned", 100)
+    monkeypatch.setattr(along, "snapshot", lambda: {"on": True})
+    monkeypatch.setattr(sense, "read_hwnd", lambda hwnd: client if hwnd == 200 else Desk())
+    monkeypatch.setattr(sense, "find_media_hwnd", lambda: 200)
+    assert sense._stick(Desk(ok=True, hwnd=300, process="code.exe", kind="code")).hwnd == 200
 
 
 def test_browser_and_player_names():

@@ -84,6 +84,12 @@ def update_settings(patch: Dict[str, Any],
             live_douyin_stop()
         except Exception:
             pass
+    if bool(prev_mods.get("live", False)) and not bool(now_mods.get("live", False)):
+        try:
+            from ..modules.live.host import host as live_host
+            live_host.shutdown()
+        except Exception:
+            pass
     if not bool(now_mods.get("codewatch", True)):
         try:
             from ..modules.codewatch.router import release as codewatch_release

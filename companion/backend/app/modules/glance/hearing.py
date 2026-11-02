@@ -22,6 +22,22 @@ class Ear:
         self._quiet = False
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._source = ""
+        self._generation = 0
+
+    def bind(self, source: str) -> None:
+        with _lock:
+            if source != self._source:
+                self._source = source
+                self._generation += 1
+                self._text = ""
+                self._at = 0
+
+    def clear(self) -> None:
+        with _lock:
+            self._generation += 1
+            self._text = ""
+            self._at = 0
 
     def start(self) -> None:
         if not _can_hear():
@@ -42,18 +58,20 @@ class Ear:
         with _lock:
             if quiet and not self._quiet:
                 self._text = ""
+                self._generation += 1
             self._quiet = quiet
 
     def hush(self, seconds: float) -> None:
         with _lock:
             self._pause_until = max(self._pause_until, time.time() + seconds)
             self._text = ""
+            self._generation += 1
 
     def latest(self) -> str:
         with _lock:
             if self._quiet or time.time() < self._pause_until:
                 return ""
-            if not self._text or time.time() - self._at > 18:
+            if not self._text or time.time() - self._at > 8:
                 return ""
             return self._text
 
@@ -78,6 +96,8 @@ class Ear:
             self._stop.wait(3.0)
 
     def _take(self, seconds: float) -> str:
+        with _lock:
+            generation = self._generation
         wav = _record_span(self._stop, seconds)
         if not wav or self._stop.is_set():
             return ""
@@ -90,6 +110,8 @@ class Ear:
         if not text:
             return ""
         with _lock:
+            if generation != self._generation or self._quiet or time.time() < self._pause_until:
+                return ""
             self._text = text
             self._at = time.time()
         return text

@@ -114,6 +114,25 @@ export class SpeechPlayer {
   /** 每一句开播时回调（给选角器做句拍表演） */
   onSentence: ((text: string) => void) | null = null;
   onAllEnded: (() => void) | null = null;
+  private audibleCount = 0;
+  private playbackErrors = 0;
+
+  playbackTicket() {
+    return { generation: this.generation, token: this.playToken, inputGen: this.inputGen, audible: this.audibleCount, errors: this.playbackErrors };
+  }
+
+  async playbackResult(ticket: ReturnType<SpeechPlayer['playbackTicket']>, signal?: AbortSignal): Promise<'completed' | 'failed' | 'interrupted' | 'displayed'> {
+    if (this.engine === 'off') return 'displayed';
+    const until = Date.now() + 90000;
+    while (Date.now() < until) {
+      if (signal?.aborted || ticket.generation !== this.generation || ticket.token !== this.playToken || ticket.inputGen !== this.inputGen) return 'interrupted';
+      if (!this.isSpeaking()) {
+        return this.audibleCount > ticket.audible && this.playbackErrors === ticket.errors ? 'completed' : 'failed';
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
+    }
+    return 'failed';
+  }
 
   /** 正在合成或排队的语音，欢迎语 / 沉默续聊不要叠上去。 */
   isSpeaking(): boolean {
@@ -655,6 +674,7 @@ export class SpeechPlayer {
           continue;
         }
         console.error('TTS 播放失败（不改用其它音色）', e);
+        this.playbackErrors += 1;
       } finally {
         this.clipReceiving = false;
         if (this.currentClip === item) this.currentClip = null;
@@ -694,6 +714,7 @@ export class SpeechPlayer {
         return;
       }
       src.start();
+      this.audibleCount += 1;
       if (gen !== this.generation || token !== this.playToken) {
         try { src.stop(); } catch { /* already stopped */ }
         resolve();
@@ -750,6 +771,7 @@ export class SpeechPlayer {
       this.pcmSources.push(src);
       this.currentSource = src;
       src.start(t);
+      this.audibleCount += 1;
       this.maybeCutForPending();
     };
 
@@ -828,6 +850,7 @@ export class SpeechPlayer {
           return;
         }
         if (audio.currentTime > heardTime + 0.05) {
+          if (!heardAt) this.audibleCount += 1;
           heardTime = audio.currentTime;
           heardAt = Date.now();
         }
@@ -928,7 +951,13 @@ export class SpeechPlayer {
     const audio = this.currentAudio!;
     const url = URL.createObjectURL(blob);
     return new Promise((resolve) => {
-      audio.onended = audio.onerror = () => {
+      audio.onended = () => {
+        if (audio.currentTime > 0) this.audibleCount += 1;
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      audio.onerror = () => {
+        this.playbackErrors += 1;
         URL.revokeObjectURL(url);
         resolve();
       };
@@ -937,7 +966,7 @@ export class SpeechPlayer {
         if (this.clipStartTime <= 0) this.clipStartTime = this.ctx?.currentTime ?? 0;
         this.clipReceiving = false;
         this.maybeCutForPending();
-      }).catch(() => resolve());
+      }).catch(() => { this.playbackErrors += 1; URL.revokeObjectURL(url); resolve(); });
       if (gen !== this.generation || token !== this.playToken) {
         audio.pause();
         URL.revokeObjectURL(url);
@@ -961,13 +990,19 @@ export class SpeechPlayer {
           return;
         }
         this.ensureCtx();
+        this.audibleCount += 1;
         this.clipStartTime = this.ctx!.currentTime;
         this.clipReceiving = false;
         this.noteCaption(text, this.clipStartTime, this.clipStartTime + estimateSpeechSec(text));
         stage.lipsync.setTalking(true);
         this.maybeCutForPending();
       };
-      utter.onend = utter.onerror = () => {
+      utter.onend = () => {
+        stage.lipsync.setTalking(false);
+        resolve();
+      };
+      utter.onerror = () => {
+        this.playbackErrors += 1;
         stage.lipsync.setTalking(false);
         resolve();
       };

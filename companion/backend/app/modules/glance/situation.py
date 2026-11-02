@@ -76,6 +76,10 @@ class Offer:
     revision: int
     summary: str
     channel: str = ""
+    speech_rule: str = ""
+    max_age: float = 90.0
+    phase: str = ""
+    player_hero: str = ""
 
 
 def _none_fact(text: str) -> bool:
@@ -160,11 +164,12 @@ def _caption(text: str) -> bool:
     raw = " ".join((text or "").split())
     if not raw or _FAKE_TITLE.match(raw) or _dead(raw):
         return True
-    if re.search(r"\b(man|woman|shirt|microphone|split view)\b", raw, re.I):
+    if re.search(r"\b(shirt|microphone|split view)\b", raw, re.I):
         return True
     if re.search(r"视频列表|四格|多段内容|缩略图|衣服颜色|户外场景|室内场景", raw):
         return True
-    if re.search(r"戴眼镜|男子|女子|男生|女生|男人|女人|侧脸|人物|人影", raw) and not _quotes(raw):
+    action = re.search(r"攀爬|爬上|爬山|翻山|背负|拖着|扛着|拥抱|质问|争吵|奔跑|追赶|摔倒|跌倒|救起|递给|推开|打开|关上|举着|挥手|流泪|回家|离开|弹奏|演唱|跳舞", raw)
+    if re.search(r"戴眼镜|男子|女子|男生|女生|男人|女人|侧脸|人物|人影", raw) and not _quotes(raw) and not action:
         return True
     if _FRAME_COUNT.search(raw) or _POSITION.search(raw) or _SCENERY.match(raw.strip("。 ")):
         return True
@@ -242,6 +247,8 @@ def _line(text: str) -> bool:
     raw = (text or "").strip()
     if not raw or _caption(raw) or raw in {"MSCTFIME UI", "Default IME", "Chrome Legacy Window"}:
         return False
+    if re.search(r"[\u3040-\u30ff\uac00-\ud7af]", raw):
+        return len(re.findall(r"[\w]", raw)) >= 4
     han = _han(raw)
     letters = re.findall(r"[A-Za-z]{2,}", raw)
     if letters and len(han) < 4:
@@ -432,6 +439,9 @@ def read_steer(text: str) -> tuple[str | None, str | None]:
         talk = "quiet"
     elif any(word in compact for word in ("可以说了", "接着说", "你可以说话", "正常说")):
         talk = "normal"
+    if talk is None:
+        from ..sight.media_language import control
+        talk = {"hush": "quiet", "more": "more", "talk_on": "normal"}.get(control(text))
     attention: str | None = None
     if any(word in compact for word in ("不用关注", "别关注", "不用留意", "别盯着", "随便看")):
         attention = ""
@@ -587,6 +597,10 @@ class Situation:
         elif object_id != object_before:
             self.topic_id = f"{object_id}:none"
         self.phase = self._phase(obs)
+        if self.scene == "code" and self.phase == "flowing" and phase_before in {"stuck", "unread", "passed"}:
+            # A resolved problem is no longer the current action or an open event.
+            self.progress = obs.change or "继续编写"
+            self.topic_id = f"{self.object_id}:{_slug(self.progress)}"
         self.facts = self._facts(obs)
         self.inferences = self._inferences()
         self.unknowns = self._unknowns(obs)
@@ -844,7 +858,7 @@ class Situation:
     def _worth(self, obs: Observation) -> bool:
         if obs.quiet or self.scene == "unknown":
             return False
-        if _same_point(self.topic_id, self.last_offered_topic):
+        if (self.topic_id == self.last_offered_topic if self.scene == "game" else _same_point(self.topic_id, self.last_offered_topic)):
             return False
         if self.scene == "code" and self.phase == "flowing":
             return False
@@ -862,7 +876,7 @@ class Situation:
             return False
         if self.misses >= 3 and not _speakable(obs) and self.phase != "stuck":
             return False
-        if not (obs.title or obs.visible_text or _specific(obs.visible_events) or self.phase in {"stuck", "passed"}):
+        if not (obs.title or obs.visible_text or _specific(obs.visible_events) or self.phase in {"stuck", "passed", "unread"}):
             return False
         if not self._summary(obs):
             return False
@@ -873,6 +887,8 @@ class Situation:
         return True
 
     def _summary(self, obs: Observation) -> str:
+        if self.scene == "code" and self.phase == "unread":
+            return f"{self.title}：{obs.change or '这段看不懂'}"[:180]
         bit = _speakable(obs)
         if not bit:
             return ""

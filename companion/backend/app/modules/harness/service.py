@@ -172,6 +172,9 @@ def messages_base(base_url: str | None) -> str | None:
             path = "/api/compatible" if parent in {"", "/api"} else parent
     elif host == "api.deepseek.com" and path in {"", "/v1"}:
         path = "/anthropic"
+    elif host.endswith("xiaomimimo.com") and path in {"", "/v1"}:
+        # OpenAI 口是 /v1。技能目录走 Anthropic，口在 /anthropic/v1/messages。
+        path = "/anthropic"
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
@@ -376,15 +379,23 @@ def reasoning_effort_for(thinking: str | None) -> str | None:
 
 
 def turn_max_tokens(base_url: str | None, max_tokens: int, thinking: str | None) -> int | None:
-    """没填上限时不要按接口天花板去要。dsh 空白会带 256000，方舟超过 131072 直接 400。"""
+    """没填上限时不要按接口天花板去要。dsh 空白会带 256000。
+
+    方舟和小米都只收到 131072，再大直接 400。
+    小米没开思考时按一两句口语封顶。再大，漏出来的计划会先把字数写满。
+    """
     asked = int(max_tokens or 0)
     host = (base_url or "").lower()
-    volc = "volces.com" in host or "volcengine.com" in host
+    mimo = "xiaomimimo.com" in host
+    capped = "volces.com" in host or "volcengine.com" in host or mimo
     if asked <= 0:
-        if not volc:
+        if not capped:
             return None
-        return 8192 if (thinking or "").strip() == "on" else 2048
-    if volc and asked > 131072:
+        if (thinking or "").strip() == "on":
+            return 8192
+        # 一百字口语加上情绪和镜头标记。160 时计划一漏，话就被截没。
+        return 256 if mimo else 2048
+    if capped and asked > 131072:
         return 131072
     return asked
 
@@ -483,9 +494,12 @@ class Runtime:
             raw_base = (conf.get("base_url") or "").strip()
             if character_model_needs_endpoint(model, raw_base):
                 raise HarnessError(ENDPOINT_HINT)
-            base_url = messages_base(raw_base or None)
+            upstream = messages_base(raw_base or None)
             effort = reasoning_effort_for(conf.get("thinking"))
-            cap = turn_max_tokens(base_url, int(conf.get("max_tokens") or 0), conf.get("thinking"))
+            cap = turn_max_tokens(upstream, int(conf.get("max_tokens") or 0), conf.get("thinking"))
+            # dsh 把整段写完才发 assistant/message。本地先拆 text_delta，第一句才能先开口。
+            from .stream_tap import tap_base
+            base_url = tap_base(upstream) if upstream else None
             launch = (model, base_url, effort, cap)
             if self._harness is not None and self._launch == launch:
                 return self._harness
@@ -568,15 +582,29 @@ class Runtime:
             recall=recall,
         )
         growth = TextGrowth()
+        speak_lock = threading.Lock()
+
+        def publish(delta: str) -> None:
+            if delta:
+                on_delta(delta)
+
+        def on_live(text: str) -> None:
+            with speak_lock:
+                publish(growth.feed({
+                    "type": "assistant/chunk",
+                    "data": {"chunk": {"type": "text-delta", "text": text}},
+                }))
 
         def on_notification(notification: Any) -> None:
             event = _event_of(notification)
             if event is None:
                 return
-            delta = growth.feed(event)
-            if delta:
-                on_delta(delta)
+            with speak_lock:
+                publish(growth.feed(event))
 
+        from .stream_tap import subscribe_text
+        upstream = messages_base((apply_llm_overlay(llm_conf).get("base_url") or "").strip() or None)
+        unsubscribe = subscribe_text(upstream, on_live)
         try:
             with self._turn:
                 self._ensure_open(harness, session_id)
@@ -598,12 +626,15 @@ class Runtime:
         except Exception as exc:
             self.retire_if_dead(exc)
             raise
-        reason = getattr(result, "finish_reason", None)
-        if reason == "error":
-            raise HarnessError(_turn_error(getattr(result, "events", None)))
-        final = growth.finish(getattr(result, "final_response", "") or "")
-        if final:
-            on_delta(final)
+        finally:
+            unsubscribe()
+        with speak_lock:
+            reason = getattr(result, "finish_reason", None)
+            if reason == "error":
+                raise HarnessError(_turn_error(getattr(result, "events", None)))
+            final = growth.finish(getattr(result, "final_response", "") or "")
+            if final:
+                on_delta(final)
         if not seeded:
             mark_seed(character_id)
         note_kept_turn(character_id)

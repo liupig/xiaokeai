@@ -314,6 +314,11 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
         limited = any(code in str(exc) for code in ("429", "403"))
         if not limited:
             raise HTTPException(503, "edge TTS 失败") from exc
+        from ..modules.glance.eyes_host import probe
+
+        if probe():
+            talk_log.write("tts", "edge被限流，眼睛占着显卡，不改走本地")
+            raise HTTPException(503, "在线语音被限流。本地语音会和眼睛抢同一张显卡，这句先不说。") from exc
         local = _qwen_stand_in(voice)
         talk_log.write("tts", f"edge被限流，改走本地 {local}")
         req.engine = "qwen"

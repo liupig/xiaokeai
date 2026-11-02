@@ -91,13 +91,26 @@ def eyes_glance(
     gate: bool = False,
     detail: bool = False,
     crop: tuple[int, int, int, int] | list[int] | None = None,
+    prompt: str = "",
+    frames: int = 0,
+    window_hwnd: int = 0,
 ) -> dict:
     """截屏始终问眼睛进程。本机 MiniCPM 由它看；其他视觉模型只向它要原图。"""
     from .vision import uses_local, describe
 
     if not detail:
         detail = _read_detail(ask)
-    body = {"monitor": 1, "ask": ask, "along": along, "before": before, "gate": gate, "detail": detail}
+    body = {
+        "monitor": 1,
+        "ask": ask,
+        "along": along,
+        "before": before,
+        "gate": gate,
+        "detail": detail,
+        "prompt": prompt,
+        "frames": frames,
+        "window_hwnd": window_hwnd,
+    }
     if crop and len(crop) == 4:
         body["crop"] = [int(crop[0]), int(crop[1]), int(crop[2]), int(crop[3])]
     path = "/api/glance" if uses_local() else "/api/frames"

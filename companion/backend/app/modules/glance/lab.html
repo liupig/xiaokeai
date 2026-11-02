@@ -68,7 +68,7 @@
     h2 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--accent); letter-spacing: 0.02em; }
     .frames { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
     .frames img {
-      height: 132px;
+      height: 280px;
       width: auto;
       border-radius: 8px;
       background: #0e1016;
@@ -125,6 +125,8 @@
       else if (!row.ok) bits.push(chip('没看成', 'bad'));
       else bits.push(chip(row.channel || '已看', 'ok'));
       if (row.downsample) bits.push(chip(row.downsample));
+      if (row.slices) bits.push(chip(row.slices + ' 块'));
+      if (row.width && row.height) bits.push(chip(row.width + '×' + row.height));
       if (row.detail) bits.push(chip('细看'));
       if (row.ms) bits.push(chip(row.ms + ' ms'));
       const said = { speak: '她说了', silent: '她不说', hollow: '空话没播', drop: '没交成' };

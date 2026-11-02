@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from '../api/client';
+import { defaultLive, normalizeLive } from '../features/live/config';
 import { stage } from '../engine/stage';
 import {
   DEFAULT_DUPLEX_REMAIN_SEC,
@@ -59,8 +60,8 @@ export const useSettingsStore = defineStore('settings', {
       stage_show: true, stage_color: '#232342', stage_glow: '#5b5bd6', stage_style: 'classic',
       stage_texture: '', stage_opacity: 1,
     },
-    modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, tavern: true, codewatch: true, touch: true, harness: true, glance: false, live_douyin: false },
-    live: { douyin: { room: '', push_secret: '' } },
+    modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, tavern: true, codewatch: true, touch: true, harness: true, glance: false, live_douyin: false, live: false, play: true },
+    live: defaultLive(),
     vision: { provider: 'minicpm' as 'minicpm' | 'openai', base_url: '', api_key: '', model: '' },
     memory: { embedder: 'auto' as 'auto' | 'local' | 'doubao' | 'qwen' | 'openai' | 'gemini' },
     hardware: {
@@ -189,16 +190,12 @@ export const useSettingsStore = defineStore('settings', {
         codewatch: mods?.codewatch !== false,
         touch: mods?.touch !== false,
         harness: mods?.harness === true,
+        play: mods?.play !== false,
         glance: mods?.glance === true,
         live_douyin: mods?.live_douyin === true,
+        live: mods?.live === true,
       };
-      const live = (data as { live?: { douyin?: { room?: string; push_secret?: string } } }).live;
-      this.live = {
-        douyin: {
-          room: String(live?.douyin?.room || ''),
-          push_secret: String(live?.douyin?.push_secret || ''),
-        },
-      };
+      this.live = normalizeLive((data as { live?: unknown }).live);
       const vision = (data as { vision?: { provider?: string; base_url?: string; api_key?: string; model?: string } }).vision;
       this.vision = {
         provider: vision?.provider === 'openai' ? 'openai' : 'minicpm',

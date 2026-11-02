@@ -20,7 +20,7 @@ def keep_background(lines: list[str]) -> list[str]:
 
 
 def schedule(scene: str, title: str, artist: str, apply) -> None:
-    if os.environ.get("XIAOKE_GLANCE_LOOKUP", "1") == "0":
+    if os.environ.get("XIAOKE_GLANCE_LOOKUP", "0") != "1":
         apply([])
         return
 

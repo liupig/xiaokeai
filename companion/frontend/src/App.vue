@@ -23,6 +23,7 @@ import { tavernUi } from './features/tavern/session';
 import { wishUi } from './features/wish';
 import { featureOn } from './i18n';
 import { isPetShell } from './features/shell/mode';
+import { bindLiveHost } from './features/live/session';
 import { installPetPointer } from './features/shell/petPointer';
 import { installPetWander } from './features/shell/petWander';
 import { installTouch } from './features/touch';
@@ -45,6 +46,7 @@ const TavernLayer = defineAsyncComponent(() => import('./features/tavern/Layer.v
 const WishLayer = defineAsyncComponent(() => import('./features/wish/Layer.vue'));
 const CodewatchHud = defineAsyncComponent(() => import('./features/codewatch/Hud.vue'));
 const DanmakuStage = defineAsyncComponent(() => import('./features/live/DanmakuStage.vue'));
+const LiveDesk = defineAsyncComponent(() => import('./features/live/LiveDesk.vue'));
 
 /** 右侧面板互斥：同一时间只显示一个 */
 type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake' | 'log';
@@ -87,6 +89,7 @@ onMounted(async () => {
     installPetWander();
   }
   await settings.load().catch(() => {});
+  bindLiveHost();
   await assets.refresh().catch(() => {});
   await characters.loadList().catch(() => {});
   await chat.loadHistory().catch(() => {});
@@ -158,7 +161,8 @@ onMounted(async () => {
         <TavernLayer v-if="settings.modules.tavern && tavernUi.on" />
         <WishLayer v-if="wishUi.on" />
         <CodewatchHud v-if="!isPetShell && settings.modules.codewatch" />
-        <DanmakuStage v-if="!isPetShell && settings.modules.live_douyin" />
+        <LiveDesk v-if="!isPetShell && settings.modules.live" />
+        <DanmakuStage v-if="!isPetShell && (settings.modules.live || settings.modules.live_douyin)" />
         <QuickPanel :show="activePanel === 'quick'"
                     @update:show="(v: boolean) => setPanel('quick', v)" />
         <ChatBar v-if="!isPetShell && !tavernUi.on" />

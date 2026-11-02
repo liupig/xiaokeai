@@ -71,6 +71,11 @@ def add(row: dict) -> bool:
         item["seq"] = global_seq
         item["msg_id"] = key
         _ITEMS.append(item)
+    try:
+        from ..bridge import from_inbox
+        from_inbox(item)
+    except Exception:
+        pass
     return True
 
 

@@ -380,6 +380,28 @@ export interface LiveDanmaku {
   ts?: number;
 }
 
+export interface LiveDeskSnap {
+  ok?: boolean;
+  on_air: boolean;
+  missing?: string[];
+  segment?: { id: string; index?: number; left?: number };
+  budget?: { spent_cny?: number; cap_cny?: number; tokens?: number; tripped?: boolean };
+  health?: { uptime_sec?: number; last_error?: string; llm_failures?: number; degraded?: boolean };
+  bilibili?: { state?: string; error?: string; anchor?: string; room_id?: string; reconnects?: number };
+  douyin?: { callback?: string; room_id?: string; last_ago?: number };
+  events?: Array<{
+    seq: number; platform: string; kind: string; nickname: string; content: string;
+    gift?: string; count?: number;
+  }>;
+  regulars?: number;
+  wishes?: number;
+  ai_label?: boolean;
+  schedule?: string;
+  community?: string;
+  queue?: number;
+  turn?: { id: string; text: string; cue: string; act?: string; interrupt?: boolean } | null;
+}
+
 export interface LiveDouyinFeed {
   listening: boolean;
   room: string;
@@ -983,11 +1005,11 @@ export const api = {
       body: JSON.stringify({ on, character_id: characterId }),
     });
   },
-  glanceAlongAck(seq: number) {
+  glanceAlongAck(seq: number, status: 'completed' | 'failed' | 'interrupted' | 'displayed' = 'completed') {
     return request<GlanceAlong>('/api/modules/glance/along/ack', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seq }),
+      body: JSON.stringify({ seq, status }),
     });
   },
   glanceLabOpen() {
@@ -1005,6 +1027,46 @@ export const api = {
   },
   liveDouyinStop() {
     return request<LiveDouyinFeed>('/api/modules/live/douyin/stop', { method: 'POST' });
+  },
+  liveDesk(busy = 0, characterId = 0) {
+    return request<LiveDeskSnap>(`/api/modules/live/desk?busy=${busy ? 1 : 0}&character_id=${characterId}`);
+  },
+  liveOn(characterId: number) {
+    return request<LiveDeskSnap>('/api/modules/live/on', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  liveOff() {
+    return request<LiveDeskSnap>('/api/modules/live/off', { method: 'POST' });
+  },
+  liveAck(turnId: string) {
+    return request<{ ok: boolean }>('/api/modules/live/ack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ turn_id: turnId }),
+    });
+  },
+  liveBiliStart() {
+    return request<{ ok: boolean; error?: string }>('/api/modules/live/bilibili/start', { method: 'POST' });
+  },
+  liveBiliStop() {
+    return request<{ ok: boolean }>('/api/modules/live/bilibili/stop', { method: 'POST' });
+  },
+  liveRehearsal(content: string) {
+    return request<{ ok: boolean }>('/api/modules/live/rehearsal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, kind: 'comment', nickname: '彩排' }),
+    });
+  },
+  liveCue(act: string) {
+    return request<{ ok: boolean }>('/api/modules/live/cue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ act }),
+    });
   },
   codewatchStatus() {
     return request<CodewatchStatus>('/api/modules/codewatch/status');

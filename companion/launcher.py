@@ -275,7 +275,8 @@ class WinJob:
             ]
 
         info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-        info.BasicLimitInformation.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
+        # 0x2000 关窗口时杀掉作业里的前后端。0x800 允许游戏启动时主动脱离作业。
+        info.BasicLimitInformation.LimitFlags = 0x2000 | 0x800
         ok = kernel32.SetInformationJobObject(
             job, 9, ctypes.byref(info), ctypes.sizeof(info),
         )

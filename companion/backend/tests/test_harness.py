@@ -364,6 +364,15 @@ def test_volc_openai_base_becomes_the_messages_base():
     assert messages_base("https://api.deepseek.com/anthropic") == (
         "https://api.deepseek.com/anthropic"
     )
+    assert messages_base("https://token-plan-cn.xiaomimimo.com/v1") == (
+        "https://token-plan-cn.xiaomimimo.com/anthropic"
+    )
+    assert messages_base("https://token-plan-cn.xiaomimimo.com/anthropic") == (
+        "https://token-plan-cn.xiaomimimo.com/anthropic"
+    )
+    assert messages_base("https://api.xiaomimimo.com/v1") == (
+        "https://api.xiaomimimo.com/anthropic"
+    )
     assert messages_base(None) is None
     assert messages_base("") is None
 
@@ -386,6 +395,11 @@ def test_unset_volc_max_is_a_chat_cap():
     assert turn_max_tokens(volc, 4000, "off") == 4000
     assert turn_max_tokens(volc, 200000, "off") == 131072
     assert turn_max_tokens("https://api.deepseek.com", 0, "off") is None
+    mimo = "https://token-plan-cn.xiaomimimo.com/anthropic"
+    assert turn_max_tokens(mimo, 0, "off") == 256
+    assert turn_max_tokens(mimo, 0, "default") == 256
+    assert turn_max_tokens(mimo, 0, "on") == 8192
+    assert turn_max_tokens(mimo, 256000, "off") == 131072
 
 
 def test_a_missing_session_is_not_an_already_open_one():

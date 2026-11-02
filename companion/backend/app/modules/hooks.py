@@ -80,6 +80,18 @@ def after_messages(
         hint = invite_hint(str(extra.get("user_text") or ""))
         if hint:
             out = out + [{"role": "system", "content": hint}]
+    if enabled(session, "play") and (mode or "").lower() == "user":
+        try:
+            from ..services import settings_store
+            from .play.service import on_user_text
+
+            locale = ((settings_store.get_all(session).get("locale") or {}).get("ui") or "zh-CN")
+            note = on_user_text(str(extra.get("user_text") or ""), str(locale))
+        except Exception as exc:
+            print(f"[play] {exc}")
+            note = ""
+        if note:
+            out = out + [{"role": "system", "content": note}]
     return out
 
 

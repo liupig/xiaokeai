@@ -5,44 +5,73 @@ import { useSettingsStore } from '../../stores/settings';
 import {
   closeDanmakuPanel, douyinFeed, showDanmakuPanel, startDouyinFeed, stopDouyinFeed,
 } from './douyinFeed';
+import { liveDesk } from './session';
 
 const settings = useSettingsStore();
 const scroller = ref<HTMLElement | null>(null);
-const lines = computed(() => douyinFeed.lines.slice(-6));
-const showPanel = computed(() => (
-  settings.modules.live_douyin && douyinFeed.listening && douyinFeed.open
+const liveOn = computed(() => settings.modules.live);
+const lines = computed(() => (
+  liveOn.value ? liveDesk.events.slice(-6) : douyinFeed.lines.slice(-6)
 ));
-const showReopen = computed(() => (
-  settings.modules.live_douyin && douyinFeed.listening && !douyinFeed.open
+const listening = computed(() => (
+  liveOn.value
+    ? liveDesk.onAir || liveDesk.bilibili.state !== 'idle' || liveDesk.events.length > 0
+    : douyinFeed.listening
 ));
+const boardOpen = computed(() => (liveOn.value ? liveDesk.boardOpen : douyinFeed.open));
+const showPanel = computed(() => listening.value && boardOpen.value);
+const showReopen = computed(() => listening.value && !boardOpen.value);
+let actionTimer = 0;
 
-watch(() => settings.modules.live_douyin, (on) => {
+watch(() => liveDesk.action, (act) => {
+  window.clearTimeout(actionTimer);
+  if (!act) return;
+  actionTimer = window.setTimeout(() => {
+    if (liveDesk.action === act) liveDesk.action = '';
+  }, 4000);
+});
+
+function closeBoard() {
+  if (liveOn.value) liveDesk.boardOpen = false;
+  else closeDanmakuPanel();
+}
+
+function openBoard() {
+  if (liveOn.value) liveDesk.boardOpen = true;
+  else showDanmakuPanel();
+}
+
+watch(() => settings.modules.live_douyin && !settings.modules.live, (on) => {
   if (on) startDouyinFeed();
-  else {
+  else if (!settings.modules.live_douyin) {
     stopDouyinFeed();
     douyinFeed.listening = false;
   }
 }, { immediate: true });
 
-watch(() => douyinFeed.lines.length, async () => {
+watch(() => lines.value.length, async () => {
   await nextTick();
   const el = scroller.value;
   if (el) el.scrollTop = el.scrollHeight;
 });
 
-onUnmounted(stopDouyinFeed);
+onUnmounted(() => {
+  window.clearTimeout(actionTimer);
+  if (!settings.modules.live) stopDouyinFeed();
+});
 </script>
 
 <template>
-  <button v-if="showReopen" type="button" class="reopen" @click="showDanmakuPanel">
+  <button v-if="showReopen" type="button" class="reopen" @click="openBoard">
     {{ t('live.douyin.show') }}
   </button>
   <section v-else-if="showPanel" class="board">
     <header>
       <span class="lamp" />
       <span class="title">{{ t('live.douyin.board') }}</span>
-      <button type="button" class="close" :aria-label="t('live.douyin.close')" @click="closeDanmakuPanel">×</button>
+      <button type="button" class="close" :aria-label="t('live.douyin.close')" @click="closeBoard">×</button>
     </header>
+    <p v-if="liveOn && liveDesk.action" class="chip">{{ t(`live.act.${liveDesk.action}`) }}</p>
     <div ref="scroller" class="list">
       <p v-if="!lines.length" class="empty">{{ douyinFeed.error || t('live.douyin.waiting') }}</p>
       <p v-for="item in lines" :key="item.seq" class="row" :class="item.kind">
@@ -133,6 +162,14 @@ header {
 
 .list {
   overflow: hidden;
+}
+
+.chip {
+  margin: 6px 0 0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #ffe7a3;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
 .list::-webkit-scrollbar {

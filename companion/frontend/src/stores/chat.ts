@@ -1136,7 +1136,7 @@ export const useChatStore = defineStore('chat', {
         speechPlayer.streamOpen = false;
       }
     },
-    async alongSpeak(seen: string): Promise<'skip' | 'spoke' | 'empty'> {
+    async alongSpeak(seen: string): Promise<'skip' | 'spoke' | 'empty' | 'failed' | 'interrupted' | 'displayed'> {
       const text = (seen || '').trim();
       if (!text) return 'skip';
       if (dancePlaying()) return 'skip';
@@ -1144,8 +1144,7 @@ export const useChatStore = defineStore('chat', {
       if (!chars.currentId) return 'skip';
       if (this.sending) return 'skip';
       if (speechPlayer.streamOpen || speechPlayer.isSpeaking()) {
-        speechPlayer.stop();
-        speechPlayer.streamOpen = false;
+        return 'skip';
       }
       sessionClosed = false;
       this.sending = true;
@@ -1160,6 +1159,7 @@ export const useChatStore = defineStore('chat', {
       this.messages.push(assistant);
       this.applyVoice();
       orchestrator.beginContinue('proactive');
+      const playback = speechPlayer.playbackTicket();
       const bag = { speech: false };
       const onEvent = (ev: any) => {
         if (ev.type === 'error') {
@@ -1190,7 +1190,9 @@ export const useChatStore = defineStore('chat', {
         this.sending = false;
         speechPlayer.streamOpen = false;
       }
-      return (assistant.content || assistant.fullContent) ? 'spoke' : 'empty';
+      if (!(assistant.content || assistant.fullContent)) return 'empty';
+      const outcome = await speechPlayer.playbackResult(playback, controller.signal);
+      return outcome === 'completed' ? 'spoke' : outcome;
     },
     /** 被碰到之后偶尔的一句。走和续聊同一条表演，不另开说话。 */
     async touchSpeak(brief: string, line: string) {
