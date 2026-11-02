@@ -91,12 +91,30 @@ function playClip(url: string, mine: number) {
   });
 }
 
+/** 流式解码撕开之后是满幅来回跳。正常齿音不会又密又贴满。从第一段坏波形起切掉。 */
+function tornCut(samples: Int16Array) {
+  const win = 4800;
+  for (let i = 2400; i + win < samples.length; i += 1600) {
+    let jumps = 0;
+    let clipped = 0;
+    const end = i + win;
+    for (let j = i; j < end; j += 1) {
+      if (Math.abs(samples[j]) > 30000) clipped += 1;
+      if (Math.abs(samples[j + 1] - samples[j]) > 22000) jumps += 1;
+    }
+    if (jumps > 80 && clipped > 100) return i;
+  }
+  return samples.length;
+}
+
 /** 本地 Qwen 回来的是裸 PCM，浏览器的 Audio 标签播不了。 */
 function playPcm(raw: ArrayBuffer, rate: number, mine: number) {
   return new Promise<boolean>((resolve) => {
     const bytes = raw.byteLength % 2 ? raw.slice(0, raw.byteLength - 1) : raw;
-    const samples = new Int16Array(bytes);
-    if (mine !== gen || !samples.length) {
+    const all = new Int16Array(bytes);
+    const cut = tornCut(all);
+    const samples = cut === all.length ? all : all.subarray(0, cut);
+    if (mine !== gen || samples.length < 480) {
       resolve(false);
       return;
     }
@@ -108,7 +126,13 @@ function playPcm(raw: ArrayBuffer, rate: number, mine: number) {
     if (!pcmCtx || pcmCtx.state === 'closed') pcmCtx = new Ctx();
     const ctx = pcmCtx;
     const floats = new Float32Array(samples.length);
-    for (let i = 0; i < samples.length; i += 1) floats[i] = samples[i] / 32768;
+    const fade = Math.min(160, Math.floor(samples.length / 8));
+    for (let i = 0; i < samples.length; i += 1) {
+      let gain = 1;
+      if (i < fade) gain = i / fade;
+      else if (i > samples.length - 1 - fade) gain = (samples.length - 1 - i) / fade;
+      floats[i] = (samples[i] / 32768) * gain;
+    }
     const buf = ctx.createBuffer(1, floats.length, rate || 24000);
     buf.copyToChannel(floats, 0);
     const src = ctx.createBufferSource();

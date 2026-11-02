@@ -670,7 +670,7 @@
   "set.tts.voicePh": "请选择当前引擎的音色",
   "set.tts.voiceHint": "改对话语言时，会换成这个语言的默认音色：中文和英语都是塞蕾娜（女声），日语小野安娜，韩语素熙。英语用同一个女声来念，不会换成男声。你在这个语言里另外选过的音色会记住。只改界面语言不动音色。Qwen 走本机 GPU，PCM 边生成边播。",
   "set.tavern.cast": "酒馆座位音色",
-  "set.tavern.castHint": "留空就自动分。XiaO 女声，AI 男声。萝莉、少女、御姐这一副，KE 用男声；犬系、正太、爹系这一副，KE 用女声。裁判用角色自己的声音。本地音色够用就走本地，不够再用 edge。",
+  "set.tavern.castHint": "留空就跟着当前合成引擎分。小米用冰糖、茉莉、苏打、白桦，本地用 Qwen。XiaO 女声，AI 男声。萝莉、少女、御姐这一副，KE 用男声；犬系、正太、爹系这一副，KE 用女声。角色音色和当前引擎一致时，裁判用角色的声音。每个座位也可以单独指定。",
   "set.tavern.auto": "自动",
   "set.tavern.local": "本地",
   "set.tavern.online": "在线",
@@ -785,5 +785,18 @@
   "set.stage.disco": "迪斯科舞池",
   "set.saved": "设置已保存",
   "set.embed.switched": "已切换记忆向量，正在后台重建索引（事实文本保留）",
-  "set.warmup.started": "已开始准备"
+  "set.warmup.started": "已开始准备",
+  "set.tts.mimoEngine": "在线 · 小米 MiMo 语音（重点体验）",
+  "set.tavern.mimo": "小米",
+  "set.tts.mimo": "官方预置音色一共 9 个：冰糖、茉莉、苏打、白桦、Mia、Chloe、Milo、Dean，以及集群默认。模型 mimo-v2.5-tts，24kHz 流式。句子开头的情绪会变成语气，开心、难过、生气会换着说。Key 读 XIAOMI_KEY。TTS 在套餐里目前不扣额度。",
+  "tavern.tribunal.title": "魅影 · 生死审判",
+  "tavern.tribunal.subject": "接受审判",
+  "tavern.tribunal.oneBullet": "三膛 · 一颗实弹",
+  "tavern.tribunal.verdict": "翻牌裁决",
+  "tavern.tribunal.spin": "转轮上膛",
+  "tavern.tribunal.locked": "屏住呼吸",
+  "tavern.tribunal.safe": "空膛 · 生还",
+  "tavern.tribunal.hit": "中弹 · 离席",
+  "tavern.tribunal.result": "击发结果",
+  "tavern.tribunal.continue": "继续牌局"
 }

@@ -14,6 +14,7 @@ from ..services import cloud_key
 from ..services import tts_cosy
 from ..services import tts_eleven
 from ..services import tts_gemini
+from ..services import tts_mimo
 from ..services import tts_openai
 from ..services import tts_qwen
 from ..services import tts_volc
@@ -136,8 +137,16 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
     engine = (req.engine or conf.get("engine") or "qwen").strip().lower()
     if engine in ("browser", "off"):
         raise HTTPException(400, "当前引擎不走后端合成")
+    from ..locale_pack import reply_of
+    all_conf = settings_store.get_all(session)
+    engine, language_voice = tts.language_route(engine, reply_of(all_conf))
     try:
-        voice = tts.resolve_voice(engine, req.voice, conf.get("voice") or "")
+        voice = tts.resolve_voice(engine, language_voice or req.voice, language_voice or conf.get("voice") or "")
+    except ValueError as exc:
+        if engine != "mimo":
+            raise HTTPException(400, str(exc)) from exc
+        voice = ""
+    try:
         from ..locale_pack import align_voice, reply_of
         all_conf = settings_store.get_all(session)
         voice = align_voice(engine, voice, reply_of(all_conf))
@@ -237,6 +246,36 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
                 "Access-Control-Expose-Headers": "X-Audio-Format, X-Audio-Rate",
             },
         )
+    if engine == "mimo":
+        agen = tts_mimo.synthesize_pcm(
+            req.text, voice, cloud_key.mimo_key(llm),
+            req.instruct or "", str(llm.get("base_url") or ""),
+        )
+        try:
+            first = await anext(agen)
+        except StopAsyncIteration:
+            raise HTTPException(503, "小米合成未返回音频") from None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+        async def mimo_gen():
+            yield first
+            async for chunk in agen:
+                yield chunk
+
+        return StreamingResponse(
+            mimo_gen(),
+            media_type="application/octet-stream",
+            headers={
+                "X-Audio-Format": "pcm_s16le",
+                "X-Audio-Rate": str(tts_mimo.SAMPLE_RATE),
+                "Cache-Control": "no-store",
+                "X-Accel-Buffering": "no",
+                "Access-Control-Expose-Headers": "X-Audio-Format, X-Audio-Rate",
+            },
+        )
     if engine == "gemini":
         agen = tts_gemini.synthesize_pcm(req.text, voice, cloud_key.gemini_key(llm))
         try:
@@ -300,6 +339,8 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
         media_type="audio/mpeg",
         headers={
             "X-Audio-Format": "mp3",
+            "X-TTS-Engine": engine,
+            "X-TTS-Voice": voice,
             "Cache-Control": "no-store",
             "Access-Control-Expose-Headers": "X-Audio-Format, X-Audio-Rate",
         },

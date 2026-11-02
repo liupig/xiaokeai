@@ -670,7 +670,7 @@
   "set.tts.voicePh": "이 엔진의 목소리를 고른다",
   "set.tts.voiceHint": "말하는 언어를 바꾸면 그 언어의 기본 목소리가 골라진다. 중국어와 영어는 둘 다 Serena 라서 영어도 여자 목소리로 남는다. 일본어는 Ono Anna, 한국어는 Sohee. 그 언어에 이미 고른 목소리는 기억된다. 화면만 바꿔도 목소리는 그대로다. Qwen 은 로컬 GPU 에서 돈다.",
   "set.tavern.cast": "주점 목소리",
-  "set.tavern.castHint": "비우면 자동. XiaO 는 여성, AI 는 남성. 로리타 패면 KE 는 남성, 다른 패면 여성. 심판은 캐릭터 목소리. 로컬을 먼저, 모자라면 edge.",
+  "set.tavern.castHint": "비우면 지금 합성 엔진을 따른다. MiMo 는 冰糖, 茉莉, 苏打, 白桦. Qwen 은 이 기기. XiaO 는 여성, AI 는 남성. 로리타 패면 KE 는 남성, 다른 패면 여성. 캐릭터 목소리가 지금 엔진과 같을 때 심판이 그 목소리를 쓴다. 자리마다 따로 고를 수 있다.",
   "set.tavern.auto": "자동",
   "set.tavern.local": "로컬",
   "set.tavern.online": "온라인",
@@ -785,5 +785,18 @@
   "set.stage.disco": "디스코",
   "set.saved": "설정을 저장했다",
   "set.embed.switched": "임베딩을 바꿨다. 색인을 뒤에서 다시 만든다. 사실은 남는다.",
-  "set.warmup.started": "준비 중"
+  "set.warmup.started": "준비 중",
+  "set.tts.mimoEngine": "온라인 · Xiaomi MiMo 음성 (중점)",
+  "set.tavern.mimo": "MiMo",
+  "set.tts.mimo": "프리셋은 9개: 冰糖, 茉莉, 苏打, 白桦, Mia, Chloe, Milo, Dean, 클러스터 기본. 모델 mimo-v2.5-tts, 24kHz. 문장의 감정이 말투가 된다. 키는 XIAOMI_KEY. TTS 는 지금 한도를 쓰지 않는다.",
+  "tavern.tribunal.title": "매영 · 운명의 심판",
+  "tavern.tribunal.subject": "심판 대상",
+  "tavern.tribunal.oneBullet": "약실 셋 · 실탄 하나",
+  "tavern.tribunal.verdict": "판정",
+  "tavern.tribunal.spin": "실린더 회전",
+  "tavern.tribunal.locked": "숨을 멈춰",
+  "tavern.tribunal.safe": "빈 약실 · 생존",
+  "tavern.tribunal.hit": "피격 · 퇴장",
+  "tavern.tribunal.result": "결과",
+  "tavern.tribunal.continue": "계속"
 }

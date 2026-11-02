@@ -26,7 +26,7 @@ export const useSettingsStore = defineStore('settings', {
       max_tokens: 0, thinking: 'off',
       harness_model: '', harness_base_url: '', harness_api_key: '',
     },
-    tts: { engine: 'qwen' as 'cosy' | 'edge' | 'qwen' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'browser' | 'off',
+    tts: { engine: 'qwen' as 'cosy' | 'edge' | 'qwen' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'mimo' | 'browser' | 'off',
            voice: 'Serena', rate: '+0%', qwen_size: '0.6b' as '0.6b' | '1.7b',
            qwen_style: 'yujie' as string, qwen_instruct: '',
            duplex_cmd: 'interrupt_or_queue' as DuplexCmd,
@@ -231,7 +231,8 @@ export const useSettingsStore = defineStore('settings', {
         if (!v.length) return;
         const ok = v.some((x) => x.engine === this.tts.engine && x.id === this.tts.voice);
         if ((this.tts.engine === 'edge' || this.tts.engine === 'qwen' || this.tts.engine === 'volc'
-          || this.tts.engine === 'openai' || this.tts.engine === 'eleven' || this.tts.engine === 'gemini') && !ok) {
+          || this.tts.engine === 'openai' || this.tts.engine === 'eleven' || this.tts.engine === 'gemini'
+          || this.tts.engine === 'mimo') && !ok) {
           this.tts.voice = defaultVoice(this.tts.engine, this.locale.reply);
         } else if (this.tts.engine === 'cosy' && !ok) {
           this.tts.voice = '';

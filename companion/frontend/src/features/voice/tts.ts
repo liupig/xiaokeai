@@ -20,10 +20,17 @@ export { DEFAULT_DUPLEX_REMAIN_SEC, normalizeDuplexCmd };
  * Pool + 播放器。
  * pushUnit 按 DuplexCmd 决定插队/排队/丢掉；真正拉 TTS 流只在决定要播之后。
  */
-export type TtsEngine = 'cosy' | 'edge' | 'qwen' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'browser' | 'off';
+export type TtsEngine = 'cosy' | 'edge' | 'qwen' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'mimo' | 'browser' | 'off';
 
-const STREAM_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'volc', 'openai', 'eleven', 'gemini']);
-const VOICE_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'volc', 'openai', 'eleven', 'gemini']);
+const STREAM_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'volc', 'openai', 'eleven', 'gemini', 'mimo']);
+const VOICE_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'volc', 'openai', 'eleven', 'gemini', 'mimo']);
+
+/** 小米朗读吃情绪。从原文取出 [emo:happy:0.8]，念出去的字仍然去掉标记。 */
+function mimoCue(raw: string): string {
+  const matched = (raw || '').match(/\[emo:([A-Za-z_]+)(?::([0-9]*\.?[0-9]+))?\]/);
+  if (!matched) return '';
+  return matched[2] ? `${matched[1]}:${matched[2]}` : matched[1];
+}
 
 function isSidecarClip(clip: { duplexCmd?: DuplexCmd; kind?: string } | null): boolean {
   if (!clip) return false;
@@ -398,6 +405,9 @@ export class SpeechPlayer {
     const cleaned = stripCaption(text.trim());
     if (!cleaned || this.engine === 'off') return null;
     if (VOICE_ENGINES.has(this.engine) && !this.voice) return null;
+    const instruct = this.engine === 'mimo'
+      ? (mimoCue(text) || this.qwenInstruct)
+      : this.qwenInstruct;
     const gen = this.generation;
     const ac = new AbortController();
     this.ensureCtx();
@@ -417,7 +427,7 @@ export class SpeechPlayer {
     } else if (STREAM_ENGINES.has(this.engine)) {
       job = withTimeout(api.ttsResponse(
         speakForEngine(cleaned), this.voice, this.engine, ac.signal,
-        this.qwenSize, this.qwenStyle, this.qwenInstruct,
+        this.qwenSize, this.qwenStyle, instruct,
       ));
     } else {
       job = withTimeout(this.fetchBuffer(cleaned, ac.signal, gen));

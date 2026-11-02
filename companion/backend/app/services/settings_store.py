@@ -144,6 +144,14 @@ def apply_llm_overlay(llm: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     否则技能目录会一直被角色模型挡住。
     """
     out = dict(llm or {})
+    _load_local_env()
+    base = str(out.get("base_url") or "").lower()
+    if "xiaomimimo.com" in base:
+        if not (out.get("api_key") or "").strip():
+            key = (os.environ.get("XIAOMI_KEY") or os.environ.get("MIMO_API_KEY") or "").strip()
+            if key:
+                out["api_key"] = key
+        return out
     env = env_llm()
     if (out.get("api_key") or "").strip() or not env.get("api_key"):
         return out

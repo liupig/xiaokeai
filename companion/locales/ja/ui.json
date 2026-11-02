@@ -670,7 +670,7 @@
   "set.tts.voicePh": "このエンジンの声を選ぶ",
   "set.tts.voiceHint": "対話の言語を替えると、その言語の既定の声になる。中国語も英語もセレナで、英語も女の声のまま。日本語は小野アンナ、韓国語はソヒ。その言語で自分で選んだ声は覚えて、戻るとそれを使う。画面の言語だけ替えても声は変わらない。Qwen は手元の GPU。",
   "set.tavern.cast": "酒場の声",
-  "set.tavern.castHint": "空欄は自動。XiaO は女声、AI は男声。ロリータ側の札なら KE は男声、もう一組なら女声。裁定は役の声。ローカルを先に、足りなければ edge。",
+  "set.tavern.castHint": "空欄は今の合成エンジンに従う。MiMo は冰糖、茉莉、苏打、白桦。Qwen は手元。XiaO は女声、AI は男声。ロリータ側の札なら KE は男声、もう一組なら女声。役の声が今のエンジンと同じとき、裁定はその声。席ごとに指定もできる。",
   "set.tavern.auto": "自動",
   "set.tavern.local": "ローカル",
   "set.tavern.online": "オンライン",
@@ -785,5 +785,18 @@
   "set.stage.disco": "ディスコ",
   "set.saved": "設定を保存した",
   "set.embed.switched": "記憶ベクトルを替えた。裏で索引を作り直す。事実の文は残る。",
-  "set.warmup.started": "準備を始めた"
+  "set.warmup.started": "準備を始めた",
+  "set.tts.mimoEngine": "オンライン · Xiaomi MiMo 音声（重点）",
+  "set.tavern.mimo": "MiMo",
+  "set.tts.mimo": "プリセットは 9 声：冰糖、茉莉、苏打、白桦、Mia、Chloe、Milo、Dean、クラスタ既定。モデル mimo-v2.5-tts、24kHz。文の感情が口調になる。キーは XIAOMI_KEY。TTS は今のところ枠を消費しない。",
+  "tavern.tribunal.title": "魅影 · 運命の審判",
+  "tavern.tribunal.subject": "審判を受ける者",
+  "tavern.tribunal.oneBullet": "三つの薬室 · 一発の実弾",
+  "tavern.tribunal.verdict": "判定",
+  "tavern.tribunal.spin": "シリンダー回転",
+  "tavern.tribunal.locked": "息を止めて",
+  "tavern.tribunal.safe": "空砲 · 生還",
+  "tavern.tribunal.hit": "被弾 · 退席",
+  "tavern.tribunal.result": "結果",
+  "tavern.tribunal.continue": "続ける"
 }

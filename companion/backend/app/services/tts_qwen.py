@@ -382,6 +382,9 @@ def _load_model(size: str):
 
 
 _TRAIL_OPEN = re.compile(r"[，、：:～~]+$")
+_CLAUSE = re.compile(r"[^。！？!?；;，、…]+[。！？!?；;，、…]?")
+# 12 个 codec 帧大约 1 秒。滑窗大约从第 4 秒起把波形撕成满幅噪声。
+_SAFE_FRAMES = 36
 
 
 def _speak_text(text: str) -> str:
@@ -392,22 +395,95 @@ def _speak_text(text: str) -> str:
     return s
 
 
+def _latin(text: str) -> bool:
+    letters = sum(ch.isascii() and ch.isalpha() for ch in text)
+    cjk = sum("\u4e00" <= ch <= "\u9fff" for ch in text)
+    return letters > cjk
+
+
+def _token_cap(text: str) -> int:
+    """按字数封顶，并且不越过会撕波形的帧数。"""
+    return min(_SAFE_FRAMES, max(12, len(text) * 3))
+
+
+def _utterances(text: str) -> list[str]:
+    """长句切开再合成。一整段顶到 4 秒时，后半段就是机械炸音。"""
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    if _latin(raw):
+        words = raw.split()
+        out: list[str] = []
+        buf = ""
+        for word in words:
+            nxt = word if not buf else f"{buf} {word}"
+            if buf and len(nxt) > 48:
+                out.append(buf)
+                buf = word
+            else:
+                buf = nxt
+        if buf:
+            out.append(buf)
+        return out or [raw]
+    parts = [p.strip() for p in _CLAUSE.findall(raw) if p.strip()] or [raw]
+    merged: list[str] = []
+    buf = ""
+    for part in parts:
+        if buf and len(buf) + len(part) > 12:
+            merged.append(buf)
+            buf = part
+        else:
+            buf += part
+    if buf:
+        merged.append(buf)
+    out = []
+    for part in merged:
+        while len(part) > 12:
+            out.append(part[:12])
+            part = part[12:]
+        if part:
+            out.append(part)
+    return out or [raw]
+
+
+def _float_torn(audio) -> bool:
+    """满幅来回跳才算撕开。普通嗓音的齿音不会同时贴满上下限。"""
+    import numpy as np
+    samples = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if samples.size < 480:
+        return False
+    jumps = int(np.sum(np.abs(np.diff(samples)) > 0.7))
+    clipped = int(np.sum(np.abs(samples) > 0.92))
+    return jumps >= 80 and clipped >= 200
+
+
 def _stream_chunks(
     text: str, speaker: str, language: str, size: str, instruct: str = "",
     cancel: Optional[threading.Event] = None,
 ):
     """同步生成器：产出 float PCM numpy / tensor 块。"""
     model = _load_model(size)
-    spoken = _speak_text(text)
-    # 12 帧大约 1 秒。滑窗从第 4 秒起会解成破音，一段最多约 20 字，封在 4 秒内。
-    max_tokens = min(48, max(36, len(spoken) * 3))
+    pieces = _utterances(_speak_text(text))
+    import numpy as np
+    for index, spoken in enumerate(pieces):
+        if cancel is not None and cancel.is_set():
+            return
+        if index:
+            yield np.zeros(720, dtype=np.float32)
+        yield from _stream_one(model, spoken, speaker, language, size, instruct, cancel)
+
+
+def _stream_one(
+    model, spoken: str, speaker: str, language: str, size: str, instruct: str = "",
+    cancel: Optional[threading.Event] = None,
+):
     kwargs = dict(
         text=spoken,
         speaker=speaker,
         language=language,
         # 库默认 12≈1 秒；2 只有约 0.17 秒，生成稍慢或经反代就会播成一字一顿
         chunk_size=8,
-        max_new_tokens=max_tokens,
+        max_new_tokens=_token_cap(spoken),
         non_streaming_mode=False,
     )
     if instruct.strip() and size != "0.6b":
@@ -428,7 +504,10 @@ def _stream_chunks(
                     for item in gen:
                         if cancel is not None and cancel.is_set():
                             return
-                        yield item[0] if isinstance(item, tuple) else item
+                        audio = item[0] if isinstance(item, tuple) else item
+                        if _float_torn(audio):
+                            break
+                        yield audio
                 finally:
                     try:
                         gen.close()

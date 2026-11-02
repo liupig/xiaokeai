@@ -566,15 +566,21 @@ const voiceOptions = computed(() =>
     .map((v) => ({ label: v.label, value: v.id }))
 );
 const tavernSeats = ['you', 'qin', 'bar', 'her', 'host'] as const;
+function tavernEngineLabel(engine: string) {
+  if (engine === 'qwen') return t('set.tavern.local');
+  if (engine === 'mimo') return t('set.tavern.mimo');
+  return t('set.tavern.online');
+}
 const tavernCastOptions = computed(() => {
   const lang = settings.locale.ui;
   const rows = settings.voices.filter((v) => (
-    (v.engine === 'qwen' || v.engine === 'edge') && (!v.lang || v.lang === lang)
+    (v.engine === 'qwen' || v.engine === 'edge' || v.engine === 'mimo')
+    && (!v.lang || v.lang === lang)
   ));
   return [
     { label: t('set.tavern.auto'), value: '' },
     ...rows.map((v) => ({
-      label: `${v.engine === 'qwen' ? t('set.tavern.local') : t('set.tavern.online')} · ${v.label}`,
+      label: `${tavernEngineLabel(v.engine || '')} · ${v.label}`,
       value: `${v.engine}:${v.id}`,
     })),
   ];
@@ -598,6 +604,7 @@ function setTavernCast(seat: string, value: string) {
 const ttsEngineOptions = computed(() => {
   settings.locale.ui;
   return [
+    { label: t('set.tts.mimoEngine'), value: 'mimo' },
     { label: t('set.tts.volcEngine'), value: 'volc' },
     { label: t('set.tts.cosyEngine'), value: 'cosy' },
     { label: t('set.tts.openaiEngine'), value: 'openai' },
@@ -685,14 +692,14 @@ const ttsNeedsVoice = computed(() =>
   settings.tts.engine === 'cosy' || settings.tts.engine === 'edge'
   || settings.tts.engine === 'qwen' || settings.tts.engine === 'volc'
   || settings.tts.engine === 'openai' || settings.tts.engine === 'eleven'
-  || settings.tts.engine === 'gemini'
+  || settings.tts.engine === 'gemini' || settings.tts.engine === 'mimo'
 );
 
 watch(() => settings.tts.engine, (eng) => {
   const list = settings.voices.filter((v) => v.engine === eng);
   if (list.length && !list.some((v) => v.id === settings.tts.voice)) {
     settings.tts.voice = (eng === 'qwen' || eng === 'edge' || eng === 'volc'
-      || eng === 'openai' || eng === 'eleven' || eng === 'gemini')
+      || eng === 'openai' || eng === 'eleven' || eng === 'gemini' || eng === 'mimo')
       ? defaultVoice(eng, settings.locale.reply)
       : '';
   }
@@ -1218,6 +1225,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <p v-if="settings.tts.engine === 'openai'" class="hint">{{ t('set.tts.openai') }}</p>
           <p v-if="settings.tts.engine === 'eleven'" class="hint">{{ t('set.tts.eleven') }}</p>
           <p v-if="settings.tts.engine === 'gemini'" class="hint">{{ t('set.tts.gemini') }}</p>
+          <p v-if="settings.tts.engine === 'mimo'" class="hint">{{ t('set.tts.mimo') }}</p>
           <div v-if="settings.tts.engine === 'qwen'" class="speech-status">
             <p class="hint">
               {{ speechStatus?.tts.message || t('set.asr.status') }}
