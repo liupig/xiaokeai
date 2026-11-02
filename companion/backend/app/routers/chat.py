@@ -349,14 +349,22 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     )
     if use_harness:
         print(f"[harness] 这一轮走技能目录 model={hconf.get('model') or ''}")
+        from ..modules.glance.eyes_host import capability as visual_capability
+        cap = visual_capability()
+        messages += [{"role": "system", "content":
+            f"【宿主能力】游戏启动：{'可用' if module_on(session, 'play') else '已关闭'}。"
+            f"视觉：{cap['message']}。可用时按用户意图按需启动，不要求一起看的固定口令。"
+            "单次看屏幕不会自动变成持续陪看；只说想玩游戏不会自动打开视觉。"
+            "天气、金价、新闻、版本等公共信息走联网查询，不能因为说了看一下就截图。"}]
     harness_brief = host_brief(messages, groups.get("dance") or []) if use_harness else ""
-    harness_prior = history[:-1] if history and history[-1].get("role") == "user" else list(history)
+    harness_prior = history[:-1] if not sidecar and not req.reroll and history and history[-1].get("role") == "user" else list(history)
     wish_note = ""
     if use_harness and module_on(session, "memory"):
         from .coins import latest_wish_note
         wish_note = latest_wish_note(session, req.character_id)
     glance_on = module_on(session, "glance")
     harness_on = module_on(session, "harness")
+    play_enabled = module_on(session, "play")
     # 流开始前放开这条连接。生成器里再碰会话，会把库锁挂到整段语音结束。
     session.commit()
     session.close()
@@ -368,6 +376,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
             wish_note = f"{wish_note}\n\n{purse}".strip() if wish_note else purse
 
     async def event_stream():
+        turn_cancel = threading.Event()
         full_text = ""
         linked_topic = ""
         billed_tokens = 0
@@ -381,6 +390,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 req.character_id,
                 glance=glance_on,
                 harness=harness_on,
+                semantic=use_harness,
             )
         if tarot_ev:
             yield f"data: {json.dumps(tarot_ev, ensure_ascii=False)}\n\n"
@@ -429,7 +439,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                     )
 
                 along_messages = [
-                    {"role": "system", "content": (harness_brief + "\n\n" + note)[:6000]},
+                    {"role": "system", "content": note},
                     {"role": "user", "content": instruction},
                 ]
                 from ..modules.glance.game_director import grounded_reply
@@ -437,7 +447,19 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 evidence = along_live.candidate.summary if along_live.candidate else seen
                 topic = along_live.candidate.topic_id if along_live.candidate else ""
                 scene = along_live.candidate.object_id.split(":", 1)[0] if along_live.candidate else "unknown"
-                result = await grounded_reply(llm_conf, along_messages, evidence=evidence, topic=topic, valid=candidate_alive, scene=scene)
+                def agent_stream(_conf, turns):
+                    from ..modules.harness.service import stream_reply
+                    task_index = max(i for i, message in enumerate(turns) if message.get("role") == "user")
+                    return stream_reply(
+                        hconf, character_id=req.character_id,
+                        brief=harness_brief,
+                        user_text="【宿主事件：陪看】\n" + str(turns[task_index].get("content") or ""),
+                        recall="\n\n".join(str(m.get("content") or "") for i, m in enumerate(turns) if i != task_index),
+                        prior=harness_prior, cancel=turn_cancel, valid=candidate_alive,
+                    )
+
+                result = await grounded_reply(hconf, along_messages, evidence=evidence, topic=topic,
+                                              valid=candidate_alive, scene=scene, stream=agent_stream)
                 pieces.extend(attempt["raw"] for attempt in result["attempts"])
                 if result["action"] != "speak":
                     finish_speak(False)
@@ -466,12 +488,10 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
             from ..modules.harness.service import stream_reply
 
             from ..modules.websearch.service import accept_query, lookup_note
-            from ..modules.glance.service import glance_from_user, glance_note
-
-            eyes_on = glance_on
+            from ..modules.harness.actions import play_note, prepare_visual, visual_request_policy
 
             async def harness_turns():
-                dance = "" if tarot_now else dance_opening(req.text or "", harness_prior)
+                dance = "" if tarot_now or mode != "user" or req.reroll else dance_opening(req.text or "", harness_prior)
                 recall = wish_note
                 from ..modules.glance.along import snapshot as along_snapshot
                 from ..modules.glance.situation import situation as live_situation
@@ -487,74 +507,128 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 saw_glance = False
                 said_glance_line = False
                 glance_ask = ""
-                glance_task = None
+                play_query = ""
+                played_note = ""
+                opening_text = ""
+                clarify_visual = False
                 async for ev in _speak_first(stream_reply(
                     hconf,
                     character_id=req.character_id,
-                    user_text=req.text or "",
+                    user_text=(req.text or "") if mode == "user" and not req.reroll else (
+                        f"【宿主事件：{'重说' if req.reroll else mode}】\n"
+                        "这是宿主提供的当前任务，不是对方新说的话。按最新【现场】完成这次开口；"
+                        "不得声称对方说过事件内容。重说时重新回答上一句，不重复上次措辞。\n" + (req.text or "")
+                    ),
                     brief=harness_brief,
                     prior=harness_prior,
                     recall=recall,
+                    cancel=turn_cancel,
                 ), dance):
-                    if ev.get("type") == "glance" and not eyes_on:
+                    if ev.get("type") == "error":
+                        yield ev
+                        return
+                    if ev.get("type") == "play":
+                        if mode == "user" and not req.reroll:
+                            play_query = play_query or str(ev.get("value") or "").strip()
                         continue
+                    if ev.get("type") == "glance" and (mode != "user" or req.reroll):
+                        # Greetings, silence follow-ups and rewrites cannot
+                        # authorize a new capture or restart continuous vision.
+                        continue
+                    if ev.get("type") == "glance" and str(ev.get("value") or "") != "关闭":
+                        policy = visual_request_policy(req.text or "", harness_prior, screen_context=bool(along_snapshot().get("on")))
+                        if policy != "allow":
+                            saw_lookup = policy == "lookup"
+                            clarify_visual = policy == "clarify"
+                            continue
                     if ev.get("type") == "glance" and not dance and not saw_lookup:
                         saw_glance = True
                         if not glance_ask:
                             glance_ask = str(ev.get("value") or "")
-                        if "我看看" not in lead:
+                        if glance_ask != "关闭" and "我看看" not in lead:
                             lead = "我看看。"
                             yield {"type": "text", "delta": "我看看。"}
-                        if glance_task is None and eyes_on:
-                            from ..modules.glance.service import glance_bundle
-
-                            glance_task = asyncio.create_task(
-                                asyncio.to_thread(glance_bundle, None, glance_ask)
-                            )
                         continue
                     if ev.get("type") == "lookup" and not dance and not searched and not saw_glance:
                         saw_lookup = True
                         query = accept_query(str(ev.get("value") or "")) or query
                         continue
                     if saw_glance and ev.get("type") in {"text", "emo", "cam", "intent", "act", "expr", "stand", "lookup", "done"}:
-                        if ev.get("type") == "text" and "我看看" in str(ev.get("delta") or ""):
+                        if glance_ask != "关闭" and ev.get("type") == "text" and "我看看" in str(ev.get("delta") or ""):
                             said_glance_line = True
                             if "我看看" not in lead:
                                 lead = "我看看。"
                                 yield {"type": "text", "delta": "我看看。"}
                         continue
-                    if query and not searched and ev.get("type") in {"text", "emo", "cam", "intent", "act", "expr", "stand", "done"}:
+                    if saw_lookup and not searched and ev.get("type") in {"text", "emo", "cam", "intent", "act", "expr", "stand", "done"}:
+                        continue
+                    if clarify_visual and ev.get("type") != "error":
+                        continue
+                    if play_query and ev.get("type") == "done":
                         continue
                     if ev.get("type") == "text" and "我去查一下" in str(ev.get("delta") or ""):
                         said_lookup_line = True
                         lead = "我去查一下。"
                     if ev.get("type") == "text" and "我看看" in str(ev.get("delta") or ""):
                         said_glance_line = True
+                    if ev.get("type") == "text":
+                        opening_text += str(ev.get("delta") or "")
                     if lead and ev.get("type") == "done" and not str(ev.get("full_text") or "").startswith(lead):
                         ev = {**ev, "full_text": lead + str(ev.get("full_text") or "")}
                     yield ev
-                if eyes_on and not saw_glance and not dance:
-                    forced = glance_from_user(req.text or "")
-                    if forced:
-                        saw_glance = True
-                        glance_ask = forced
-                        if glance_task is None:
-                            from ..modules.glance.service import glance_bundle
-
-                            glance_task = asyncio.create_task(
-                                asyncio.to_thread(glance_bundle, None, glance_ask)
-                            )
+                if turn_cancel.is_set():
+                    return
+                if clarify_visual:
+                    async for ev in stream_reply(
+                        hconf, character_id=req.character_id,
+                        user_text="【宿主事件：对象不明确】对方只说了看一下，上下文没有明确对象。用一句自然的追问问他想让你看什么。没有截图，不要说已经看见，不要发任何动作标记。",
+                        brief=harness_brief, prior=harness_prior, cancel=turn_cancel,
+                    ):
+                        if ev.get("type") in {"play", "glance", "lookup"}:
+                            continue
+                        yield ev
+                    return
+                if play_query:
+                    played_note = await asyncio.to_thread(play_note, play_query, lang) if play_enabled else "【开游戏】游戏启动模块已关闭，没有执行。"
+                    if turn_cancel.is_set():
+                        return
+                    if not saw_glance and not saw_lookup:
+                        async for ev in stream_reply(
+                            hconf, character_id=req.character_id,
+                            user_text="【宿主事件：游戏启动结果】按结果告诉对方，不要再发 play 或其他动作标记。",
+                            brief=harness_brief, prior=harness_prior, recall=played_note, cancel=turn_cancel,
+                        ):
+                            if ev.get("type") in {"play", "glance", "lookup"}:
+                                continue
+                            if ev.get("type") == "done":
+                                ev = {**ev, "full_text": opening_text + str(ev.get("full_text") or "")}
+                            yield ev
+                        return
                 if saw_glance and not dance:
-                    if "我看看" not in lead:
+                    if glance_ask != "关闭" and "我看看" not in lead:
                         yield {"type": "text", "delta": "我看看。"}
                         lead = "我看看。"
                     from ..modules.glance.service import glance_bundle
                     from ..modules.glance.trace import mark as mark_trace
 
-                    if glance_task is None:
-                        found, trace_id = await asyncio.to_thread(glance_bundle, None, glance_ask)
-                    else:
-                        found, trace_id = await glance_task
+                    failure = await asyncio.to_thread(prepare_visual, glance_ask, req.character_id, turn_cancel)
+                    if turn_cancel.is_set():
+                        return
+                    if failure:
+                        result_note = "视觉已经关闭，已停止陪看和截屏。" if failure == "closed" else "视觉没有看成：" + failure
+                        async for ev in stream_reply(
+                            hconf, character_id=req.character_id,
+                            user_text="【宿主事件：视觉状态】按现场结果回应，不要编画面，不要再发动作标记。",
+                            brief=harness_brief, prior=harness_prior,
+                            recall=played_note + "\n" + result_note, cancel=turn_cancel,
+                        ):
+                            if ev.get("type") in {"play", "glance", "lookup"}:
+                                continue
+                            if ev.get("type") == "done":
+                                ev = {**ev, "full_text": lead + str(ev.get("full_text") or "")}
+                            yield ev
+                        return
+                    found, trace_id = await asyncio.to_thread(glance_bundle, None, glance_ask)
                     from ..modules.glance.along import seed_seen
                     from ..modules.glance.situation import situation
                     from ..modules.glance.watch import along_turn, hollow_company, screen_beat
@@ -577,14 +651,14 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                         "slides": "这一页上的一句",
                     }.get(situation.scene, "眼前的一句")
                     beat = screen_beat(line, attention=situation.attention, talk=situation.talk, where=where)
-                    beat = beat + "\n" + situation.blocks()
-                    react = [
-                        {"role": "system", "content": (harness_brief + "\n\n" + beat)[:6000]},
-                        {"role": "user", "content": ask_her},
-                    ]
+                    beat = beat + "\n" + situation.blocks() + "\n" + played_note
                     buf: list[str] = []
                     failed = False
-                    async for ev in llm_service.stream_chat(llm_conf, react):
+                    async for ev in stream_reply(
+                        hconf, character_id=req.character_id,
+                        user_text="【宿主事件：观察返回】\n" + ask_her,
+                        brief=harness_brief, recall=beat, prior=harness_prior, cancel=turn_cancel,
+                    ):
                         if ev.get("type") in {"glance", "lookup", "text"}:
                             if ev.get("type") == "text":
                                 buf.append(str(ev.get("delta") or ""))
@@ -621,10 +695,11 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                     async for ev in stream_reply(
                         hconf,
                         character_id=req.character_id,
-                        user_text="刚才的检索词不能查。按上一句的事自己改写成一个短词，只写 [lookup:检索词]，不要说话。",
-                        brief="",
+                        user_text="这次需要联网核对公共信息，不是看用户屏幕。按上一句和用户原话改写成明确的检索词，只写 [lookup:检索词]，不要说话。用户原话：" + (req.text or ""),
+                        brief=harness_brief,
                         prior=harness_prior,
                         recall=wish_note,
+                        cancel=turn_cancel,
                     ):
                         if ev.get("type") == "lookup":
                             query = accept_query(str(ev.get("value") or "")) or query
@@ -641,15 +716,16 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                     yield {"type": "text", "delta": "我去查一下。"}
                     lead = "我去查一下。" + lead
                 found = await asyncio.to_thread(lookup_note, query)
-                recall = f"{wish_note}\n\n{found}".strip() if wish_note else found
+                recall = "\n\n".join(part for part in (wish_note, played_note, found) if part)
                 finished = False
                 async for ev in stream_reply(
                     hconf,
                     character_id=req.character_id,
                     user_text="页面到了。按【现场】把刚才要查的事实说完。搜索页上的数字优先。不要重复铺垫，不要再写标记。",
-                    brief="",
-                    prior=None,
+                    brief=harness_brief,
+                    prior=harness_prior,
                     recall=recall,
+                    cancel=turn_cancel,
                 ):
                     if ev.get("type") == "lookup":
                         continue
@@ -682,6 +758,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
             user_text=req.text or "",
             prior=harness_prior,
         )
+        completed = False
         try:
             async for ev in annotated:
                 if await request.is_disconnected():
@@ -704,7 +781,12 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 if kind == "done":
                     full_text = ev.get("full_text", "")
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+            completed = not dropped
         finally:
+            if use_harness and not completed:
+                turn_cancel.set()
+                from ..modules.harness.service import runtime as harness_runtime
+                await asyncio.to_thread(harness_runtime().cancel_turn, turn_cancel)
             from ..modules.glance.along import release_user_turn
             release_user_turn()
             talk_log.write(
@@ -814,12 +896,16 @@ def patch_spoken(message_id: int, body: SpokenIn, session: Session = Depends(get
     if not row:
         raise HTTPException(404, "message not found")
     text = (body.content or "").strip()
+    changed = text != (row.content or "").strip()
+    cid = row.character_id
     if not text:
         full = _plain(row.full_content or row.content or "")
         if full:
             talk_log.write("unsaid", full, character_id=row.character_id)
         session.delete(row)
         session.commit()
+        from ..modules.harness.service import invalidate_history
+        invalidate_history(cid)
         return {"ok": True, "deleted": True}
     spoken = _plain(body.content)
     full = _plain(row.full_content or row.content or "")
@@ -829,6 +915,9 @@ def patch_spoken(message_id: int, body: SpokenIn, session: Session = Depends(get
     session.add(row)
     session.commit()
     session.refresh(row)
+    if changed:
+        from ..modules.harness.service import invalidate_history
+        invalidate_history(cid)
     talk_log.write("spoken", spoken, character_id=row.character_id)
     if full and spoken and full != spoken:
         rest = full
@@ -853,4 +942,6 @@ def clear_history(character_id: int, session: Session = Depends(get_session)):
     ).all():
         session.delete(row)
     session.commit()
+    from ..modules.harness.service import invalidate_history
+    invalidate_history(character_id)
     return {"ok": True}

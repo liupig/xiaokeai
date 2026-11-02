@@ -24,7 +24,7 @@ class Title:
 # 只登记口头别名。安装目录、启动器 exe、游戏号都从这台电脑现读。
 TITLES: tuple[Title, ...] = (
     Title(
-        ("英雄联盟", "lol", "league of legends", "リーグ・オブ・レジェンド", "리그 오브 레전드", "롤"),
+        ("英雄联盟", "lol", "撸啊撸", "联盟", "league of legends", "リーグ・オブ・レジェンド", "리그 오브 레전드", "롤"),
         "wegame",
         ("leagueclient.exe", "league of legends.exe", "leagueclientux.exe"),
     ),

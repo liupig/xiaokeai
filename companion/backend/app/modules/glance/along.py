@@ -485,14 +485,14 @@ def seed_seen(note: str) -> None:
         _state.hold_until = time.time() + _AFTER_SEED
 
 
-def note_user(text: str, character_id: int, *, glance: bool, harness: bool) -> None:
+def note_user(text: str, character_id: int, *, glance: bool, harness: bool, semantic: bool = False) -> None:
     if wants_stop(text):
         stop()
         from .eyes_host import shutdown
 
         shutdown()
         return
-    if wants_start(text) and harness:
+    if not semantic and wants_start(text) and harness:
         from .eyes_host import enable_glance, ensure
 
         enable_glance()
@@ -501,7 +501,7 @@ def note_user(text: str, character_id: int, *, glance: bool, harness: bool) -> N
     if not glance or not harness:
         stop()
         return
-    if wants_start(text):
+    if not semantic and wants_start(text):
         start(character_id)
     with _lock:
         if _state.on:

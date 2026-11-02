@@ -134,6 +134,9 @@ def startup() -> None:
         pass
     _compact_wallet()
     threading.Thread(target=_warmup_offline_speech, daemon=True).start()
+    from .modules.harness.service import schedule_warmup
+    with Session(engine) as session:
+        schedule_warmup(settings_store.get_all(session))
     atexit.register(_release_glance)
 
 

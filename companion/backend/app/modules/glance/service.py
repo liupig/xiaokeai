@@ -51,6 +51,9 @@ def glance_from_user(text: str) -> str:
     compact = re.sub(r"\s+", "", raw)
     if not compact or len(compact) > 40:
         return ""
+    from ..harness.actions import visual_request_allowed
+    if not visual_request_allowed(raw):
+        return ""
     if any(word in compact for word in ("陪我看", "一起看", "看剧", "追剧", "看视频")):
         return "陪看 " + raw
     if any(word in compact for word in ("在哪", "在哪里", "哪儿")) and any(

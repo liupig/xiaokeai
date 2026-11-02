@@ -12,15 +12,15 @@ from app.modules.harness.brief import (  # noqa: E402
 from app.modules.harness.service import sync_skills  # noqa: E402
 
 
-def test_user_talk_uses_harness_and_side_paths_do_not():
+def test_all_character_speech_uses_harness():
     assert wants_harness(enabled=True, mode="user")
     assert wants_harness(enabled=True, mode="along")
     assert not wants_harness(enabled=False, mode="user")
-    assert not wants_harness(enabled=True, mode="along", afterglow=True)
-    assert not wants_harness(enabled=True, mode="welcome")
-    assert not wants_harness(enabled=True, mode="continue")
-    assert not wants_harness(enabled=True, mode="user", reroll=True)
-    assert not wants_harness(enabled=True, mode="user", afterglow=True)
+    assert wants_harness(enabled=True, mode="along", afterglow=True)
+    assert wants_harness(enabled=True, mode="welcome")
+    assert wants_harness(enabled=True, mode="continue")
+    assert wants_harness(enabled=True, mode="user", reroll=True)
+    assert wants_harness(enabled=True, mode="user", afterglow=True)
 
 
 def test_brief_keeps_persona_and_drops_the_director_manual():
@@ -308,7 +308,7 @@ def test_a_separate_harness_model_keeps_the_chat_model():
     assert turn_uses_harness(
         enabled=True, mode="user", model=other["model"], base_url=other["base_url"],
     )
-    assert not turn_uses_harness(
+    assert turn_uses_harness(
         enabled=True, mode="welcome", model=other["model"], base_url=other["base_url"],
     )
 

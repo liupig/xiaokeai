@@ -58,11 +58,13 @@ def unsupported_reply(evidence: str, spoken: str) -> str:
     return ""
 
 
-async def grounded_reply(conf: dict, messages: list[dict], *, evidence: str, topic: str, valid=lambda: True, scene: str = "game") -> dict:
+async def grounded_reply(conf: dict, messages: list[dict], *, evidence: str, topic: str, valid=lambda: True, scene: str = "game", stream=None) -> dict:
     """Shared by the live route and real-model replay. At most one repair."""
     import asyncio
+    from contextlib import aclosing
     from ...services.llm import stream_chat
     from .watch import hollow_company, parse_reaction
+    generate = stream or stream_chat
 
     turns = list(messages)
     if scene in {"movie", "video", "music"}:
@@ -74,15 +76,16 @@ async def grounded_reply(conf: dict, messages: list[dict], *, evidence: str, top
         pieces, performance, errors = [], [], []
         try:
             async with asyncio.timeout(15):
-                async for event in stream_chat(conf, turns):
-                    if not valid():
-                        return {"action": "drop", "text": "", "attempts": attempts, "performance": []}
-                    if event.get("type") == "text":
-                        pieces.append(event.get("delta") or "")
-                    elif event.get("type") in {"emo", "intent", "expr"}:
-                        performance.append(event)
-                    elif event.get("type") == "error":
-                        errors.append(event.get("code") or "error")
+                async with aclosing(generate(conf, turns)) as source:
+                    async for event in source:
+                        if not valid():
+                            return {"action": "drop", "text": "", "attempts": attempts, "performance": []}
+                        if event.get("type") == "text":
+                            pieces.append(event.get("delta") or "")
+                        elif event.get("type") in {"emo", "intent", "expr"}:
+                            performance.append(event)
+                        elif event.get("type") == "error":
+                            errors.append(event.get("code") or "error")
         except TimeoutError:
             errors.append("generation_timeout")
         raw = "".join(pieces)

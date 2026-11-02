@@ -84,9 +84,14 @@ def after_messages(
         try:
             from ..services import settings_store
             from .play.service import on_user_text
+            from .harness.service import harness_llm, turn_uses_harness
 
-            locale = ((settings_store.get_all(session).get("locale") or {}).get("ui") or "zh-CN")
-            note = on_user_text(str(extra.get("user_text") or ""), str(locale))
+            conf = settings_store.get_all(session)
+            agent_conf = harness_llm(conf.get("llm") or {})
+            semantic = turn_uses_harness(enabled=enabled(session, "harness"), mode=mode,
+                model=agent_conf.get("model"), base_url=agent_conf.get("base_url"))
+            locale = ((conf.get("locale") or {}).get("ui") or "zh-CN")
+            note = "" if semantic else on_user_text(str(extra.get("user_text") or ""), str(locale))
         except Exception as exc:
             print(f"[play] {exc}")
             note = ""

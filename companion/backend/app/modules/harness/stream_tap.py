@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
 import json
 import threading
+from contextlib import asynccontextmanager
 from typing import Callable
 from urllib.parse import urlsplit
 
@@ -34,6 +36,26 @@ _CHAT_TOOLS = frozenset({"skill"})
 
 
 _THINKING_BLOCKS = frozenset({"thinking", "reasoning", "redacted_thinking"})
+
+
+def chat_body(body: bytes) -> bytes:
+    """Conversation messages already carry the context needed for chat.
+
+    Coding runtime inventory and raw persistence events are not part of the
+    third-party Messages contract. Keep actual messages, thinking and tools.
+    """
+    try:
+        obj = json.loads(body)
+    except (UnicodeError, ValueError):
+        return body
+    if not isinstance(obj, dict):
+        return body
+    removed = False
+    for key in ("dsh_plugin_packages", "dsh_session_log"):
+        if key in obj:
+            del obj[key]
+            removed = True
+    return json.dumps(obj, ensure_ascii=False).encode("utf-8") if removed else body
 
 
 def _drop_replayed_thinking(messages: object) -> int:
@@ -106,8 +128,7 @@ def slim_xiaomi_body(body: bytes) -> bytes:
             tool for tool in tools
             if isinstance(tool, dict) and tool.get("name") in _CHAT_TOOLS
         ]
-        if chat_tools:
-            obj["tools"] = chat_tools
+        obj["tools"] = chat_tools
     return json.dumps(obj, ensure_ascii=False).encode("utf-8")
 
 
@@ -158,9 +179,10 @@ class SseTextTap:
 
     def __init__(self) -> None:
         self._buf = ""
+        self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
 
     def feed(self, data: bytes) -> list[str]:
-        self._buf += data.decode("utf-8", "replace")
+        self._buf += self._decoder.decode(data)
         found: list[str] = []
         while "\n" in self._buf:
             line, self._buf = self._buf.split("\n", 1)
@@ -186,6 +208,7 @@ class MessagesTap:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._error: BaseException | None = None
+        self._http: httpx.AsyncClient | None = None
 
     def start(self) -> str:
         if self.local_base:
@@ -199,13 +222,21 @@ class MessagesTap:
         return self.local_base
 
     def subscribe(self, callback: Callable[[str], None]) -> Callable[[], None]:
+        active = threading.Event()
+        active.set()
+
+        def listener(text: str) -> None:
+            if active.is_set():
+                callback(text)
+
         with self._lock:
-            self._listeners.append(callback)
+            self._listeners.append(listener)
 
         def off() -> None:
+            active.clear()
             with self._lock:
                 try:
-                    self._listeners.remove(callback)
+                    self._listeners.remove(listener)
                 except ValueError:
                     pass
 
@@ -238,8 +269,25 @@ class MessagesTap:
         self.port = int(sock.getsockname()[1])
         self.local_base = f"http://127.0.0.1:{self.port}{self.path}"
         self._ready.set()
-        async with server:
-            await server.serve_forever()
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(180, connect=15), trust_env=False,
+            limits=httpx.Limits(max_connections=8, max_keepalive_connections=4, keepalive_expiry=60),
+        ) as client:
+            self._http = client
+            try:
+                async with server:
+                    await server.serve_forever()
+            finally:
+                self._http = None
+
+    @asynccontextmanager
+    async def _upstream_client(self):
+        if self._http is not None:
+            yield self._http
+        else:
+            # Direct relay tests do not run the server lifecycle.
+            async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=15), trust_env=False) as client:
+                yield client
 
     async def _client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
@@ -287,16 +335,20 @@ class MessagesTap:
         headers: dict[str, str],
         body: bytes,
     ) -> None:
+        # Bind this HTTP request to its turn. A cancelled response may still be
+        # draining when the next turn subscribes; never broadcast it to that turn.
+        with self._lock:
+            listeners = list(self._listeners)
         fwd = {k: v for k, v in headers.items() if k not in _HOP}
         url = self.origin + target
+        body = chat_body(body)
         if "xiaomimimo.com" in self.origin:
             body = slim_xiaomi_body(body)
             # User-Agent 里带着 deepseek-harness 时，小米会把思考重新打开。
             fwd.pop("user-agent", None)
             for name in [key for key in fwd if key.startswith("x-deepseek-harness-")]:
                 fwd.pop(name, None)
-        timeout = httpx.Timeout(180, connect=15)
-        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+        async with self._upstream_client() as client:
             async with client.stream(method, url, headers=fwd, content=body) as resp:
                 ctype = resp.headers.get("content-type") or "application/octet-stream"
                 reason = resp.reason_phrase or "OK"
@@ -311,7 +363,8 @@ class MessagesTap:
                         continue
                     if parser is not None:
                         for text in parser.feed(chunk):
-                            self.emit(text)
+                            for listener in listeners:
+                                listener(text)
                     writer.write(f"{len(chunk):X}\r\n".encode("ascii") + chunk + b"\r\n")
                     await writer.drain()
                 writer.write(b"0\r\n\r\n")

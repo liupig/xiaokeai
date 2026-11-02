@@ -12,7 +12,7 @@ import httpx
 from .narration import STAGE_RE, map_stage_inner
 
 TAG_RE = re.compile(
-    r"\[(emo|act|dance|cam|expr|intent|stand|draw|lookup|glance):([^\[\]]{0,160})\]"
+    r"\[(emo|act|dance|cam|expr|intent|stand|draw|lookup|glance|play):([^\[\]]{0,160})\]"
 )
 
 SYSTEM_PROTOCOL = """
