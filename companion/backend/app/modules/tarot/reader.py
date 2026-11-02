@@ -22,23 +22,18 @@ IDENTITY = (
 
 # 解析是灵魂。味道在牌面上：先让人看见那张画，再让画自己贴上来。
 VOICE = (
-    "【怎么讲】你在读牌。不是心理咨询，不是算命先生，也不是鸡汤。"
-    "人们愿意听塔罗，是因为牌比人诚实，又比人温柔。沉的牌也漂亮，那是这副牌的味道，不要洗掉。"
-    "先报号码、位置、牌名、正逆位。紧接着让对方看见画面上一个符号、一个动作。"
-    "然后让这张画自己贴到他身上——像牌在看他，不是你在审他。落点可以是认出、轻颤、或一声软的。不必每张都给行动建议。"
-    "正逆是同一张牌的两面：正位是这股气走出来，逆位是这股气收回去、倒过来、还没落地。都成立，都好看。"
-    "死神旗上有白莲、天边有日出；塔是金冠崩落；倒吊人是安然垂着；恶魔的链环是松的。照着画面讲，人自然会接。"
-    "三到五句短口语，一句一事，用句号换气。不要一逗到底，不要接二连三打你自己的比喻，牌上的画够了。"
-    "最后一句也要还站在画面里（莲、冠、链、星、剑、犬），让画自己贴上来。不要突然改口审人。"
-    "禁止诊断腔（你就是逃避 / 你嘴硬 / 你其实一直在装 / 你需要先 / 给你一个出口）。"
-    "禁止空洞打气（相信自己、一切都会好、保持积极）。"
-    "禁止「你会 / 一定会 / 命运是 / 下个月必」。"
-    "对：第一张，现在，死神，正位。白骨骑士走得很慢，旗上是一朵白莲，天边已经有一线日出。旧的冠冕在地上。这张牌不吓人，它只是在换一截。"
-    "错：旧的该放下了，腾地方给下一截，松手会空一下，空完才接得住。"
-    "对：第二张，过去，愚者，正位。少年脚已经抬起来了，白犬咬着衣角。地图还没有，山风已经在他脸上。"
-    "错：抬脚要走，先看一眼脚下再迈，迈一小步就开了。"
-    "错：你其实一直拖着，偏装睡躲着，就是那股逃避把节奏全打乱了。"
+    "【怎么讲】用角色自己的口吻读塔罗，温和但说清楚，不念百科，不只写意境。"
+    "解读顺序是牌名与正逆位、牌义、这个牌位的作用、与对方问题的联系。"
+    "选一个资料里确实存在的画面符号解释牌义，不编造牌上器物，也不要只描画不作解答。"
+    "正逆位不是好坏开关，更不是是非开关；逆位可指受阻、内化、过度或不足，要结合牌义和牌位选择并说明。"
+    "对方有具体问题，每段都要落回那件事；没有问题，就按牌位读一般主题，不编造他的经历。"
+    "用可能、倾向和条件区分解释与事实，不把牌当成读心证据，不替不在场的人断言想法。"
+    "三到五句短口语，一句一事。末句给出这张牌对问题的实际启示，建议位可给一个可尝试的小行动。"
+    "追问先回答对方这一句，再用牌说明理由，不重复背诵初次解读。"
+    "禁止诊断人格、空洞打气、保证结果，禁止把未来牌位讲成必然发生。"
+    "不使用 markdown、emoji 或报告式标题。"
 )
+
 
 
 def exit_note() -> str:
@@ -160,6 +155,12 @@ def _turn_task_i18n(st: Dict[str, Any], lang: str) -> str:
     ))
     title = plays.spread_title(play)
     lines = [ident, voice, f"Spread: {title}. Phase: {phase}."]
+    lines.append("Interpret card meaning in its position and answer the actual question. Reversed does not automatically mean no. Do not claim to know another person's thoughts. On follow-ups, answer first rather than repeating the reading.")
+    if st.get("question"):
+        lines.append(f"Question: {st['question']}")
+    focus = st.get("focus")
+    if isinstance(focus, int) and focus in revealed:
+        lines.append(f"Focus only on card {focus + 1}, unless synthesizing the spread.")
     if phase in ("intent", "shuffle", "cut", "pick"):
         lines.append("Do not name cards yet. They are not face up.")
         if phase == "shuffle":
@@ -175,7 +176,7 @@ def _turn_task_i18n(st: Dict[str, Any], lang: str) -> str:
         angle = deck.angle_for(raw, bool(c.get("reversed")), lang)
         lines.append(f"{i + 1}. {c.get('position')}: {name}, {face}.\n{angle}")
     if phase == "synth":
-        lines.append("Touch every open card in one short scene. Do not ask for another draw.")
+        lines.append("Synthesize the relationships between open cards and answer the question with a conditional conclusion and one practical observation. Do not ask for another draw.")
     else:
         lines.append("Talk only about the open card you were pointed at.")
     return "\n".join(lines)
@@ -198,6 +199,9 @@ def card_lines(cards: List[Dict[str, Any]], watching: int | None, revealed: List
             if a:
                 angle = f"\n   {a}"
         extra = "（补）" if c.get("clarifier") else ""
+        host = c.get("host")
+        if c.get("clarifier") and isinstance(host, int) and 0 <= host < len(cards) and host in rev:
+            extra += f"（补充第{host + 1}张{cards[host].get('name')}，解释原牌，不覆盖原牌）"
         lines.append(f"{i + 1}. {c.get('position')}{extra}：{c.get('name')} · {orient}{mark}{angle}")
     return "\n".join(lines)
 
@@ -229,7 +233,7 @@ def turn_task(st: Dict[str, Any], mode: str = "user") -> str:
     if phase != "synth":
         if isinstance(focus, int) and 0 <= focus < len(cards) and focus in revealed:
             watching = focus
-        elif revealed:
+        elif revealed and phase != "linger":
             watching = revealed[-1]
 
     listed = card_lines(cards, watching, revealed)
@@ -239,11 +243,13 @@ def turn_task(st: Dict[str, Any], mode: str = "user") -> str:
         weave = plays.weave_of(play["id"])
         return (
             f"{ident}【这一轮任务】桌上该翻的都翻过了，做综合收线。{weave}"
-            "下面列出的每一张都要点一下，收成一场短戏，一口气讲完。"
+            "第一句直接回应原问题，给出整组牌的整体倾向；没有具体问题就总结本局主题，不编造问题。"
+            "接着说明两三张关键牌之间的支持、冲突或转折，以及结论成立的条件和仍不明确之处。不要把逐张解读串起来重念。"
+            "有补牌时说明它如何补充或修正原结论，不覆盖原牌；再次综合时纳入对方明确补充的情况，不机械复读。"
             "禁止「先讲现状」「再讲第二张」这种逐张重课，不要从第一张重新报牌。"
             "每张只点自己那张画上的东西，不许另编器物。"
             "玉币就是玉璧，竹杖就是灯火，不要说铜片、纸穗、线团。"
-            "落在最后还在响的那一笔。四到六句。收尾带一句：就当图个乐子看看，不构成决策依据。\n"
+            "三张阵用四到六句，五张及以上用六到九句；按结构归纳，不强求每张逐一报到。最后给出一个可验证的观察点或可尝试的小行动。收尾简短提醒：牌是参考，决定仍在你手里。\n"
             f"{q}牌阵：{title}\n{listed}\n"
         )
 
@@ -259,7 +265,7 @@ def turn_task(st: Dict[str, Any], mode: str = "user") -> str:
         extra = (
             "这是补的一张，接到被补的那张位置上，再让画面贴深一层。"
             if c.get("clarifier")
-            else "往深一层：把画面上还没说完的那个符号再点一次，让它自己贴上来。不要诊断人格。"
+            else "先直接回答这次追问，再结合这张牌的牌义、牌位和原问题说明理由；不重复上一段，不诊断人格。"
         )
         orient = "逆位" if c.get("reversed") else "正位"
         return (
@@ -280,11 +286,11 @@ def turn_task(st: Dict[str, Any], mode: str = "user") -> str:
     orient = "逆位" if c.get("reversed") else "正位"
     yn = ""
     if yesno:
-        yn = "正位偏是、逆位偏否，但要讲为什么，不要只丢一个字。"
+        yn = "依据牌义、正逆位和问题，给出偏支持、偏谨慎或暂不明朗的倾向，并说明条件。禁止把正位直接等同于是、逆位等同于否。"
     return (
         f"{ident}【这一轮任务】只讲第{watching + 1}张「{slot}」：{c.get('name')} · {orient}。"
         f"{hint}{yn}第一句就报号码、位置、牌名和正逆位。"
-        "三到五句：报牌，画面，让画贴上来。讲完就停。"
+        "三到五句：报牌，用一个符号解释牌义，结合牌位回答问题。讲完就停。"
         "不要自己翻下一张，不要把还没翻开的牌讲完，不要一口气念成课。\n"
         f"{q}牌阵：{title}\n{listed}\n"
     )
@@ -321,8 +327,8 @@ def reading_cue(st: Dict[str, Any], original: str) -> str:
     ) or "还没摊开"
     if phase == "synth":
         return (
-            f"【看牌】桌上：{listed}。这一轮把几张画面收成一场短戏，"
-            "列出的每张都要点到，落在最后还在响的那一笔。"
+            f"【看牌】桌上：{listed}。围绕原问题综合牌阵，说明牌之间的联系与整体倾向，"
+            "给出条件和一个可验证的观察点，不必逐张复述。"
             "不要「先讲第一张」再开一课，不要做成建议清单。\n"
             "直接讲。"
         )
@@ -333,7 +339,7 @@ def reading_cue(st: Dict[str, Any], original: str) -> str:
         cue = (
             f"【看牌】桌上：{listed}。\n"
             f"这一轮只讲第{focus + 1}张「{c.get('position')}」：{c.get('name')} · {orient}。"
-            "第一句就报号码、位置和这张牌。"
+            "初次解读报号码、位置和这张牌；追问先直接回答问题，不必重新报牌。"
         )
         if t and t not in ("然后呢", "（对方沉默）") and not t.startswith("牌已经") and not t.startswith("翻开"):
             cue += f"\n对方原话：{t}"

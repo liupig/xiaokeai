@@ -8,6 +8,7 @@ from collections import deque
 from .commands import match_act, match_song
 from .config import batch_window, feature_on, song_titles, user_cooldown
 from .events import PRIORITY_KINDS, SPEAKABLE, LiveEvent, clip_event
+from .selection import select_comments, topic_key
 
 _GUESS = re.compile(r"^\s*(\d{1,2})\s*$")
 _MAX = 400
@@ -20,12 +21,28 @@ class LiveQueue:
         self._user_at: dict[str, float] = {}
         self._seen: deque[str] = deque()
         self._seen_set: set[str] = set()
+        self._replied: dict[str, float] = {}
+        self._topic_at: dict[str, float] = {}
+        self.expired = 0
+        self.dropped = 0
 
     def clear(self) -> None:
         self._items.clear()
         self._user_at.clear()
         self._seen.clear()
         self._seen_set.clear()
+        self._replied.clear()
+        self._topic_at.clear()
+
+    def prune(self, now: float) -> None:
+        # 过时的闲聊不要排到几分钟后再念；付费事件保留更长的服务窗口。
+        keep = deque(item for item in self._items
+                     if now - item.ts <= (300 if item.kind in PRIORITY_KINDS else 45))
+        self.expired += len(self._items) - len(keep)
+        self._items = keep
+        self._replied = {key: at for key, at in self._replied.items() if now - at < 120}
+        self._user_at = {key: at for key, at in self._user_at.items() if now - at < 120}
+        self._topic_at = {key: at for key, at in self._topic_at.items() if now - at < 12}
 
     def __len__(self) -> int:
         return len(self._items)
@@ -39,14 +56,17 @@ class LiveQueue:
         if ev.kind == "comment" and not ev.content:
             return False
         if ev.msg_id:
-            if ev.msg_id in self._seen_set:
+            key = f"{ev.platform}:{ev.msg_id}"
+            if key in self._seen_set:
                 return False
             if len(self._seen) >= _SEEN:
                 old = self._seen.popleft()
                 self._seen_set.discard(old)
-            self._seen.append(ev.msg_id)
-            self._seen_set.add(ev.msg_id)
+            self._seen.append(key)
+            self._seen_set.add(key)
         if ev.kind == "comment":
+            if now - self._topic_at.get(topic_key(ev.content), float("-inf")) < 12:
+                return False
             wait = user_cooldown(cfg)
             last = self._user_at.get(ev.user_key(), 0)
             if wait and now - last < wait:
@@ -63,13 +83,17 @@ class LiveQueue:
             return
         comments = [item for item in self._items if item.kind == "comment"]
         keep = [item for item in self._items if item.kind != "comment"]
+        keep = keep[-_MAX:]
         room = max(0, _MAX - len(keep))
-        self._items = deque([*keep, *comments[-room:]])
+        retained = [*keep, *(comments[-room:] if room else [])]
+        self.dropped += len(self._items) - len(retained)
+        self._items = deque(retained)
 
     def take_priority(self, cfg: dict, limit: int = 3) -> list[LiveEvent]:
         if not feature_on(cfg, "gifts"):
             return []
-        picked = [item for item in self._items if item.kind in PRIORITY_KINDS][:limit]
+        picked = sorted((item for item in self._items if item.kind in PRIORITY_KINDS),
+                        key=lambda item: item.priority(), reverse=True)[:limit]
         if not picked:
             return []
         drop = set(map(id, picked))
@@ -134,7 +158,13 @@ class LiveQueue:
         oldest = min(item.ts for item in comments)
         if len(comments) < size and now - oldest < window:
             return None
-        picked = sorted(comments, key=lambda item: item.priority(), reverse=True)[:size]
+        picked = select_comments(comments, now, size, self._replied)
+        topics = {topic_key(item.content) for item in picked if item.kind == "comment"}
         drop = set(map(id, picked))
-        self._items = deque(item for item in self._items if id(item) not in drop)
+        self._items = deque(item for item in self._items if id(item) not in drop
+                            and not (item.kind == "comment" and topic_key(item.content) in topics))
+        for item in picked:
+            self._replied[item.user_key()] = now
+            if item.kind == "comment":
+                self._topic_at[topic_key(item.content)] = now
         return picked

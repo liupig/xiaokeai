@@ -2,6 +2,7 @@
 import { computed, onUnmounted, ref } from 'vue';
 import { t } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
+import BrandLogo from '../../components/BrandLogo.vue';
 
 const QQ_NO = '1124054481';
 const DISCORD = 'https://discord.gg/xxvXxHP8T';
@@ -53,7 +54,7 @@ onUnmounted(() => window.clearTimeout(timer));
 
 <template>
   <div v-if="show" class="chrome">
-    <span class="dot" />
+    <BrandLogo :size="20" />
     <span class="name">xiaoke.ai</span>
     <span class="links">
       <button type="button" class="link" :title="copyTitle" @click="copy(QQ_NO, 'qq')">
@@ -91,14 +92,6 @@ onUnmounted(() => window.clearTimeout(timer));
   font-weight: 600;
   letter-spacing: 0.06em;
   color: rgba(232, 232, 240, 0.78);
-}
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #7a7af0;
-  box-shadow: 0 0 10px rgba(91, 91, 214, 0.85);
-  flex: none;
 }
 .name {
   opacity: 0.9;

@@ -50,7 +50,7 @@ def default_live() -> dict[str, Any]:
             "fallback_api_key": "",
         },
         "pace": {
-            "batch_sec": 20,
+            "batch_sec": 4,
             "user_cooldown_sec": 8,
             "batch_size": 6,
             "idle_sec": 45,
@@ -120,7 +120,7 @@ def normalize(raw: Any) -> dict[str, Any]:
     for key in ("strict", "ack_voice", "ack_model", "ack_bgm", "bgm_licensed"):
         comp[key] = bool(comp.get(key))
     pace = base["pace"]
-    pace["batch_sec"] = int(_clamp(pace.get("batch_sec"), 5, 120, 20))
+    pace["batch_sec"] = int(_clamp(pace.get("batch_sec"), 1, 120, 4))
     pace["user_cooldown_sec"] = int(_clamp(pace.get("user_cooldown_sec"), 1, 120, 8))
     pace["batch_size"] = int(_clamp(pace.get("batch_size"), 1, 12, 6))
     pace["idle_sec"] = int(_clamp(pace.get("idle_sec"), 15, 600, 45))

@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import json
 import threading
+import logging
 from collections import deque
-from typing import Any
+from typing import Any, Callable
 
 from .messages import event
 
@@ -13,6 +14,26 @@ _ITEMS: deque[dict] = deque(maxlen=200)
 _SEEN: deque[str] = deque(maxlen=4000)
 _SEEN_SET: set[str] = set()
 _SEQ = 0
+_SUBSCRIBERS: list[Callable[[dict], None]] = []
+_DELIVERY_FAILURES = 0
+
+
+def subscribe(sink: Callable[[dict], None]) -> Callable[[], None]:
+    """接入层不知道主持是谁；录制器、面板和主持可以各自订阅。"""
+    with _LOCK:
+        if sink not in _SUBSCRIBERS:
+            _SUBSCRIBERS.append(sink)
+
+    def unsubscribe() -> None:
+        with _LOCK:
+            if sink in _SUBSCRIBERS:
+                _SUBSCRIBERS.remove(sink)
+    return unsubscribe
+
+
+def delivery_failures() -> int:
+    with _LOCK:
+        return _DELIVERY_FAILURES
 
 
 def clear() -> None:
@@ -43,7 +64,7 @@ def add_many(rows: list[dict]) -> int:
 
 
 def add(row: dict) -> bool:
-    global _SEQ
+    global _SEQ, _DELIVERY_FAILURES
     if not row:
         return False
     if row.get("kind") == "comment" and not (row.get("content") or "").strip():
@@ -71,11 +92,14 @@ def add(row: dict) -> bool:
         item["seq"] = global_seq
         item["msg_id"] = key
         _ITEMS.append(item)
-    try:
-        from ..bridge import from_inbox
-        from_inbox(item)
-    except Exception:
-        pass
+        subscribers = list(_SUBSCRIBERS)
+    for sink in subscribers:
+        try:
+            sink(dict(item))
+        except Exception:
+            with _LOCK:
+                _DELIVERY_FAILURES += 1
+            logging.getLogger(__name__).exception("直播事件订阅者处理失败")
     return True
 
 
@@ -116,6 +140,7 @@ def accept_callback(msg_type: str, body: str, room_id: str = "") -> int:
         elif kind == "follow" and not content:
             content = "粉丝团"
         ev = event(kind, row.get("msg_id"), nick, content, source="callback", gift=gift, count=count)
+        ev["uid"] = str(row.get("open_id") or row.get("uid") or "")
         if room_id:
             ev["room_id"] = room_id
         found.append(ev)

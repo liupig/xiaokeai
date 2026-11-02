@@ -26,6 +26,7 @@ from .modules.harness.router import router as harness_router
 from .modules.glance.router import router as glance_router
 from .modules.live.douyin.router import router as live_douyin_router
 from .modules.live.router import router as live_router
+from .modules.live.lab_router import router as live_lab_router
 from .modules.play.router import router as play_router
 from .modules.sight.router import router as sight_router
 from .services import catalog
@@ -66,6 +67,7 @@ app.include_router(harness_router)
 app.include_router(glance_router)
 app.include_router(live_douyin_router)
 app.include_router(live_router)
+app.include_router(live_lab_router)
 app.include_router(play_router)
 app.include_router(sight_router)
 

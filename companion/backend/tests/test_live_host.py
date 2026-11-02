@@ -36,7 +36,7 @@ def test_live_module_defaults_off_and_features_default_on():
     assert cfg["features"]["reply"] is True
     assert cfg["features"]["rehearsal"] is False
     assert cfg["bilibili"]["app_id"] == 0
-    assert cfg["pace"]["batch_sec"] == 20
+    assert cfg["pace"]["batch_sec"] == 4
     assert missing_acks(normalize({})) == ["voice", "model", "bgm"]
     assert missing_acks(_cfg()) == []
 
@@ -118,7 +118,7 @@ def test_host_thanks_a_gift_without_calling_the_model_and_blocks_glance():
     host.tick_once(now=10_000)
     assert host._turn is not None
     assert "谢谢甲的小电视" in host._turn["text"]
-    assert host._turn["interrupt"] is True
+    assert host._turn["interrupt"] is False
     assert called["n"] == 0
     assert host.on_air and cfg["features"]["content_gate"]
     spoken, cue = peel("[dance:a.vmd] 我跳一段。")
@@ -144,7 +144,7 @@ def test_host_refuses_to_go_on_air_until_rights_are_acked_and_trips_budget():
     host.on_air = True
     host._last_spoke = 0
     host.ingest(LiveEvent("bilibili", "comment", "甲", "在吗", uid="a", msg_id="c9", ts=1))
-    host.tick_once(now=100)
+    host.tick_once(now=30)
     assert host._turn is not None
     assert "模型说的" not in host._turn["text"]
     assert "在吗" in host._turn["text"]
@@ -188,7 +188,7 @@ def test_song_request_only_when_the_title_is_licensed():
     host.use_overrides(cfg, name="清宵")
     host.on_air = True
     host._last_spoke = 0
-    host.ingest(LiveEvent("bilibili", "comment", "甲", "点歌《自作的歌》", uid="a", msg_id="s1", ts=1))
+    host.ingest(LiveEvent("bilibili", "comment", "甲", "点歌《自作的歌》", uid="a", msg_id="s1", ts=10_000))
     host.tick_once(now=10_000)
     assert host._turn is None
     host.cfg()["compliance"]["bgm_licensed"] = True

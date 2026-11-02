@@ -7,6 +7,7 @@ import { useCharacterStore } from '../../stores/character';
 import { useSettingsStore } from '../../stores/settings';
 import { LIVE_FEATURES } from './config';
 import { liveDesk, pullLiveDesk } from './session';
+import { douyinFeed, startDouyinFeed } from './douyinFeed';
 
 const settings = useSettingsStore();
 const characters = useCharacterStore();
@@ -80,6 +81,20 @@ async function bili(on: boolean) {
   }
 }
 
+async function douyin() {
+  busy.value = true;
+  try {
+    await save();
+    if (douyinFeed.listening) await api.liveDouyinStop();
+    else await api.liveDouyinListen(live.value.douyin.room.trim());
+    startDouyinFeed();
+  } catch (err) {
+    message.error(String(err));
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function inject() {
   const content = rehearsalText.value.trim();
   if (!content) return;
@@ -133,6 +148,14 @@ function yuan(n: number) {
     </p>
     <p v-if="missingText && !liveDesk.onAir" class="warn">{{ missingText }}</p>
     <p class="hint">{{ healthText }}</p>
+    <details>
+      <summary>弹幕处理状态{{ liveDesk.processing.generating ? ' · 正在组织回应' : '' }}</summary>
+      <p class="hint">
+        已接收 {{ liveDesk.processing.accepted }} · 重复过滤 {{ liveDesk.processing.duplicate }}
+        · 过期 {{ liveDesk.processing.expired }} · 队列溢出 {{ liveDesk.processing.overflow }}
+        · 播放失败 {{ liveDesk.processing.playbackFailures }}
+      </p>
+    </details>
     <div v-if="live.features.commands" class="cues">
       <button v-for="act in ['nod', 'heart', 'greet', 'bow', 'stretch']" :key="act" type="button" @click="cue(act)">
         {{ t(`live.act.${act}`) }}
@@ -158,6 +181,11 @@ function yuan(n: number) {
         {{ biliUp ? t('live.desk.biliStop') : t('live.desk.biliStart') }}
       </NButton>
       <p class="label">{{ t('live.desk.douyin') }}</p>
+      <NInput v-model:value="live.douyin.room" :placeholder="t('live.douyin.roomPh')" size="small" />
+      <NButton size="tiny" :loading="busy" @click="douyin">
+        {{ douyinFeed.listening ? t('live.douyin.stop') : t('live.douyin.start') }}
+      </NButton>
+      <p class="hint">{{ douyinFeed.error || (douyinFeed.listening ? t('live.douyin.waiting') : t('live.douyin.idle')) }}</p>
       <NInput v-model:value="live.douyin.room_id" :placeholder="t('live.desk.roomId')" size="small" />
       <NInput v-model:value="live.douyin.push_secret" type="password" show-password-on="click"
               :placeholder="t('live.douyin.secretPh')" size="small" />
@@ -203,7 +231,7 @@ function yuan(n: number) {
       <NInput v-model:value="live.budget.fallback_api_key" type="password" show-password-on="click"
               :placeholder="t('live.desk.fallbackKey')" size="small" />
       <label class="label">{{ t('live.desk.pace') }}</label>
-      <NInputNumber v-model:value="live.pace.batch_sec" :min="5" :max="120" size="small" />
+      <NInputNumber v-model:value="live.pace.batch_sec" :min="1" :max="120" size="small" />
       <label class="label">{{ t('live.desk.cooldown') }}</label>
       <NInputNumber v-model:value="live.pace.user_cooldown_sec" :min="1" :max="120" size="small" />
       <label class="label">{{ t('live.desk.idle') }}</label>

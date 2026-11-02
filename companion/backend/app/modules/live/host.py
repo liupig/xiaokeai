@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from collections import deque
 from typing import Any, Callable
 
@@ -11,8 +12,9 @@ from .commands import act_line, allowed_act, blocked
 from .budget import SessionBudget
 from .config import feature_on, missing_acks, normalize, song_titles
 from .director import speak_events, speak_idle
-from .events import PRIORITY_KINDS, LiveEvent, clip_event
+from .events import PRIORITY_KINDS, LiveEvent
 from .queue import LiveQueue
+from .intake import EventIntake
 from .rundown import Rundown
 from .show import GuessGame, TopicDeck, WishPool
 
@@ -45,6 +47,14 @@ class Health:
 class LiveHost:
     def __init__(self) -> None:
         self.queue = LiveQueue()
+        self.intake = EventIntake()
+        self._generation = 0
+        self._generating = False
+        self._gift_streak = 0
+        self._dialogue: deque[dict] = deque(maxlen=4)
+        self._turn_context: dict | None = None
+        self._playback_failures = 0
+        self._playback_owner = ""
         self.audience = AudienceBook()
         self.budget = SessionBudget()
         self.rundown = Rundown()
@@ -72,6 +82,7 @@ class LiveHost:
         self._cue = ""
         self._seq = 0
         self._n = 0
+        self._instance_id = uuid.uuid4().hex[:12]
         self._fired: set[int] = set()
         self._recent: deque[str] = deque(maxlen=8)
         self._board: deque[dict] = deque(maxlen=80)
@@ -194,6 +205,11 @@ class LiveHost:
         now = time.time() if now is None else now
         with self._lock:
             self.on_air = True
+            self._generation += 1
+            self.queue.clear()
+            self._dialogue.clear()
+            self._recent.clear()
+            self._gift_streak = 0
             self.character_id = int(character_id or 0)
             self.health.started = now
             self.health.last_error = ""
@@ -211,6 +227,7 @@ class LiveHost:
     def go_off(self) -> None:
         with self._lock:
             self.on_air = False
+            self._generation += 1
             self._turn = None
             self._busy = False
             self.queue.clear()
@@ -222,18 +239,40 @@ class LiveHost:
             if character_id:
                 self.character_id = int(character_id)
 
-    def ack(self, turn_id: str) -> None:
+    def claim(self, turn_id: str, player_id: str) -> bool:
         with self._lock:
+            if not player_id or not self._turn or self._turn["id"] != turn_id:
+                return False
+            if self._playback_owner and self._playback_owner != player_id:
+                return False
+            self._playback_owner = player_id
+            return True
+
+    def ack(self, turn_id: str, outcome: str = "completed", player_id: str = "") -> bool:
+        with self._lock:
+            if self._playback_owner and player_id != self._playback_owner:
+                return False
             if self._turn and self._turn.get("id") == turn_id:
+                if outcome in ("completed", "displayed"):
+                    self._recent.append(self._turn["text"][:80])
+                    if self._turn_context:
+                        self._dialogue.append(self._turn_context)
+                elif outcome == "failed":
+                    self._playback_failures += 1
+                    self.health.note("直播语音播放失败，请检查语音引擎和音频输出")
                 self._turn = None
+                self._turn_context = None
+                self._playback_owner = ""
+                return True
+            return False
 
     def reset_budget(self) -> None:
         with self._lock:
             self.budget.reset()
 
-    def ingest(self, ev: LiveEvent) -> bool:
+    def ingest(self, ev: LiveEvent, now: float | None = None) -> bool:
+        now = time.time() if now is None else now
         cfg = self.cfg()
-        ev = clip_event(ev)
         if ev.platform == "bilibili" and not feature_on(cfg, "bilibili"):
             return False
         if ev.platform == "douyin" and not feature_on(cfg, "douyin"):
@@ -242,23 +281,22 @@ class LiveHost:
             return False
         if ev.kind == "comment" and blocked(ev.content, str(cfg.get("block_words") or "")):
             return False
-        if ev.kind == "like":
-            self._remember(ev)
-            return False
-        if ev.kind in PRIORITY_KINDS and not feature_on(cfg, "gifts"):
-            self._remember(ev)
-            return False
         with self._lock:
+            ev = self.intake.accept(ev)
+            if ev is None:
+                return False
             self._remember(ev)
+            if ev.kind == "like" or (ev.kind in PRIORITY_KINDS and not feature_on(cfg, "gifts")):
+                return False
             if feature_on(cfg, "audience"):
                 self.audience.note(ev)
             if feature_on(cfg, "ritual"):
                 self.wishes.note(ev)
             if ev.platform == "douyin":
-                self._douyin_at = time.time()
+                self._douyin_at = now
             if ev.kind in ("comment", "gift", "superchat", "guard", "follow"):
-                self._last_audience = time.time()
-            return self.queue.offer(ev, cfg=cfg)
+                self._last_audience = now
+            return self.queue.offer(ev, now=now, cfg=cfg)
 
     def _remember(self, ev: LiveEvent) -> None:
         self._seq += 1
@@ -272,8 +310,12 @@ class LiveHost:
             self.health.degraded = False
             if not self.on_air:
                 return
+            if self._generating:
+                return
+            self.queue.prune(now)
             if self._stop_for_guard(now, cfg := self.cfg()):
                 self.on_air = False
+                self._generation += 1
                 self._turn = None
                 self._busy = False
                 self.queue.clear()
@@ -284,29 +326,50 @@ class LiveHost:
                     self.health.note("上一句超过 90 秒没被舞台确认")
                 else:
                     return
-            if self._busy and now - self._busy_at < 90 and not self.queue.has_priority(cfg):
+            if self._busy and now - self._busy_at < 90:
                 return
             plan = self._plan(now)
             cfg = self.cfg()
+            generation = self._generation
+            if plan is not None:
+                self._generating = True
         if plan is None:
             return
-        turn = self._realize(plan, cfg)
-        if turn is None:
-            return
-        with self._lock:
-            if self.on_air and self._turn is None:
-                self._turn = turn
-                self._turn_at = now
-                self._last_spoke = now
-                self._recent.append(turn["text"][:80])
+        turn = None
+        try:
+            turn = self._realize(plan, cfg)
+        finally:
+            with self._lock:
+                self._generating = False
+                if turn is not None and self.on_air and generation == self._generation and self._turn is None:
+                    self._turn = turn
+                    self._playback_owner = ""
+                    self._turn["sources"] = [
+                        {**ev.public(), "msg_id": ev.msg_id} for ev in plan.get("events", [])
+                    ]
+                    self._turn["created_at"] = now
+                    self._turn_at = now
+                    self._last_spoke = now
+                    self._turn_context = None
+                    if plan.get("events"):
+                        self._turn_context = {
+                            "viewers": [{"name": ev.nickname, "text": ev.content} for ev in plan["events"]],
+                            "reply": turn["text"],
+                        }
 
     def _plan(self, now: float) -> dict | None:
         cfg = self.cfg()
+        if self._gift_streak >= 2:
+            batch = self.queue.take_batch(now, cfg)
+            if batch:
+                self._gift_streak = 0
+                return {"type": "batch", "events": batch, "mode": "chat"}
         jumped = self.queue.take_priority(cfg)
         if jumped:
+            self._gift_streak += 1
             return {
                 "type": "batch", "events": jumped, "mode": "chat",
-                "interrupt": feature_on(cfg, "interrupt"),
+                "interrupt": feature_on(cfg, "interrupt") and any(ev.kind == "superchat" for ev in jumped),
             }
         if self._cue:
             act = self._cue
@@ -334,6 +397,7 @@ class LiveHost:
             return {"type": seg["id"], "index": seg["index"]}
         batch = self.queue.take_batch(now, cfg)
         if batch:
+            self._gift_streak = 0
             mode = "read" if seg["id"] == "read" else "chat"
             return {"type": "batch", "events": batch, "mode": mode}
         idle_sec = int(cfg["pace"]["idle_sec"])
@@ -417,6 +481,7 @@ class LiveHost:
                 audience=audience, recent=list(self._recent),
                 budget_open=self.budget.tripped(cfg), primary=primary, fallback=fallback,
                 complete=complete,
+                dialogue=list(self._dialogue),
             )
             if tokens:
                 self.budget.add(cfg, tokens)
@@ -434,7 +499,7 @@ class LiveHost:
             spoken = "我在。"
         self._n += 1
         return {
-            "id": f"t{self._n}",
+            "id": f"{self._instance_id}-t{self._n}",
             "text": spoken[:240],
             "cue": cue or "chat",
             "act": act or "",
@@ -526,6 +591,9 @@ class LiveHost:
                 "schedule": str((cfg.get("schedule") or {}).get("note") or ""),
                 "community": str((cfg.get("schedule") or {}).get("community") or ""),
                 "queue": len(self.queue),
+                "processing": {"intake": self.intake.public(), "expired": self.queue.expired,
+                               "overflow": self.queue.dropped, "generating": self._generating,
+                               "playback_failures": self._playback_failures},
             }
 
 

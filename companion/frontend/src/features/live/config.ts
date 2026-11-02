@@ -46,7 +46,7 @@ export function defaultLive(): LiveConfig {
       cap_cny: 30, cny_per_1k: 0.004,
       fallback_base_url: '', fallback_model: '', fallback_api_key: '',
     },
-    pace: { batch_sec: 20, user_cooldown_sec: 8, batch_size: 6, idle_sec: 45, session_max_min: 0, quiet_min: 0 },
+    pace: { batch_sec: 4, user_cooldown_sec: 8, batch_size: 6, idle_sec: 45, session_max_min: 0, quiet_min: 0 },
     persona: { catchphrase: '我在呢', style: '' },
     schedule: { note: '', community: '' },
     songs: '',
@@ -100,7 +100,7 @@ export function normalizeLive(raw: unknown): LiveConfig {
     fallback_api_key: String(budget.fallback_api_key || ''),
   };
   base.pace = {
-    batch_sec: num(pace.batch_sec, 20),
+    batch_sec: num(pace.batch_sec, 4),
     user_cooldown_sec: num(pace.user_cooldown_sec, 8),
     batch_size: num(pace.batch_size, 6),
     idle_sec: num(pace.idle_sec, 45),

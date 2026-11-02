@@ -399,6 +399,10 @@ export interface LiveDeskSnap {
   schedule?: string;
   community?: string;
   queue?: number;
+  processing?: {
+    intake?: { accepted?: number; duplicate?: number };
+    expired?: number; overflow?: number; playback_failures?: number; generating?: boolean;
+  };
   turn?: { id: string; text: string; cue: string; act?: string; interrupt?: boolean } | null;
 }
 
@@ -459,6 +463,11 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 /** TTS 不要走前端反代：Vite / 打包版 pack_web 都会把 PCM 攒包，播出来一字一顿。 */
 function speechTtsUrl(): string {
+  if (window.location.pathname.endsWith('/live-lab.html')) {
+    return import.meta.env.DEV
+      ? `${import.meta.env.VITE_LIVE_LAB_BACKEND || 'http://127.0.0.1:8610'}/api/speech/tts`
+      : '/api/speech/tts';
+  }
   if (import.meta.env.DEV) return 'http://127.0.0.1:8600/api/speech/tts';
   const { protocol, hostname, port } = window.location;
   if (port === '5211') return `${protocol}//${hostname}:5201/api/speech/tts`;
@@ -897,6 +906,13 @@ export const api = {
       body: JSON.stringify({ character_id: characterId }),
     });
   },
+  tarotSynth(characterId: number) {
+    return request<TarotSession>('/api/modules/tarot/synth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
   tarotSynthDone(characterId: number) {
     return request<TarotSession>('/api/modules/tarot/synth-done', {
       method: 'POST',
@@ -1041,11 +1057,17 @@ export const api = {
   liveOff() {
     return request<LiveDeskSnap>('/api/modules/live/off', { method: 'POST' });
   },
-  liveAck(turnId: string) {
+  liveClaim(turnId: string, playerId: string) {
+    return request<{ ok: boolean }>('/api/modules/live/claim', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ turn_id: turnId, player_id: playerId }),
+    });
+  },
+  liveAck(turnId: string, outcome: 'completed' | 'displayed' | 'interrupted' | 'failed' = 'completed', playerId = '') {
     return request<{ ok: boolean }>('/api/modules/live/ack', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ turn_id: turnId }),
+      body: JSON.stringify({ turn_id: turnId, outcome, player_id: playerId }),
     });
   },
   liveBiliStart() {

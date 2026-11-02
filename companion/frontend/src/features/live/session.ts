@@ -1,7 +1,7 @@
 /** 直播主持循环。舞台轮询要念的一句，并用现有的语音和表演说出去。 */
 import { reactive } from 'vue';
 import { api } from '../../api/client';
-import { orchestrator } from '../performance/orchestrator';
+import { playLiveTurn } from './playback';
 import { speechPlayer } from '../voice/tts';
 import { tavernUi } from '../tavern/session';
 import { useCharacterStore } from '../../stores/character';
@@ -33,6 +33,7 @@ export const liveDesk = reactive({
   schedule: '',
   community: '',
   queue: 0,
+  processing: { accepted: 0, duplicate: 0, expired: 0, overflow: 0, playbackFailures: 0, generating: false },
   error: '',
   action: '',
   boardOpen: true,
@@ -44,6 +45,9 @@ let pulling = false;
 let lastSpoken = '';
 let holdUntil = 0;
 let bound = false;
+const playerId = crypto.randomUUID();
+let playbackAbort: AbortController | null = null;
+let pendingAck: { id: string; outcome: 'completed' | 'displayed' | 'interrupted' | 'failed' } | null = null;
 
 function busy() {
   const chat = useChatStore();
@@ -51,30 +55,33 @@ function busy() {
     || Date.now() < holdUntil;
 }
 
-function speak(turn: { text: string; cue: string; act?: string; interrupt?: boolean }) {
-  const text = (turn.text || '').trim();
-  if (!text) return;
-  if (turn.interrupt) speechPlayer.onUserBargeIn();
-  if (turn.cue === 'dance' || turn.act === 'dance') orchestrator.beginTurn('跳一支舞');
-  else if (turn.act) orchestrator.beginTurn(text);
-  else orchestrator.beginContinue('proactive');
-  orchestrator.allowLocalSpeech();
-  if (turn.act && turn.act !== 'dance') {
-    orchestrator.handle({ type: 'intent', value: turn.act });
-  }
-  orchestrator.handle({ type: 'text', delta: text });
-  orchestrator.handle({ type: 'done', full_text: text });
+async function speak(turn: { id: string; text: string; cue: string; act?: string; interrupt?: boolean }) {
   liveDesk.action = turn.act || '';
-  holdUntil = Date.now() + (turn.interrupt ? 1500 : 8000);
+  holdUntil = Date.now() + 1000;
+  const controller = new AbortController();
+  playbackAbort = controller;
+  const outcome = await playLiveTurn(turn, controller.signal);
+  if (playbackAbort === controller) playbackAbort = null;
+  pendingAck = { id: turn.id, outcome };
+  await flushAck();
+}
+
+async function flushAck() {
+  const ack = pendingAck;
+  if (!ack) return;
+  await api.liveAck(ack.id, ack.outcome, playerId);
+  if (pendingAck === ack) pendingAck = null;
 }
 
 export async function pullLiveDesk() {
   if (pulling) return;
   pulling = true;
   try {
+    await flushAck();
     const characters = useCharacterStore();
     const data = await api.liveDesk(busy() ? 1 : 0, characters.currentId || 0);
     liveDesk.onAir = !!data.on_air;
+    if (!liveDesk.onAir) playbackAbort?.abort();
     liveDesk.missing = data.missing || [];
     liveDesk.segment = { id: data.segment?.id || 'chat', left: Number(data.segment?.left || 0) };
     liveDesk.budget = {
@@ -109,12 +116,20 @@ export async function pullLiveDesk() {
     liveDesk.schedule = data.schedule || '';
     liveDesk.community = data.community || '';
     liveDesk.queue = Number(data.queue || 0);
+    liveDesk.processing = {
+      accepted: Number(data.processing?.intake?.accepted || 0),
+      duplicate: Number(data.processing?.intake?.duplicate || 0),
+      expired: Number(data.processing?.expired || 0),
+      overflow: Number(data.processing?.overflow || 0),
+      playbackFailures: Number(data.processing?.playback_failures || 0),
+      generating: !!data.processing?.generating,
+    };
     liveDesk.error = '';
     const turn = data.turn;
     if (turn?.id && turn.text && turn.id !== lastSpoken && (turn.interrupt || !busy())) {
-      speak(turn);
+      if (!(await api.liveClaim(turn.id, playerId)).ok) return;
       lastSpoken = turn.id;
-      await api.liveAck(turn.id);
+      void speak(turn).catch((err) => { liveDesk.error = String(err); });
     }
   } catch (err) {
     liveDesk.error = err instanceof Error ? err.message : String(err);
@@ -130,6 +145,7 @@ export function startLiveLoop() {
 }
 
 export function stopLiveLoop() {
+  playbackAbort?.abort();
   if (timer) clearInterval(timer);
   timer = null;
   liveDesk.onAir = false;

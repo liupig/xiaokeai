@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import time
 from typing import Any
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from ...db import get_session
@@ -24,6 +25,13 @@ class OnBody(BaseModel):
 
 class AckBody(BaseModel):
     turn_id: str = ""
+    outcome: Literal["completed", "displayed", "interrupted", "failed"] = "completed"
+    player_id: str = Field(default="", max_length=80)
+
+
+class ClaimBody(BaseModel):
+    turn_id: str
+    player_id: str = Field(min_length=1, max_length=80)
 
 
 class RehearsalBody(BaseModel):
@@ -83,8 +91,13 @@ def off_air(session: Session = Depends(get_session)) -> dict:
 @router.post("/ack")
 def ack(body: AckBody, session: Session = Depends(get_session)) -> dict:
     _guard(session)
-    host.ack(body.turn_id)
-    return {"ok": True}
+    return {"ok": host.ack(body.turn_id, body.outcome, body.player_id)}
+
+
+@router.post("/claim")
+def claim(body: ClaimBody, session: Session = Depends(get_session)) -> dict:
+    _guard(session)
+    return {"ok": host.claim(body.turn_id, body.player_id)}
 
 
 @router.put("/config")

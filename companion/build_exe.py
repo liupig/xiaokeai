@@ -167,16 +167,14 @@ def step_electron(dist_dir: Path) -> None:
     if app_dir.exists():
         shutil.rmtree(app_dir)
     app_dir.mkdir(parents=True, exist_ok=True)
-    # trayMenu.js 被 main.js 同步 require，漏拷会在主进程启动时直接崩溃。
-    # 图标缺失时主进程会回退，所以只强制代码文件。
-    required = ("main.js", "preload.js", "petScreen.js", "trayMenu.js", "package.json")
-    optional = ("icon.png", "tray-icon.png")
-    for name in required + optional:
+    required = ("main.js", "preload.js", "petScreen.js", "trayMenu.js", "branding.js", "package.json")
+    for name in required:
         src_file = DESKTOP / name
         if src_file.is_file():
             shutil.copy2(src_file, app_dir / name)
         elif name in required:
             raise SystemExit(f"缺少桌面壳文件：{src_file}")
+    shutil.copytree(FRONTEND / "public" / "branding", app_dir / "branding")
     if not (dest / "electron.exe").is_file():
         raise SystemExit("electron/electron.exe 缺失")
     print(f"  ok {dest / 'electron.exe'}")
@@ -1077,6 +1075,19 @@ def step_pyinstaller(dist_dir: Path, py: Path) -> None:
     spec = COMPANION / "build_exe.spec"
     work = WORK_DIR / "pyi"
     work.mkdir(parents=True, exist_ok=True)
+    branding = FRONTEND / "public" / "branding"
+    brand = json.loads((branding / "brand.json").read_text(encoding="utf-8"))
+    logo = branding / brand["logos"][brand["defaultLogo"]]["file"]
+    # PyInstaller converts the selected PNG to the Windows executable icon.
+    # Generate a build-local spec so changing the central default also changes the exe.
+    spec_text = spec.read_text(encoding="utf-8")
+    name_line = "    name='xiaoke-ai',"
+    if name_line not in spec_text:
+        raise SystemExit("启动器 spec 缺少 xiaoke-ai EXE 配置")
+    spec_text = spec_text.replace("['launcher.py']", repr([str(COMPANION / "launcher.py")]))
+    spec_text = spec_text.replace(name_line, name_line + "\n    icon=" + repr(str(logo)) + ",")
+    spec = work / "branding.spec"
+    spec.write_text(spec_text, encoding="utf-8")
     run([
         str(py), "-m", "PyInstaller",
         "--clean", "--noconfirm",

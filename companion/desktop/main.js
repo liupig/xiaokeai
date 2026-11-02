@@ -35,8 +35,9 @@ function originOf(url) {
 
 const HOME = homeUrl();
 const HOME_ORIGIN = originOf(HOME);
-const ICON = path.join(__dirname, 'icon.png');
-const TRAY_ICON = path.join(__dirname, 'tray-icon.png');
+const { getLogoPath } = require('./branding');
+const ICON = getLogoPath();
+const TRAY_ICON = ICON;
 const PRELOAD = path.join(__dirname, 'preload.js');
 
 app.setName('xiaoke.ai');

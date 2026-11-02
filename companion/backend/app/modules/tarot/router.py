@@ -141,6 +141,12 @@ def linger(body: DismissIn, session: Session = Depends(get_session)) -> Dict[str
     return service.enter_linger(body.character_id)
 
 
+@router.post("/synth")
+def synth(body: DismissIn, session: Session = Depends(get_session)) -> Dict[str, Any]:
+    _guard(session)
+    return service.start_synth(body.character_id)
+
+
 @router.post("/synth-done")
 def synth_done(body: DismissIn, session: Session = Depends(get_session)) -> Dict[str, Any]:
     _guard(session)
