@@ -36,6 +36,19 @@ def test_local_defaults_on_and_pack_defaults_off():
         assert archive.keeping() is False
 
 
+def test_delivery_and_source_diagnostics_survive_reloading_disk(tmp_path):
+    _use(tmp_path, packed=False)
+    item = _shot()
+    trace.mark(item, source_process="League of Legends.exe", playback_status="completed",
+               freshness_phase="lane", capture_age="7.1", freshness_limit="12.0")
+    trace._rows.clear()
+    archive._rows = None
+    row = trace.feed(limit=1)["items"][0]
+    assert row["source_process"] == "League of Legends.exe"
+    assert row["playback_status"] == "completed"
+    assert row["capture_age"] == "7.1"
+
+
 def test_screens_stay_on_disk_and_page_through_all():
     with TemporaryDirectory() as raw:
         root = Path(raw)

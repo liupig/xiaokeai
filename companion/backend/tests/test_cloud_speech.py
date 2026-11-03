@@ -96,6 +96,45 @@ def test_volc_tts_line():
     assert done and not err
 
 
+def test_mimo_key_stays_off_other_vendors():
+    os.environ.pop("XIAOMI_KEY", None)
+    os.environ.pop("MIMO_API_KEY", None)
+    volc = {"api_key": "ark-test", "base_url": "https://ark.cn-beijing.volces.com/api/v3"}
+    mimo = {"api_key": "tp-test", "base_url": "https://token-plan-cn.xiaomimimo.com/v1"}
+    assert cloud_key.mimo_key(volc) == ""
+    assert cloud_key.mimo_key(mimo) == "tp-test"
+    os.environ["XIAOMI_KEY"] = "tp-from-env"
+    try:
+        assert cloud_key.mimo_key(volc) == "tp-from-env"
+    finally:
+        os.environ.pop("XIAOMI_KEY", None)
+
+
+def test_mimo_voices_and_emotion():
+    from app.services import tts_mimo
+    assert len(tts_mimo.MIMO_VOICES) == 9
+    ids = {v["id"] for v in tts_mimo.MIMO_VOICES}
+    assert ids == {"冰糖", "茉莉", "苏打", "白桦", "mimo_default", "Mia", "Chloe", "Milo", "Dean"}
+    assert default_voice("mimo", "zh-CN") == "冰糖"
+    assert default_voice("mimo", "en") == "Mia"
+    assert align_voice("mimo", "Serena", "zh-CN") == "冰糖"
+    assert align_voice("mimo", "Chloe", "en") == "Chloe"
+    assert align_voice("mimo", "冰糖", "en") == "Mia"
+    body = tts_mimo.request_body("今天天气真好。", "冰糖", "happy:1")
+    assert body["model"] == "mimo-v2.5-tts"
+    assert body["audio"] == {"format": "pcm16", "voice": "冰糖"}
+    assert body["messages"][1]["content"].startswith("(非常开心)")
+    assert body["messages"][0]["role"] == "user"
+    plain = tts_mimo.request_body("Hello.", "Mia", "")
+    assert plain["messages"] == [{"role": "assistant", "content": "Hello."}]
+    assert tts_mimo.resolve_base("tp-x", "") == tts_mimo.TOKEN_PLAN_BASE
+    assert tts_mimo.resolve_base("sk-x", "") == tts_mimo.API_BASE
+    line = "data: " + json.dumps({
+        "choices": [{"delta": {"audio": {"data": __import__("base64").b64encode(b"\x01\x00").decode()}}}],
+    })
+    assert tts_mimo.pcm_from_sse_line(line) == b"\x01\x00"
+
+
 def test_foreign_keys_stay_with_their_vendor():
     for name in (
         "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ELEVENLABS_API_KEY",

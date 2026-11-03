@@ -51,6 +51,9 @@ def glance_from_user(text: str) -> str:
     compact = re.sub(r"\s+", "", raw)
     if not compact or len(compact) > 40:
         return ""
+    from ..harness.actions import visual_request_allowed
+    if not visual_request_allowed(raw):
+        return ""
     if any(word in compact for word in ("陪我看", "一起看", "看剧", "追剧", "看视频")):
         return "陪看 " + raw
     if any(word in compact for word in ("在哪", "在哪里", "哪儿")) and any(
@@ -91,16 +94,30 @@ def eyes_glance(
     gate: bool = False,
     detail: bool = False,
     crop: tuple[int, int, int, int] | list[int] | None = None,
+    prompt: str = "",
+    frames: int = 0,
+    window_hwnd: int = 0,
+    ocr_only: bool = False,
 ) -> dict:
     """截屏始终问眼睛进程。本机 MiniCPM 由它看；其他视觉模型只向它要原图。"""
     from .vision import uses_local, describe
 
     if not detail:
         detail = _read_detail(ask)
-    body = {"monitor": 1, "ask": ask, "along": along, "before": before, "gate": gate, "detail": detail}
+    body = {
+        "monitor": 1,
+        "ask": ask,
+        "along": along,
+        "before": before,
+        "gate": gate,
+        "detail": detail,
+        "prompt": prompt,
+        "frames": frames,
+        "window_hwnd": window_hwnd,
+    }
     if crop and len(crop) == 4:
         body["crop"] = [int(crop[0]), int(crop[1]), int(crop[2]), int(crop[3])]
-    path = "/api/glance" if uses_local() else "/api/frames"
+    path = "/api/glance" if uses_local() and not ocr_only else "/api/frames"
     client = _borrow()
     try:
         resp = client.post(f"{eyes_url()}{path}", json=body, timeout=timeout)
@@ -112,7 +129,14 @@ def eyes_glance(
         _release(client)
     if not isinstance(data, dict):
         data = {"ok": False, "text": "", "message": "眼睛没有返回"}
-    return _keep_for_lab(data, ask=ask, before=before, gate=gate, detail=detail, timeout=timeout, local=path == "/api/glance")
+    if ocr_only and data.get("ok"):
+        data["text"] = str(data.get("ocr_text") or "")
+        data["channel"] = "ocr"
+        # Subtitle sampling is frequent; archive text, not another full reel of
+        # screenshots. The normal MiniCPM observations retain their images.
+        data.pop("images", None)
+        data["trace"] = {"prompt": "现有 CPU OCR 字幕采样，不调用视觉模型，不重复保存截图"}
+    return _keep_for_lab(data, ask=ask, before=before, gate=gate, detail=detail, timeout=timeout, local=path == "/api/glance" or ocr_only)
 
 
 def _keep_for_lab(data: dict, *, ask: str, before: str, gate: bool, detail: bool, timeout: float, local: bool) -> dict:
@@ -215,6 +239,8 @@ def glance_bundle(data: dict | None = None, ask: str = "", timeout: float = 30) 
         line = _screen_line(text)
         shown = line or "这一眼没有能接的句子。"
         note = lead + "【来源】这一眼来自屏幕。屏幕上的人物和情节不是他。\n【眼前】" + shown
+    if found.get("media_context"):
+        note = str(found["media_context"]) + "\n" + note
     trace_id = str(found.get("trace_id") or "")
     if trace_id:
         from .trace import mark

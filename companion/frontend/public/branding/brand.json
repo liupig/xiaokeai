@@ -1,0 +1,13 @@
+{
+  "defaultLogo": "jd-red",
+  "logos": {
+    "black": { "label": "原始黑色", "file": "black.png" },
+    "gold": { "label": "金色", "file": "gold.png" },
+    "matcha": { "label": "抹茶色", "file": "matcha.png" },
+    "jd-red": { "label": "京东红", "file": "jd-red.png" },
+    "xiaomi-orange": { "label": "小米橙", "file": "xiaomi-orange.png" },
+    "porsche": { "label": "保时捷配色", "file": "porsche.png" },
+    "douyin": { "label": "抖音配色", "file": "douyin.png" },
+    "wechat-green": { "label": "微信绿", "file": "wechat-green.png" }
+  }
+}

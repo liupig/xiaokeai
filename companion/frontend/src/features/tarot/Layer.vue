@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { useChatStore } from '../../stores/chat';
 import { t } from '../../i18n';
 import { stage } from '../../engine/stage';
 import { useCharacterStore } from '../../stores/character';
 import { isPetShell } from '../shell/mode';
-import { tarotUi, askAbout, tarotGameLock, doCut, doHerDraw, doReveal, pickPlay } from './session';
+import { tarotUi, askAbout, tarotGameLock, doCut, doHerDraw, doReveal, pickPlay, canReadSpread, readSpread } from './session';
 
 const characters = useCharacterStore();
+const chat = useChatStore();
 const busy = ref(false);
 const canFresh = computed(() => {
   const p = tarotUi.phase;
@@ -119,6 +121,8 @@ onBeforeUnmount(() => cancelAnimationFrame(placeRaf));
       </button>
     </div>
     <div class="hud" data-pet-hit>
+      <button v-if="canReadSpread()" type="button" :disabled="busy || tarotUi.busy || chat.sending" @click="readSpread">听完整解读</button>
+      <span v-if="tarotUi.phase === 'synth'">正在解读整组牌…</span>
       <button v-if="tarotUi.canCut || tarotUi.phase === 'shuffle'" type="button" @click="doCut()">{{ t('tarot.cut') }}</button>
       <button v-if="tarotUi.canHerDraw" type="button" @click="doHerDraw()">{{ t('tarot.her') }}</button>
     </div>

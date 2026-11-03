@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { NButton, NInput } from 'naive-ui';
 import { useSettingsStore } from '../../stores/settings';
 import { t } from '../../i18n';
+import BrandLogo from '../../components/BrandLogo.vue';
 
 const settings = useSettingsStore();
 const path = ref(settings.content.path || '');
@@ -44,7 +45,7 @@ onMounted(async () => {
 <template>
   <div v-if="settings.content.packed && !settings.content.ok && !skipped" class="gate" data-pet-hit>
     <div class="card">
-      <p class="title">xiaoke.ai</p>
+      <p class="title"><BrandLogo :size="28" /> xiaoke.ai</p>
       <p class="lead">{{ t('set.gate.lead') }}</p>
       <div class="row">
         <n-input v-model:value="path" :placeholder="t('set.pack.ph')" />

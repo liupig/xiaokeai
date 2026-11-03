@@ -511,6 +511,33 @@ export async function askAbout(index: number) {
   await speak(`这张「${card.position}」什么意思`, 'ask');
 }
 
+export const canReadSpread = () => tarotUi.need > 1 && tarotUi.allRevealed
+  && (tarotUi.phase === 'open' || tarotUi.phase === 'linger');
+
+export async function readSpread() {
+  if (!canReadSpread() || tarotUi.busy || acting) return;
+  const { useChatStore } = await import('../../stores/chat');
+  const chat = useChatStore();
+  if (chat.sending || speechPlayer.streamOpen) return;
+  tarotUi.busy = true;
+  try {
+    const id = await charId();
+    if (!id || !canReadSpread()) return;
+    chat.cancelTarotNext();
+    clearAutoFlip();
+    if (speechPlayer.isSpeaking()) await hushRitualSpeech();
+    const snap = await api.tarotSynth(id);
+    applySnap(snap);
+    if (snap.phase !== 'synth') return;
+    tarotUi.inspect = null;
+    tarotUi.focus = null;
+    tarotUi.caption = '整局解读';
+    await speak('请结合原问题和所有已翻开的牌，给我完整解读。', 'ask');
+  } finally {
+    tarotUi.busy = false;
+  }
+}
+
 export async function doClarifier() {
   if (tarotUi.clarifierUsed) return;
   withActing(async () => {
@@ -781,7 +808,7 @@ export async function afterTarotSpeak(
     return 'synth';
   }
   if (role === 'reveal' || role === 'ask' || role === 'chat') {
-    if (snap.phase === 'open' && snap.all_revealed && (snap.need || 1) <= 1) {
+    if (snap.phase === 'open' && snap.all_revealed) {
       applySnap(await api.tarotLinger(characterId));
       return 'linger';
     }

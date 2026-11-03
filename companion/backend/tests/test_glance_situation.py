@@ -210,7 +210,8 @@ def test_unreadable_screen_text_stays_quiet_and_one_video_is_one_remark():
         "类型：video\n标题：大唐安西元年\n画面：船行水上\n原文：大唐安西元年"
     ))
     assert titled is not None
-    assert titled.summary == "大唐安西元年"
+    assert "大唐安西元年" in titled.summary
+    assert "船行水上" in titled.summary
 
 
 def test_person_in_the_frame_does_not_swallow_the_next_line():

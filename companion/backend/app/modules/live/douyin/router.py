@@ -13,6 +13,11 @@ from ....services import settings_store
 from ...flags import enabled
 from . import inbox, listen
 from .sign import signature_ok
+from ..bridge import from_inbox
+from ..config import feature_on, normalize
+
+# 在装配层接线；收件箱可单独运行，不导入主持和模型。
+inbox.subscribe(from_inbox)
 
 router = APIRouter(prefix="/api/modules/live/douyin", tags=["modules-live-douyin"])
 
@@ -21,9 +26,14 @@ class ListenBody(BaseModel):
     room: str = ""
 
 
-def _guard(session: Session) -> None:
-    if not enabled(session, "live_douyin"):
-        raise HTTPException(404, "live module off")
+def _guard(session: Session, *, official: bool = False) -> None:
+    if enabled(session, "live_douyin"):
+        return
+    if official and enabled(session, "live"):
+        return
+    if enabled(session, "live") and feature_on(normalize(settings_store.get_all(session).get("live")), "douyin"):
+        return
+    raise HTTPException(404, "live module off")
 
 
 def _secret(session: Session) -> str:
@@ -60,12 +70,18 @@ def listen_stop(session: Session = Depends(get_session)) -> Dict[str, Any]:
 @router.post("/callback")
 async def callback(request: Request, session: Session = Depends(get_session)):
     """抖音开放平台把评论、礼物、点赞 POST 到这里。2xx 才算收下。"""
-    _guard(session)
+    _guard(session, official=True)
     raw = await request.body()
     body = raw.decode("utf-8", "replace")
     headers = {k.lower(): v for k, v in request.headers.items()}
     secret = _secret(session)
-    if secret and not signature_ok(headers, body, secret):
+    if not secret:
+        return JSONResponse({"err_no": 1, "err_msg": "callback secret not configured"}, status_code=503)
+    if not signature_ok(headers, body, secret):
         return JSONResponse({"err_no": 1, "err_msg": "bad signature"}, status_code=401)
+    live = normalize(settings_store.get_all(session).get("live"))
+    expected_room = live["douyin"]["room_id"]
+    if expected_room and headers.get("x-roomid") != expected_room:
+        return JSONResponse({"err_no": 1, "err_msg": "unexpected room"}, status_code=403)
     accepted = inbox.accept_callback(headers.get("x-msg-type") or "", body, headers.get("x-roomid") or "")
     return {"err_no": 0, "err_msg": "ok", "accepted": accepted}

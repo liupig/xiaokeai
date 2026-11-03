@@ -91,9 +91,7 @@ def parse_completion(data: dict[str, Any]) -> str:
 
 
 def _prompt(ask: str, before: str, gate: bool) -> str:
-    if (ask or "").strip() and not gate:
-        return (ask or "").strip()
-    text = FACT_PROMPT
+    text = (ask or "").strip() if (ask or "").strip() and not gate else FACT_PROMPT
     earlier = (before or "").strip()
     if earlier:
         text += "\n已经记下的屏幕事实：\n" + earlier[:500] + "\n只写新的屏幕事实。没有新事实就只写没变。"

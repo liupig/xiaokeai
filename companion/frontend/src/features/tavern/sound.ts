@@ -1,6 +1,78 @@
 /** 酒馆里的短音。仪式是转轮手枪：空膛是击针打在空仓上，实弹是近处的一声枪响。 */
 
 let ctx: AudioContext | null = null;
+// 瞬态压缩保留击发力度，限制枪声、倒地声和心跳叠加的峰值。
+let effectsBus: DynamicsCompressorNode | null = null;
+function output(audio: AudioContext) {
+  if (!effectsBus) {
+    effectsBus = audio.createDynamicsCompressor();
+    effectsBus.threshold.value = -12;
+    effectsBus.knee.value = 12;
+    effectsBus.ratio.value = 5;
+    effectsBus.attack.value = 0.003;
+    effectsBus.release.value = 0.18;
+    effectsBus.connect(audio.destination);
+  }
+  return effectsBus;
+}
+// 击发独立通道：保留大动态，软限幅负责峰值，不被日常 UI 的压缩压扁。
+let impactBus: GainNode | null = null;
+function impactOutput(audio: AudioContext) {
+  if (!impactBus) {
+    impactBus = audio.createGain();
+    impactBus.gain.value = 1.75;
+    const limiter = audio.createWaveShaper();
+    const curve = new Float32Array(4096);
+    for (let i = 0; i < curve.length; i += 1) {
+      const x = i * 2 / (curve.length - 1) - 1;
+      curve[i] = Math.tanh(x * 1.6) * 0.94;
+    }
+    limiter.curve = curve;
+    limiter.oversample = '4x';
+    // 过采样滤波会产生瞬态过冲，再用无过采样的末级峰值上限兜住。
+    const ceiling = audio.createWaveShaper();
+    const ceilingCurve = new Float32Array(4096);
+    for (let i = 0; i < ceilingCurve.length; i += 1) {
+      const x = i * 2 / (ceilingCurve.length - 1) - 1;
+      ceilingCurve[i] = Math.max(-0.9, Math.min(0.9, x));
+    }
+    ceiling.curve = ceilingCurve;
+    ceiling.oversample = 'none';
+    impactBus.connect(limiter);
+    limiter.connect(ceiling);
+    ceiling.connect(audio.destination);
+  }
+  return impactBus;
+}
+// 录音保留原始波形和尾响，只有超过峰值上限才限幅。
+let recordingBus: WaveShaperNode | null = null;
+function recordingOutput(audio: AudioContext) {
+  if (!recordingBus) {
+    recordingBus = audio.createWaveShaper();
+    const curve = new Float32Array(4096);
+    for (let i = 0; i < curve.length; i += 1) curve[i] = Math.max(-0.96, Math.min(0.96, i * 2 / (curve.length - 1) - 1));
+    recordingBus.curve = curve;
+    recordingBus.connect(audio.destination);
+  }
+  return recordingBus;
+}
+let effectGeneration = 0;
+const effectSources = new Set<AudioScheduledSourceNode>();
+function track<T extends AudioScheduledSourceNode>(source: T): T {
+  effectSources.add(source);
+  source.addEventListener('ended', () => effectSources.delete(source), { once: true });
+  return source;
+}
+/** 离场/结束时连同已预约的余响一起停止，避免下一手还在响。 */
+export function stopEffects() {
+  effectGeneration += 1;
+  pulse(false);
+  stopDread();
+  for (const source of effectSources) {
+    try { source.stop(); } catch { /* already stopped */ }
+  }
+  effectSources.clear();
+}
 let heart = 0;
 let dub = 0;
 let drone: { osc: OscillatorNode; gain: GainNode } | null = null;
@@ -17,9 +89,9 @@ function ac() {
 
 export function unlock() {
   ac();
-  void primeShot();
   void primeApplause();
-  void primeCollapse();
+  void primeShot();
+  void primeDryFire();
 }
 
 function noise(audio: AudioContext, seconds: number) {
@@ -27,7 +99,7 @@ function noise(audio: AudioContext, seconds: number) {
   const buffer = audio.createBuffer(1, samples, audio.sampleRate);
   const data = buffer.getChannelData(0);
   for (let i = 0; i < samples; i += 1) data[i] = Math.random() * 2 - 1;
-  const src = audio.createBufferSource();
+  const src = track(audio.createBufferSource());
   src.buffer = buffer;
   return src;
 }
@@ -46,7 +118,7 @@ function burst(peak: number, seconds: number, freq: number, type: BiquadFilterTy
   gain.gain.exponentialRampToValueAtTime(0.0001, now + seconds);
   src.connect(filter);
   filter.connect(gain);
-  gain.connect(audio.destination);
+  gain.connect(output(audio));
   src.start(now);
   src.stop(now + seconds + 0.02);
 }
@@ -55,7 +127,7 @@ function tone(freq: number, seconds: number, peak: number, slideTo?: number) {
   const audio = ac();
   if (!audio) return;
   const now = audio.currentTime;
-  const osc = audio.createOscillator();
+  const osc = track(audio.createOscillator());
   osc.type = 'sine';
   osc.frequency.setValueAtTime(freq, now);
   if (slideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(30, slideTo), now + seconds);
@@ -64,7 +136,7 @@ function tone(freq: number, seconds: number, peak: number, slideTo?: number) {
   gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), now + 0.02);
   gain.gain.exponentialRampToValueAtTime(0.0001, now + seconds);
   osc.connect(gain);
-  gain.connect(audio.destination);
+  gain.connect(output(audio));
   osc.start(now);
   osc.stop(now + seconds + 0.02);
 }
@@ -98,13 +170,13 @@ function stopDrone() {
   const now = audio.currentTime;
   drone.gain.gain.cancelScheduledValues(now);
   drone.gain.gain.setValueAtTime(Math.max(0.0002, drone.gain.gain.value), now);
-  drone.gain.gain.linearRampToValueAtTime(0.0001, now + 0.35);
-  drone.osc.stop(now + 0.4);
+  drone.gain.gain.linearRampToValueAtTime(0.0001, now + 0.08);
+  drone.osc.stop(now + 0.1);
   drone = null;
 }
 
-export function pulse(on: boolean) {
-  if (heart) window.clearInterval(heart);
+export function pulse(on: boolean, chamber = 1) {
+  if (heart) window.clearTimeout(heart);
   if (dub) window.clearTimeout(dub);
   heart = 0;
   dub = 0;
@@ -114,7 +186,7 @@ export function pulse(on: boolean) {
   }
   const audio = ac();
   if (audio && !drone) {
-    const osc = audio.createOscillator();
+    const osc = track(audio.createOscillator());
     osc.type = 'sine';
     osc.frequency.setValueAtTime(46, audio.currentTime);
     osc.frequency.linearRampToValueAtTime(62, audio.currentTime + 4.2);
@@ -122,29 +194,56 @@ export function pulse(on: boolean) {
     gain.gain.setValueAtTime(0.0001, audio.currentTime);
     gain.gain.linearRampToValueAtTime(0.14, audio.currentTime + 1.8);
     osc.connect(gain);
-    gain.connect(audio.destination);
+    gain.connect(output(audio));
     osc.start();
     drone = { osc, gain };
   }
+  const began = performance.now();
   const beat = () => {
-    thump(48, 0.46);
-    dub = window.setTimeout(() => thump(64, 0.28), 160);
+    const pressure = Math.min(1, (performance.now() - began) / 4000);
+    thump(48, 0.46 + pressure * 0.18);
+    dub = window.setTimeout(() => thump(68, 0.32), 125);
+    heart = window.setTimeout(beat, Math.max(330, 800 - chamber * 95 - pressure * 190));
   };
   beat();
-  heart = window.setInterval(beat, 780);
 }
 
 export function cock() {
-  burst(0.22, 0.045, 1700, 'highpass');
-  tone(410, 0.1, 0.07, 150);
+  const audio = ac();
+  if (!audio) return;
+  const at = audio.currentTime;
+  shaped(0.2, 0.045, 1800, 'bandpass', 0.002, at);
+  shaped(0.14, 0.035, 3200, 'highpass', 0.002, at + 0.095);
+  cinematicTone(310, 145, 0.13, 0.07, at + 0.02, 'triangle');
 }
 
 export function cylinder() {
-  burst(0.14, 0.02, 1400, 'bandpass');
-  tone(880, 0.03, 0.04, 420);
+  const audio = ac();
+  if (!audio) return;
+  const at = audio.currentTime;
+  shaped(0.13, 0.032, 2300, 'bandpass', 0.001, at);
+  shaped(0.065, 0.07, 800, 'bandpass', 0.003, at + 0.025);
 }
 
-function shaped(peak: number, seconds: number, freq: number, type: BiquadFilterType, attack: number, at: number) {
+/** 所有层使用同一个音频时钟，不依赖下载或 setTimeout 对齐击发。 */
+function cinematicTone(from: number, to: number, seconds: number, peak: number, at: number, type: OscillatorType = 'sine', destination?: AudioNode) {
+  const audio = ac();
+  if (!audio) return;
+  const osc = track(audio.createOscillator());
+  osc.type = type;
+  osc.frequency.setValueAtTime(from, at);
+  osc.frequency.exponentialRampToValueAtTime(to, at + seconds);
+  const gain = audio.createGain();
+  gain.gain.setValueAtTime(0.0001, at);
+  gain.gain.exponentialRampToValueAtTime(peak, at + Math.min(0.008, seconds / 4));
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
+  osc.connect(gain);
+  gain.connect(destination || output(audio));
+  osc.start(at);
+  osc.stop(at + seconds + 0.02);
+}
+
+function shaped(peak: number, seconds: number, freq: number, type: BiquadFilterType, attack: number, at: number, destination?: AudioNode) {
   const audio = ac();
   if (!audio) return;
   const src = noise(audio, seconds);
@@ -157,7 +256,7 @@ function shaped(peak: number, seconds: number, freq: number, type: BiquadFilterT
   gain.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
   src.connect(filter);
   filter.connect(gain);
-  gain.connect(audio.destination);
+  gain.connect(destination || output(audio));
   src.start(at);
   src.stop(at + seconds + 0.02);
 }
@@ -187,179 +286,135 @@ export function stopDread() {
   hushOsc();
 }
 
-/** 扣扳机之前。两个不和谐的音往上爬，滴答越来越密。 */
+/** 扣扳机之前：低频弦鸣缓慢收紧，机械声由转轮动作同步触发。 */
 export function dread() {
   stopDread();
   const audio = ac();
   if (!audio) return;
-  const now = audio.currentTime;
-  const low = audio.createBiquadFilter();
-  low.type = 'lowpass';
-  low.frequency.setValueAtTime(240, now);
-  low.frequency.exponentialRampToValueAtTime(1600, now + 4.2);
-  const gain = audio.createGain();
-  gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.linearRampToValueAtTime(0.26, now + 3.5);
-  gain.gain.linearRampToValueAtTime(0.0001, now + 4.5);
-  low.connect(gain);
-  gain.connect(audio.destination);
-  for (const start of [70, 74]) {
-    const osc = audio.createOscillator();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(start, now);
-    osc.frequency.exponentialRampToValueAtTime(start * 3.1, now + 4.3);
-    osc.connect(low);
-    osc.start(now);
-    osc.stop(now + 4.6);
+  const at = audio.currentTime;
+  // 低沉、不完全和谐的弦鸣；音量让开人物台词。
+  for (const freq of [49, 51.2, 97, 391, 407]) {
+    const osc = track(audio.createOscillator());
+    const gain = audio.createGain();
+    osc.type = freq > 300 ? 'sine' : 'triangle';
+    const level = freq > 300 ? 0.5 : 1;
+    osc.frequency.setValueAtTime(freq, at);
+    osc.frequency.exponentialRampToValueAtTime(freq * 1.36, at + 5.5);
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.linearRampToValueAtTime(0.055 * level, at + 0.8);
+    gain.gain.linearRampToValueAtTime(0.15 * level, at + 3.8);
+    gain.gain.linearRampToValueAtTime(0.0001, at + 6.5);
+    osc.connect(gain);
+    gain.connect(output(audio));
+    osc.start(at);
+    osc.stop(at + 6.6);
     dreadOsc.push(osc);
   }
-  let wait = 480;
-  let gone = 0;
-  const tick = () => {
-    if (gone > 4300) return;
-    burst(0.12 + gone / 9000, 0.018, 2200, 'highpass');
-    gone += wait;
-    wait = Math.max(64, Math.floor(wait * 0.76));
-    dreadTimers.push(window.setTimeout(tick, wait));
-  };
-  tick();
 }
 
-function chime(freq: number, at: number, peak: number) {
-  const audio = ac();
-  if (!audio) return;
-  const osc = audio.createOscillator();
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(freq, at);
-  const gain = audio.createGain();
-  gain.gain.setValueAtTime(0.0001, at);
-  gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), at + 0.012);
-  gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.28);
-  osc.connect(gain);
-  gain.connect(audio.destination);
-  osc.start(at);
-  osc.stop(at + 0.3);
+let dryBuffer: AudioBuffer | null = null;
+/** 撞针与弹簧是短促、不谐和的金属振动，不使用滑音和电子提示音。 */
+function mechanicalClick(audio: AudioContext) {
+  if (dryBuffer && dryBuffer.sampleRate === audio.sampleRate) return dryBuffer;
+  const rate = audio.sampleRate;
+  const buffer = audio.createBuffer(1, Math.ceil(rate * 0.65), rate);
+  const data = buffer.getChannelData(0);
+  let seed = 9137;
+  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) | 0; return seed / 2147483648; };
+  const strikes = [{ at: 0, strength: 1 }, { at: 0.012, strength: 0.48 }, { at: 0.047, strength: 0.23 }];
+  for (let i = 0; i < data.length; i += 1) {
+    const time = i / rate;
+    let value = 0;
+    for (const strike of strikes) {
+      const t = time - strike.at;
+      if (t < 0) continue;
+      const attack = Math.min(1, t / 0.0005);
+      const snap = random() * 0.62 * Math.exp(-t / 0.004);
+      const body = Math.sin(2 * Math.PI * 185 * t) * 0.24 * Math.exp(-t / 0.015);
+      let metal = 0;
+      for (const [frequency, decay, level] of [[1373, 0.032, 0.13], [2189, 0.022, 0.1], [3541, 0.014, 0.07], [4877, 0.009, 0.04]]) {
+        metal += Math.sin(2 * Math.PI * frequency * t) * level * Math.exp(-t / decay);
+      }
+      value += (snap + body + metal) * attack * strike.strength;
+    }
+    data[i] = value;
+  }
+  // 极短的房间反射给撞针距离感，不拖成铃声。
+  const direct = data.slice();
+  for (const [seconds, level] of [[0.083, 0.19], [0.139, 0.075]]) {
+    const delay = Math.round(seconds * rate);
+    for (let i = delay; i < data.length; i += 1) data[i] += direct[i - delay] * level;
+  }
+  dryBuffer = buffer;
+  return buffer;
 }
 
-/** 空膛。先是一声轻的金属响，再接一段明快的三音，然后两声往下掉的嘲讽。 */
 export function relieved() {
   pulse(false);
   stopDread();
   const audio = ac();
   if (!audio) return;
-  const now = audio.currentTime;
-  shaped(0.22, 0.04, 3400, 'highpass', 0.002, now);
-  chime(784, now + 0.06, 0.16);
-  chime(988, now + 0.12, 0.14);
-  chime(1318, now + 0.18, 0.12);
-  const scoffAt = now + 0.34;
-  voiced(340, 150, scoffAt, 0.22);
-  voiced(260, 100, scoffAt + 0.16, 0.18);
-  shaped(0.2, 0.09, 1200, 'bandpass', 0.008, scoffAt);
-  shaped(0.16, 0.1, 680, 'bandpass', 0.008, scoffAt + 0.16);
-}
-
-function voiced(from: number, to: number, at: number, peak: number) {
-  const audio = ac();
-  if (!audio) return;
-  const osc = audio.createOscillator();
-  osc.type = 'triangle';
-  osc.frequency.setValueAtTime(from, at);
-  osc.frequency.exponentialRampToValueAtTime(Math.max(40, to), at + 0.15);
-  const filter = audio.createBiquadFilter();
-  filter.type = 'bandpass';
-  filter.frequency.setValueAtTime(900, at);
-  filter.Q.value = 4;
-  const gain = audio.createGain();
-  gain.gain.setValueAtTime(0.0001, at);
-  gain.gain.exponentialRampToValueAtTime(peak, at + 0.02);
-  gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
-  osc.connect(filter);
-  filter.connect(gain);
-  gain.connect(audio.destination);
-  osc.start(at);
-  osc.stop(at + 0.18);
-}
-
-let shotBuffer: AudioBuffer | null = null;
-let shotLoading: Promise<AudioBuffer | null> | null = null;
-let shotNode: AudioBufferSourceNode | null = null;
-
-/** 进仪式就先把枪声读进内存，扣下扳机时不再等。 */
-export function primeShot() {
-  const audio = ac();
-  if (!audio) return Promise.resolve(null);
-  if (shotBuffer) return Promise.resolve(shotBuffer);
-  if (shotLoading) return shotLoading;
-  shotLoading = fetch('/assets/tavern/killshot.wav')
-    .then((res) => res.arrayBuffer())
-    .then((raw) => audio.decodeAudioData(raw.slice(0)))
-    .then((buf) => {
-      shotBuffer = buf;
-      return buf;
-    })
-    .catch(() => null);
-  return shotLoading;
-}
-
-function playShot(audio: AudioContext, buf: AudioBuffer) {
-  if (shotNode) {
-    try { shotNode.stop(); } catch { /* already ended */ }
+  if (dryRecording) {
+    impactClip(audio, dryRecording, audio.currentTime, 1, dryRecording.duration, true);
+    return;
   }
-  const src = audio.createBufferSource();
-  src.buffer = buf;
-  const gain = audio.createGain();
-  gain.gain.value = 1;
-  src.connect(gain);
-  gain.connect(audio.destination);
-  src.start();
-  shotNode = src;
+  void primeDryFire();
+  impactClip(audio, mechanicalClick(audio), audio.currentTime, 1.15, 0.65);
 }
 
-/** 实弹。枪声和坍塌叠在一起，满响度，不经过压缩。 */
+/** 缓存素材的播放也使用同一音频时钟，绝不等待下载后补响。 */
+function impactClip(audio: AudioContext, buffer: AudioBuffer, at: number, level: number, duration: number, recorded = false) {
+  const src = track(audio.createBufferSource());
+  const gain = audio.createGain();
+  src.buffer = buffer;
+  const length = Math.min(duration, buffer.duration);
+  gain.gain.setValueAtTime(level, at);
+  gain.gain.setValueAtTime(level, at + Math.max(0, length - 0.15));
+  gain.gain.linearRampToValueAtTime(0, at + length);
+  src.connect(gain);
+  gain.connect(recorded ? recordingOutput(audio) : impactOutput(audio));
+  src.start(at, 0, length);
+}
+
+/** 近场枪响 + 重击 + 尾响；峰值交给独立限幅，而不是压低整个枪声。 */
 export function killshot() {
   pulse(false);
   stopDread();
   const audio = ac();
   if (!audio) return;
-  if (shotBuffer) playShot(audio, shotBuffer);
-  else {
-    void primeShot().then((buf) => {
-      if (buf) playShot(audio, buf);
-      else brutalFallback();
-    });
+  const at = audio.currentTime;
+  const bus = impactOutput(audio);
+  if (shotBuffer) {
+    // 增强 WAV 已包含高频起音、耳鸣和回声，按原电平完整播放。
+    impactClip(audio, shotBuffer, at, 1, shotBuffer.duration, true);
+    return;
   }
-  if (collapseBuffer) playClip(collapseBuffer);
-  else void primeCollapse().then((buf) => { if (buf) playClip(buf); });
+  void primeShot();
+  {
+    shaped(1.05, 0.12, 1900, 'highpass', 0.0007, at, bus);
+    shaped(0.8, 0.28, 780, 'bandpass', 0.001, at + 0.004, bus);
+  }
+  cinematicTone(185, 32, 0.48, 0.85, at, 'sine', bus);
+  shaped(0.55, 0.28, 240, 'lowpass', 0.003, at + 0.055, bus);
+  if (collapseBuffer) impactClip(audio, collapseBuffer, at + 0.09, 0.72, 1.3);
+  cinematicTone(105, 27, 0.65, 0.48, at + 0.06, 'sine', bus);
+  shaped(0.42, 0.6, 1100, 'bandpass', 0.006, at + 0.11, bus);
+  shaped(0.24, 1.05, 540, 'lowpass', 0.015, at + 0.23, bus);
+  cinematicTone(2850, 1700, 1.05, 0.04, at + 0.2);
 }
 
-function brutalFallback() {
-  const audio = ac();
-  if (!audio) return;
-  const now = audio.currentTime;
-  const crack = noise(audio, 0.2);
-  const high = audio.createBiquadFilter();
-  high.type = 'highpass';
-  high.frequency.setValueAtTime(900, now);
-  const gain = audio.createGain();
-  gain.gain.setValueAtTime(1, now);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
-  crack.connect(high);
-  high.connect(gain);
-  gain.connect(audio.destination);
-  crack.start(now);
-  crack.stop(now + 0.22);
-  const body = audio.createOscillator();
-  body.type = 'sine';
-  body.frequency.setValueAtTime(140, now);
-  body.frequency.exponentialRampToValueAtTime(32, now + 0.45);
-  const bodyGain = audio.createGain();
-  bodyGain.gain.setValueAtTime(1, now);
-  bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
-  body.connect(bodyGain);
-  bodyGain.connect(audio.destination);
-  body.start(now);
-  body.stop(now + 0.75);
+let shotBuffer: AudioBuffer | null = null;
+let shotLoading: Promise<AudioBuffer | null> | null = null;
+export function primeShot() {
+  return loadWav('/assets/tavern/barrett-m82-ringing.wav', () => shotBuffer,
+    (buf) => { shotBuffer = buf; }, () => shotLoading, (job) => { shotLoading = job; });
+}
+
+let dryRecording: AudioBuffer | null = null;
+let dryLoading: Promise<AudioBuffer | null> | null = null;
+export function primeDryFire() {
+  return loadWav('/assets/tavern/rifle-dryfire-close.wav', () => dryRecording,
+    (buf) => { dryRecording = buf; }, () => dryLoading, (job) => { dryLoading = job; });
 }
 
 let applauseBuffer: AudioBuffer | null = null;
@@ -368,7 +423,7 @@ let applauseNode: AudioBufferSourceNode | null = null;
 let collapseBuffer: AudioBuffer | null = null;
 let collapseLoading: Promise<AudioBuffer | null> | null = null;
 
-function loadWav(url: string, ready: () => AudioBuffer | null, save: (buf: AudioBuffer) => void, pending: () => Promise<AudioBuffer | null> | null, store: (job: Promise<AudioBuffer | null>) => void) {
+function loadWav(url: string, ready: () => AudioBuffer | null, save: (buf: AudioBuffer) => void, pending: () => Promise<AudioBuffer | null> | null, store: (job: Promise<AudioBuffer | null> | null) => void) {
   const audio = ac();
   if (!audio) return Promise.resolve(null);
   const have = ready();
@@ -376,13 +431,14 @@ function loadWav(url: string, ready: () => AudioBuffer | null, save: (buf: Audio
   const job = pending();
   if (job) return job;
   const next = fetch(url)
-    .then((res) => res.arrayBuffer())
+    .then((res) => { if (!res.ok) throw new Error(String(res.status)); return res.arrayBuffer(); })
     .then((raw) => audio.decodeAudioData(raw.slice(0)))
     .then((buf) => {
       save(buf);
       return buf;
     })
-    .catch(() => null);
+    .catch(() => null)
+    .finally(() => store(null));
   store(next);
   return next;
 }
@@ -410,29 +466,31 @@ export function primeCollapse() {
 function playClip(buf: AudioBuffer) {
   const audio = ac();
   if (!audio) return;
-  const src = audio.createBufferSource();
+  const src = track(audio.createBufferSource());
   src.buffer = buf;
   const gain = audio.createGain();
-  gain.gain.value = 1;
+  gain.gain.value = 0.75;
   src.connect(gain);
-  gain.connect(audio.destination);
+  gain.connect(output(audio));
   src.start();
 }
 
 /** 出完退场。铜管上行，然后掌声铺满。 */
 export function applause() {
+  const generation = effectGeneration;
   const audio = ac();
   if (!audio) return;
   const start = (buf: AudioBuffer) => {
+    if (generation !== effectGeneration) return;
     if (applauseNode) {
       try { applauseNode.stop(); } catch { /* already ended */ }
     }
-    const src = audio.createBufferSource();
+    const src = track(audio.createBufferSource());
     src.buffer = buf;
     const gain = audio.createGain();
-    gain.gain.value = 1;
+    gain.gain.value = 0.75;
     src.connect(gain);
-    gain.connect(audio.destination);
+    gain.connect(output(audio));
     src.start();
     applauseNode = src;
   };

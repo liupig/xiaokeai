@@ -66,6 +66,9 @@ def update_settings(patch: Dict[str, Any],
     _sync_speech_workers(runtime)
     prev_mods = prev.get("modules") or {}
     now_mods = runtime.get("modules") or {}
+    if not bool(now_mods.get("harness", True)):
+        from ..modules.harness.service import release as harness_release
+        harness_release()
     if bool(prev_mods.get("glance", False)) != bool(now_mods.get("glance", False)):
         try:
             from ..modules.harness.service import release as harness_release
@@ -82,6 +85,12 @@ def update_settings(patch: Dict[str, Any],
         try:
             from ..modules.live.douyin.listen import stop as live_douyin_stop
             live_douyin_stop()
+        except Exception:
+            pass
+    if bool(prev_mods.get("live", False)) and not bool(now_mods.get("live", False)):
+        try:
+            from ..modules.live.host import host as live_host
+            live_host.shutdown()
         except Exception:
             pass
     if not bool(now_mods.get("codewatch", True)):
@@ -112,6 +121,14 @@ def update_settings(patch: Dict[str, Any],
         )
         if prev_emb != now_emb or cred_changed:
             threading.Thread(target=_reload_memory_index, daemon=True).start()
+    if (
+        bool(now_mods.get("harness", True))
+        and (not bool(prev_mods.get("harness", True))
+             or prev.get("llm") != runtime.get("llm")
+             or bool(prev_mods.get("glance", False)) != bool(now_mods.get("glance", False)))
+    ):
+        from ..modules.harness.service import schedule_warmup
+        schedule_warmup(runtime)
     return out
 
 

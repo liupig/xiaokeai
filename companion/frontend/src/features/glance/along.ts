@@ -37,9 +37,9 @@ async function tick() {
   try {
     const result = await chat.alongSpeak(snap.text);
     if (result === 'skip') return;
-    if (result === 'spoke') {
+    if (result !== 'empty') {
       acked = snap.seq;
-      await api.glanceAlongAck(snap.seq).catch(() => {});
+      await api.glanceAlongAck(snap.seq, result === 'spoke' ? 'completed' : result).catch(() => {});
     } else {
       retryAt = Date.now() + 15000;
     }

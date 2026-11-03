@@ -6,6 +6,7 @@ import edge_tts
 from . import tts_cosy
 from . import tts_eleven
 from . import tts_gemini
+from . import tts_mimo
 from . import tts_openai
 from . import tts_qwen
 from . import tts_volc
@@ -27,6 +28,15 @@ EDGE_VOICES = [
 
 # 兼容旧 import
 VOICES = EDGE_VOICES
+
+
+def language_route(engine: str, lang: str) -> tuple[str, str]:
+    """MiMo presets have no Japanese/Korean voice; use a matching online voice."""
+    from ..locale_pack import normalize, default_voice
+    lang = normalize(lang)
+    if engine == "mimo" and lang in {"ja", "ko"}:
+        return "edge", default_voice("edge", lang)
+    return engine, ""
 
 
 def _edge_lang(voice: Dict[str, str]) -> str:
@@ -66,6 +76,8 @@ def list_voices(engine: str = "") -> List[Dict[str, str]]:
     for v in tts_eleven.list_voices():
         items.append(v)
     for v in tts_gemini.list_voices():
+        items.append(v)
+    for v in tts_mimo.list_voices():
         items.append(v)
     if engine:
         items = [x for x in items if x["engine"] == engine]

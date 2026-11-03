@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { NAvatar, NTooltip } from 'naive-ui';
 import { MocapToolbar } from '../mocap';
 import XkIcon from '../icons/XkIcon.vue';
@@ -12,10 +12,11 @@ import CoinPill from '../coins/CoinPill.vue';
 
 type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake' | 'log';
 
-defineProps<{ active: PanelKey | null }>();
-const emit = defineEmits<{ (e: 'toggle', p: PanelKey): void }>();
+defineProps<{ active: PanelKey | null; updateAvailable?: boolean; updateLabel?: string }>();
+const emit = defineEmits<{ (e: 'toggle', p: PanelKey): void; (e: 'check-update'): void }>();
 
 const characters = useCharacterStore();
+const collapsed = ref(false);
 const settings = useSettingsStore();
 const currentName = computed(() => characters.current?.name ?? t('top.none'));
 const canPet = typeof window.companionDesktop?.setShellMode === 'function';
@@ -45,7 +46,7 @@ const tools = computed(() => {
 </script>
 
 <template>
-  <div class="topbar">
+  <div class="topbar" :class="{ collapsed }">
     <div class="left-group">
       <div class="left glass" :class="{ active: active === 'characters' }"
            @click="emit('toggle', 'characters')">
@@ -55,7 +56,17 @@ const tools = computed(() => {
       </div>
       <CoinPill />
     </div>
-    <div class="toolbar glass">
+    <button v-if="collapsed" class="collapse-toggle glass" type="button" @click.stop="collapsed = false" aria-label="展开导航"><XkIcon name="expand" :size="20" /></button>
+    <div v-else class="toolbar glass">
+      <n-tooltip :delay="300">
+        <template #trigger>
+          <button type="button" class="tool update-tool" :class="{ 'has-update': updateAvailable }" @click="emit('check-update')" aria-label="检查更新">
+            <XkIcon name="update" :size="20" />
+            <i v-if="updateAvailable"></i>
+          </button>
+        </template>
+        {{ updateAvailable ? '有新版本，点击查看' : updateLabel || '检查更新' }}
+      </n-tooltip>
       <MocapToolbar />
       <n-tooltip :delay="300">
         <template #trigger>
@@ -91,11 +102,15 @@ const tools = computed(() => {
         </template>
         {{ item.label }}
       </n-tooltip>
+      <button class="tool collapse-icon" type="button" @click.stop="collapsed = true" aria-label="收起导航"><XkIcon name="collapse" :size="20" /></button>
     </div>
   </div>
 </template>
 
 <style scoped>
+.update-tool { position: relative; }
+.update-tool.has-update { color: #c4afff; }
+.update-tool i { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: #bd9bff; box-shadow: 0 0 6px #bd9bff80; }
 .topbar {
   position: absolute;
   top: calc(16px + var(--desk-chrome, 0px));
@@ -108,6 +123,8 @@ const tools = computed(() => {
   z-index: 10;
   pointer-events: none;
 }
+.topbar.collapsed { justify-content: flex-end; }
+.collapse-toggle { pointer-events: auto; width: 38px; height: 28px; border: 0; border-radius: 12px; color: #ddd; cursor: pointer; }
 
 .left-group {
   display: flex;

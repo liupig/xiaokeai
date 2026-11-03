@@ -25,6 +25,10 @@ from .modules.codewatch.router import router as codewatch_router
 from .modules.harness.router import router as harness_router
 from .modules.glance.router import router as glance_router
 from .modules.live.douyin.router import router as live_douyin_router
+from .modules.live.router import router as live_router
+from .modules.live.lab_router import router as live_lab_router
+from .modules.play.router import router as play_router
+from .modules.sight.router import router as sight_router
 from .services import catalog
 from .services import asr as asr_svc
 from .services import review_store
@@ -62,6 +66,31 @@ app.include_router(codewatch_router)
 app.include_router(harness_router)
 app.include_router(glance_router)
 app.include_router(live_douyin_router)
+app.include_router(live_router)
+app.include_router(live_lab_router)
+app.include_router(play_router)
+app.include_router(sight_router)
+
+
+@app.get('/api/releases/latest')
+async def latest_release(current_version: str | None = None):
+    """通过本地服务查询发布信息，避免浏览器跨域限制。"""
+    import re
+    import httpx
+    from fastapi.responses import JSONResponse
+
+    if current_version is not None and not re.fullmatch(r'[0-9]{14}', current_version):
+        raise HTTPException(422, '本地版本号必须是 14 位时间戳')
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(
+                'https://dub.sisss.cn/v1/xiaokeai/version',
+                params={'current_version': current_version} if current_version else {},
+            )
+            response.raise_for_status()
+            return JSONResponse(response.json(), headers={'Cache-Control': 'no-store'})
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(502, '暂时无法连接版本服务器，请稍后重试') from exc
 
 
 @app.get("/lab/watch", include_in_schema=False)
@@ -128,6 +157,9 @@ def startup() -> None:
         pass
     _compact_wallet()
     threading.Thread(target=_warmup_offline_speech, daemon=True).start()
+    from .modules.harness.service import schedule_warmup
+    with Session(engine) as session:
+        schedule_warmup(settings_store.get_all(session))
     atexit.register(_release_glance)
 
 

@@ -33,7 +33,7 @@ export interface TavernPack {
   wait: string;
   flipTitle: string;
   riteTitle: string;
-  think: (who: string, naming: boolean) => string;
+  think: (who: string, naming: boolean, opening?: boolean) => string;
   focusPlay: string;
   focusName: string;
   focusCall: string;
@@ -117,12 +117,12 @@ const ZH: TavernPack = {
   goon: '继续',
   approve: '审批',
   yourTurn: '轮到你。可以跟牌，也可以揭穿上一手。',
-  first: '你先手。这一轮还没有能揭穿的牌。',
+  first: '你先手。选一到三张牌出牌。',
   nameHint: '审批结束。由你指定这一轮的桌牌。手里还有牌就接着出，出完了这一轮就轮空。',
   wait: '别人在想。',
   flipTitle: '揭穿',
   riteTitle: '审批',
-  think: (who, naming) => (naming ? `${who}在定这一轮的牌型。` : `${who}在看牌，决定要揭穿还是跟。`),
+  think: (who, naming, opening) => (naming ? `等待${who}指定桌牌。` : opening ? `等待${who}先手出牌。` : `等待${who}跟牌或质疑上一手。`),
   focusPlay: '出牌',
   focusName: '定牌',
   focusCall: '揭穿',
@@ -219,7 +219,7 @@ const EN: TavernPack = {
   wait: 'Someone else is thinking.',
   flipTitle: 'Called',
   riteTitle: 'Approval',
-  think: (who, naming) => (naming ? `${who} is choosing the card.` : `${who} is deciding whether to call or follow.`),
+  think: (who, naming, opening) => (naming ? `${who} is choosing the card.` : opening ? `Waiting for ${who} to open.` : `${who} is deciding whether to call or follow.`),
   focusPlay: 'Play',
   focusName: 'Name',
   focusCall: 'Call',
@@ -322,7 +322,7 @@ const JA: TavernPack = {
   wait: '誰かが考えている。',
   flipTitle: '暴露',
   riteTitle: '承認',
-  think: (who, naming) => (naming ? `${who}がこの回の卓札を決めている。` : `${who}が暴くか、出すか考えている。`),
+  think: (who, naming, opening) => (naming ? `${who}がこの回の卓札を決めている。` : opening ? `${who}の最初の出札を待っています。` : `${who}が暴くか、出すか考えている。`),
   focusPlay: '出す',
   focusName: '指定',
   focusCall: '暴く',
@@ -425,7 +425,7 @@ const KO: TavernPack = {
   wait: '다른 사람이 생각하는 중.',
   flipTitle: '들춤',
   riteTitle: '승인',
-  think: (who, naming) => (naming ? `${who}가 이번 패를 정하는 중이다.` : `${who}가 들통낼지 따라낼지 보는 중이다.`),
+  think: (who, naming, opening) => (naming ? `${who}가 이번 패를 정하는 중이다.` : opening ? `${who}의 첫 출패를 기다리는 중이다.` : `${who}가 들통낼지 따라낼지 보는 중이다.`),
   focusPlay: '내기',
   focusName: '지정',
   focusCall: '들춤',
