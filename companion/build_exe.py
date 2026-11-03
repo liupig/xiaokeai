@@ -127,7 +127,7 @@ def latest_pack_dir(exclude: Path | None = None) -> Path | None:
     return max(cands, key=lambda p: p.name)
 
 
-def step_frontend(py: Path) -> None:
+def step_frontend(py: Path, version: str) -> None:
     print("\n[1/8] 构建前端（压缩混淆）")
     npm = shutil.which("npm")
     if not npm:
@@ -136,7 +136,10 @@ def step_frontend(py: Path) -> None:
         run([npm, "install", "--legacy-peer-deps"], cwd=FRONTEND)
     else:
         run([npm, "install", "--legacy-peer-deps", "terser@^5.31.0"], cwd=FRONTEND)
-    run([npm, "run", "build"], cwd=FRONTEND)
+    build_env = os.environ.copy()
+    # 版本号必须和整合包目录名保持一致，前端启动时用它和线上发布版本比较。
+    build_env["VITE_XIAOKEAI_VERSION"] = version
+    run([npm, "run", "build"], cwd=FRONTEND, env=build_env)
     dist = FRONTEND / "dist"
     if not (dist / "index.html").is_file():
         raise SystemExit("前端构建失败：没有 dist/index.html")
@@ -1259,7 +1262,7 @@ def build_a(py: Path, skip_7z: bool, stamp: str) -> Path:
     dist_dir = OUT_ROOT / f"xiaoke-ai-agent-A-{stamp}"
     dist_dir.mkdir(parents=True, exist_ok=True)
     print(f"A 输出: {dist_dir}")
-    step_frontend(py)
+    step_frontend(py, stamp)
     step_electron(dist_dir)
     step_copy_runtime(dist_dir, py)
     slim_a_runtime(dist_dir)
@@ -1279,7 +1282,7 @@ def build_full(py: Path, skip_7z: bool) -> Path:
     dist_dir = OUT_ROOT / f"xiaoke-ai-{stamp}"
     dist_dir.mkdir(parents=True, exist_ok=True)
     print(f"一体包输出: {dist_dir}")
-    step_frontend(py)
+    step_frontend(py, stamp)
     step_electron(dist_dir)
     step_copy_runtime(dist_dir, py)
     junk = strip_build_junk(dist_dir / "runtime")
@@ -1302,7 +1305,7 @@ def build_online(py: Path, skip_7z: bool) -> Path:
     dist_dir = OUT_ROOT / f"xiaoke-ai-online-{stamp}"
     dist_dir.mkdir(parents=True, exist_ok=True)
     print(f"在线包输出: {dist_dir}")
-    step_frontend(py)
+    step_frontend(py, stamp)
     step_electron(dist_dir)
     step_copy_runtime(dist_dir, py)
     slim_online_runtime(dist_dir)

@@ -59,6 +59,7 @@ class _State:
     spoken_hero: str = ""
     visual_phase: str = ""
     phase_announced: bool = False
+    opening: str = ""
 
 
 _lock = threading.Lock()
@@ -146,6 +147,7 @@ def snapshot() -> dict:
             "text": _state.pending,
             "character_id": _state.character_id,
             "playback": _state.playback,
+            "contract": situation.watch_contract(),
         }
 
 
@@ -157,7 +159,7 @@ def _wait(seconds: float) -> bool:
         return not _state.on
 
 
-def stop() -> None:
+def stop(reason: str = "requested") -> None:
     from .hearing import ear
     from .sense import reset as reset_sense
     from .service import abort_eyes_calls
@@ -195,17 +197,20 @@ def stop() -> None:
         situation.reset()
         live.reset()
         live.eyes_on = False
-        print("[along] stop")
+        from ... import talk_log
+        talk_log.write("note", f"陪看停止：{reason}", character_id=_state.character_id)
     if thread is not None and thread is not threading.current_thread() and thread.is_alive():
         thread.join(timeout=2)
 
 
-def start(character_id: int) -> None:
+def start(character_id: int, request: str = "") -> None:
     global _thread
     if not character_id:
         return
     with _lock:
         if _state.on and _state.character_id == int(character_id) and _thread is not None and _thread.is_alive():
+            if request and not situation.watch_task:
+                situation.configure_watch(command=request, task=request)
             return
     from .sense import reset as reset_sense
 
@@ -231,15 +236,23 @@ def start(character_id: int) -> None:
         _state.spoken_hero = ""
         _state.visual_phase = ""
         _state.phase_announced = False
+        _state.opening = ""
         situation.reset()
+        situation.configure_watch(command=request, task=request or "陪我看当前内容")
+        situation.note_user(request)
+        situation.hold_until = 0
         live.reset()
         live.eyes_on = True
+        _state.speak_locked = situation.talk == "quiet"
+        live.speak_locked = _state.speak_locked
+        _state.user_until = 0
+        _state.said = request[:80]
         from .hearing import ear
 
         ear.start()
         alive = _thread is not None and _thread.is_alive()
         if not alive:
-            _thread = threading.Thread(target=_loop, name="glance-along", daemon=True)
+            _thread = threading.Thread(target=_run_loop, name="glance-along", daemon=True)
             _thread.start()
     print(f"[along] start cid={character_id}")
 
@@ -247,6 +260,13 @@ def start(character_id: int) -> None:
 def pending_trace() -> str:
     with _lock:
         return _state.trace_id
+
+
+def register_opening(text: str, character_id: int) -> None:
+    with _lock:
+        if _state.on and _state.character_id == character_id:
+            _state.opening = text[:120]
+            situation.watch_feedback = "已回应陪看请求，等待下一眼具体内容"
 
 
 def ack(seq: int, status: str = "completed") -> None:
@@ -307,14 +327,21 @@ def _sayable(offer: Offer | None) -> bool:
 def candidate_alive() -> bool:
     with _lock:
         offer = _state.offer
-        if offer is None or time.time() < _state.user_until:
+        if not _state.on or offer is None or time.time() < _state.user_until:
             return False
         if _state.speak_locked or _state.offer_epoch != _state.epoch or not live.source_valid:
             return False
         held = _state.held
         if held is not None and held.phase in {"dead", "score"} and held.phase != offer.phase and _sayable(held):
             return False
-        return _sayable(offer)
+        if _sayable(offer):
+            return True
+        # 普通局内观察在有效期内开始生成后，给模型一个有限的完成窗口。
+        # 不延长排队期限，也不延长团战、死亡等瞬时事件的期限。
+        if offer.phase == "lane" and _state.speaking and _state.speak_since:
+            deadline = min(offer.observation_time + 20, _state.speak_since + 8)
+            return time.time() < deadline
+        return False
 
 
 def open_candidate(text: str, prior: list | None = None) -> str | None:
@@ -380,9 +407,14 @@ def open_candidate(text: str, prior: list | None = None) -> str | None:
         rule = offer.speech_rule
         if rule:
             cue = rule + "\n" + cue
+        transition = ""
+        if _state.opening:
+            from .conversation import followup
+            transition = followup(_state.opening, continuous=True) + "\n"
+        cue = situation.watch_brief() + "\n【本次确认的内容】" + offer.summary + "\n" + transition + offer.context + "\n" + cue
         _state.speaking = True
         _state.speak_since = time.time()
-        return cue[:700]
+        return cue[:3200]
 
 
 def _enqueue(offer: Offer, trace_id: str) -> None:
@@ -397,6 +429,7 @@ def _enqueue(offer: Offer, trace_id: str) -> None:
         object_id=offer.object_id,
         key=offer.topic_id or offer.summary[:40],
         observation_time=offer.observation_time,
+        context=offer.context,
     )
     summary = offer.summary.strip()
     if summary == (_state.pending or "").strip():
@@ -418,6 +451,9 @@ def _enqueue(offer: Offer, trace_id: str) -> None:
 
 def finish_speak(spoke: bool, text: str = "") -> None:
     situation.note_offered(spoke)
+    if spoke and text.strip():
+        situation.watch_spoken = text.strip()[:180]
+        situation.watch_feedback = "已按当前要求接话；继续观察"
     item = live.candidate
     if item is not None:
         live.considered[item.key] = live.clock
@@ -432,6 +468,7 @@ def finish_speak(spoke: bool, text: str = "") -> None:
         _state.speaking = False
         _state.speak_since = 0
         if spoke:
+            _state.opening = ""
             _state.spoke_at = time.time()
             _state.greeted = True
             _state.spoken_phase = _state.offer.phase if _state.offer else ""
@@ -458,7 +495,7 @@ def eyes_context() -> str:
     with _lock:
         trail = list(_state.trail)
         said = _state.said
-    parts: list[str] = []
+    parts: list[str] = [situation.watch_brief()]
     if said:
         parts.append("他刚说：" + said)
     if trail:
@@ -514,6 +551,10 @@ def note_user(text: str, character_id: int, *, glance: bool, harness: bool, sema
             _state.speak_locked = live.speak_locked
             _state.generated = ""
             _state.playback = "interrupted"
+            _state.speaking = False
+            _state.speak_since = 0
+            _state.held = None
+            _state.held_trace = ""
             spoken = " ".join((text or "").split())
             if spoken:
                 _state.said = spoken[:80]
@@ -524,6 +565,34 @@ def release_user_turn() -> None:
         _state.user_until = 0
         if _state.on:
             live.finish_user_turn()
+
+
+def configure(value: str, character_id: int, user_text: str = "") -> dict:
+    from .conversation import parse_control
+
+    changes = parse_control(value)
+    with _lock:
+        if not _state.on or _state.character_id != character_id:
+            return {"ok": False, "message": "当前没有为这个角色开启陪看"}
+        if not changes:
+            return {"ok": False, "message": "陪看要求不明确，未修改"}
+        changed = situation.configure_watch(command=user_text or value, **changes)
+        _state.speak_locked = situation.talk == "quiet"
+        live.speak_locked = _state.speak_locked
+        if changed:
+            _state.epoch += 1
+            live.epoch = _state.epoch
+            live.candidate = None
+            live.plan_standby = False
+            _state.pending = ""
+            _state.offer = None
+            _state.generated = ""
+            _state.held = None
+            _state.held_trace = ""
+            _state.speaking = False
+            _state.speak_since = 0
+            _state.playback = "interrupted"
+        return {"ok": True, **situation.watch_contract()}
 
 
 def _preferences(character_id: int) -> str:
@@ -547,7 +616,7 @@ def _live_holds_screen() -> bool:
         return False
 
 
-def _modules_on() -> bool:
+def _modules_on() -> bool | None:
     try:
         from sqlmodel import Session
 
@@ -556,8 +625,10 @@ def _modules_on() -> bool:
 
         with Session(engine) as session:
             return module_on(session, "glance") and module_on(session, "harness")
-    except Exception:
-        return False
+    except Exception as exc:
+        from ... import talk_log
+        talk_log.write("note", f"陪看开关读取失败，稍后重试：{exc}")
+        return None
 
 
 def _tarot_now(character_id: int) -> bool:
@@ -602,7 +673,40 @@ def _company_offer() -> Offer | None:
     )
 
 
+def _take_held_offer() -> tuple[Offer | None, str]:
+    """Retry a recent visual point after the speech gap, preserving capture time."""
+    with _lock:
+        offer = _state.held
+        if offer is None:
+            return None, ""
+        if not _sayable(offer) or not live.source_valid or offer.object_id != situation.latest_object_id:
+            _state.held = None
+            _state.held_trace = ""
+            return None, ""
+        if _state.speaking or _state.pending or _state.speak_locked or time.time() < _state.user_until:
+            return None, ""
+        trace_id = _state.held_trace
+        _state.held = None
+        _state.held_trace = ""
+        return offer, trace_id
+
+
 _last_model = 0.0
+
+
+def _run_loop() -> None:
+    """采集失败只重试；用户停止仍立即生效。"""
+    from ... import talk_log
+    import traceback
+
+    while not _halt.is_set():
+        try:
+            _loop()
+            return
+        except Exception:
+            talk_log.write("note", "陪看采集异常，重试：" + traceback.format_exc())
+            if _wait(2):
+                return
 
 
 def _loop() -> None:
@@ -620,9 +724,14 @@ def _loop() -> None:
 
         with _lock:
             audible_pending = bool(_state.generated)
-        ear.set_quiet(speak_locked or audible_pending)
-        if not _modules_on():
-            stop()
+        ear.set_quiet(audible_pending)
+        modules_on = _modules_on()
+        if modules_on is None:
+            if _wait(2):
+                return
+            continue
+        if not modules_on:
+            stop(reason="陪看或对话模块已关闭")
             return
         if _live_holds_screen():
             if _wait(2):
@@ -644,6 +753,8 @@ def _loop() -> None:
         from ..sight.service import interval as sight_interval
 
         limit = sight_interval() or INTERVALS.get(scene, 10.0)
+        if scene in {"movie", "music", "video"} and situation.talk == "more":
+            limit = min(limit, {"movie": 8.0, "music": 6.0, "video": 3.0}[scene])
         force = (time.time() - _last_model) >= limit
         from .sense import collect
 
@@ -720,6 +831,10 @@ def _loop() -> None:
             live.admit(quiet_obs, None)
         if offer is None and not speak_locked:
             offer = _company_offer()
+        if offer is None and not speak_locked:
+            offer, held_trace = _take_held_offer()
+            if offer is not None:
+                trace_id = held_trace
         if offer is not None:
             sight = found.get("sight") or {}
             offer.speech_rule = str(sight.get("speak") or "") + str(sight.get("company") or "")
@@ -747,14 +862,21 @@ def _loop() -> None:
                 from .media_director import cadence, bind_context
 
                 bind_context(offer, sight)
-                offer.max_age = {"movie": 20, "music": 15, "video": 10}[sight["kind"]]
+                offer.max_age = {"movie": 25, "music": 20, "video": 18}[sight["kind"]]
                 with _lock:
                     allowed = cadence(sight["kind"], elapsed=time.time()-_state.spoke_at,
                                       opening=not _state.greeted, talk=situation.talk,
                                       playback=(sight.get("slots") or {}).get("playback", ""))
                 if not allowed:
                     live.candidate = None
-                    mark(trace_id, handoff_why="媒体暂停、暂不可读或处于安静间隔，先不打扰")
+                    playback = (sight.get("slots") or {}).get("playback", "")
+                    if situation.talk != "quiet" and playback not in {"paused", "暂停", "已暂停", "stopped", "unavailable"}:
+                        with _lock:
+                            _state.held = offer
+                            _state.held_trace = trace_id
+                        mark(trace_id, handoff_why="还没到接话间隔，保留这一眼，稍后接话")
+                    else:
+                        mark(trace_id, handoff_why="媒体暂停或暂不可读，先不打扰")
                     if _wait(0.4):
                         return
                     continue

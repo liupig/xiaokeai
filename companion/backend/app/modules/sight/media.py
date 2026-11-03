@@ -40,22 +40,31 @@ def title(raw: str, platform: str = "") -> str:
 
 def clean(raw: str) -> str:
     value = (raw or "").strip()
-    if value in EMPTY or re.search(r"看不清|认不准|有把握才写|没有就空着|陪看电影电视剧|陪看视频|陪看音乐|只能写一个", value):
+    if value in EMPTY or re.search(r"看不清|认不准|有把握才写|没有就空着|陪看电影电视剧|陪看视频|陪看音乐|只能写一个|搜索页和登录页|当前字幕或歌词|当前人物在做什么|场景中具体发生的事|只填看清的内容|不要输出这些要求", value):
         return ""
     return value[:180]
 
 
 def normalize(text: str, slots: dict[str, str]) -> dict[str, str]:
     from .media_language import field
-    slots = {field(k): v for k, v in slots.items()}
+    slots = {field(k): clean(v) for k, v in slots.items()}
     frames = [(int(match.group(1)), value) for key, value in slots.items()
               if (match := re.fullmatch(r"第(\d+)张", key))]
     if frames:
         usable = [(n, clean(v)) for n, v in frames if clean(v) and not re.search(r"聊天窗口|动漫角色|陪看记录", v)]
         if usable:
             slots["画面"] = sorted(usable)[-1][1]
+            if len(usable) > 1 and not slots.get("经过"):
+                slots["经过"] = "；".join(value for _, value in sorted(usable)[:-1])[:180]
     elif not slots and clean(text) and len(text.strip()) >= 4:
         slots["画面"] = clean(text)
+    if not frames and not slots.get("画面"):
+        # Small VLMs also return plain prose. Appending window metadata must not
+        # make that prose disappear just because it has no “画面：” label.
+        prose = [clean(row) for row in text.splitlines()
+                 if row.strip() and not re.search(r"[:：]", row)]
+        if any(prose):
+            slots["画面"] = "；".join(row for row in prose if row)[:180]
     return slots
 
 
@@ -87,6 +96,7 @@ def update(sub, current: str, previous: dict[str, str], incoming: dict[str, str]
     name = title(slots.get("标题", ""), sub.label)
     old_name = previous.get("标题", "")
     changed = bool(name and name != old_name)
+    changed = changed or bool(slots.get("媒体标识") and previous.get("媒体标识") and slots["媒体标识"] != previous["媒体标识"])
     changed = changed or bool(re.search(r"换了一条|切换视频|下一条|换歌|新的一条", slots.get("变化", "")))
     episode = slots.get("集数", "")
     if not episode and name:
@@ -97,13 +107,13 @@ def update(sub, current: str, previous: dict[str, str], incoming: dict[str, str]
     changed = changed or bool(episode and previous.get("集数") and episode != previous["集数"])
     version = slots.get("版本", "")
     changed = changed or bool(version and previous.get("版本") and version != previous["版本"])
-    stable = {k: v for k, v in previous.items() if k in {"标题", "歌手", "版本", "集数", "内容类型", "播放位置", "播放状态", "观测时刻"}}
+    stable = {k: v for k, v in previous.items() if k in {"标题", "歌手", "版本", "集数", "内容类型", "播放位置", "播放状态", "观测时刻", "媒体标识"}}
     if stable.get("播放状态") == "unavailable":
         stable.pop("播放状态", None)
     if changed:
         stable = {}
     facts = dict(stable)
-    for key in ("标题", "歌手", "版本", "集数", "内容类型", "播放位置", "播放状态", "画面", "原文", "这一句", "听到", "标题来源"):
+    for key in ("标题", "歌手", "版本", "集数", "内容类型", "播放位置", "播放状态", "画面", "经过", "原文", "这一句", "听到", "标题来源", "媒体标识"):
         if key == "标题":
             continue
         if slots.get(key):
@@ -128,14 +138,16 @@ def update(sub, current: str, previous: dict[str, str], incoming: dict[str, str]
     if changed:
         facts["内容切换"] = "是"
         facts.pop("听到", None)  # audio acquired before the visual switch belongs to the old item
+        facts.pop("经过", None)
     try:
         if "播放位置" in slots and "播放位置" in previous:
             elapsed = max(0, time.monotonic()-float(previous.get("观测时刻", time.monotonic())))
             delta = float(slots["播放位置"])-float(previous["播放位置"])
             expected = elapsed if previous.get("播放状态") == "playing" else 0
-            if delta < -1 or abs(delta-expected) > 8:
+            if delta < -1 or (abs(delta) > 1 and abs(delta-expected) > 8):
                 facts["跳转"] = "是"
                 facts.pop("听到", None)
+                facts.pop("经过", None)
         if "播放位置" in slots:
             facts["观测时刻"] = str(time.monotonic())
     except ValueError:
@@ -161,12 +173,21 @@ def handoff(sub, phase, facts: dict[str, str]) -> str:
             lines.append("原文：" + visible)
         if facts.get("画面"):
             lines.append("画面：" + facts["画面"])
-        if facts.get("听到") and not visible:
-            lines.append("原文：" + facts["听到"])
+        if facts.get("经过"):
+            lines.append("经过：" + facts["经过"])
+        if facts.get("听到"):
+            if not visible:
+                lines.append("原文：" + facts["听到"])
+            elif facts["听到"] != visible:
+                lines.append("听到：" + facts["听到"])
     lines.append("变化：" + ("内容切换，中间不保证连续" if facts.get("内容切换") or facts.get("跳转") else phase.label))
     return "\n".join(lines)
 
 
 def prompt(kind: str) -> str:
     label = {"movie": "电影电视剧", "music": "音乐", "video": "视频"}[kind]
-    return f"陪看{label}。只看最后一张，写当前的一句真实内容。用画面：描述动作，用原文：照抄字幕或歌词，保留中文、English、日本語、한국어原文和空格，不翻译。看不清留空。搜索页和登录页写播放状态：unavailable。不要抄推荐列表、评论和播放按钮，不猜人名和后续剧情。"
+    return (f"陪看{label}。这些图片是同一窗口的短片段，按时间从早到晚。"
+            "结合几张图理解人物动作和相互关系；画面写最后一张的当前状态，经过只写多张图确实显示的动作变化。"
+            "看见字幕就照抄最后一张的原文，不拼接成新台词。作品、虚构角色的名字有标题或明确特征依据才写，"
+            "不凭外貌猜演员。不抄评论、推荐和按钮，不猜未看到的后续。只有一张时经过留空。"
+            "输出格式仅为：\n画面：\n经过：\n原文：")

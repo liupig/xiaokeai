@@ -252,7 +252,7 @@ def _profile_patch(*, glance: bool = False) -> str:
     )
     eyes = ""
     if glance:
-        eyes = "用户需要看当前屏幕、报错、对局或陪玩时，调用 watch 技能；不要求固定口令，也无需事先打开视觉。单次写 [glance:对方的要求]，持续陪看写 [glance:陪看 对方的要求]。先说「我看看。」。公开金价天气新闻等走 lookup，不能因为「帮我看一下」就截图。没有视觉结果不要编。"
+        eyes = '用户需要看当前屏幕、报错、对局或陪玩时，调用 watch 技能；单次写 [glance:对方的要求]，持续陪看写 [glance:陪看 对方的要求]。先给动作标记，宿主会立即自然接住用户，不要重复我看看。陪看已开时，调整持续要求用 [watch:{"talk":"more","focus":"他要留意的对象","task":"持续要做的事"}]，只填要修改的项；talk可为more、normal、quiet。不要为调整要求重新开视觉。每轮读取【当前持续陪看任务】和执行反馈，回应已采用的变化，之后持续按要求接话。公开金价天气新闻等走 lookup。没有视觉结果不要编。'
     disabled = "".join(
         f"- id: {name}\n  disabled: true\n" for name in (
             "tool-bash", "tool-pwsh", "tool-fs", "tool-fs-search", "tool-jobs",

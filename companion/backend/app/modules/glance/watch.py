@@ -197,6 +197,7 @@ class Candidate:
     object_id: str
     key: str
     observation_time: float
+    context: str = ""
 
 
 class WatchSession:
@@ -393,7 +394,10 @@ class WatchSession:
             kind = "talk_on"
         turn = classify_turn(spoken)
         self.turn_kind = turn
+        previous_request = self.situation.watch_revision
         self.situation.note_user(spoken)
+        if self.situation.watch_revision != previous_request or kind in {"talk_on", "look_on"}:
+            self.plan_standby = False
         if self.situation.talk == "quiet":
             self.speak_locked = True
         elif self.situation.talk == "more" and kind not in {"pause", "look_off"}:

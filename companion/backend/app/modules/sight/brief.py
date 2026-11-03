@@ -16,6 +16,10 @@ def make_brief(sub: Sub, phase: Phase, slots: dict[str, str], surface: str = "")
                        "playback": slots.get("播放状态", ""), "version": slots.get("版本", ""),
                        "episode": slots.get("集数", ""), "switched": slots.get("内容切换", ""),
                        "seek": slots.get("跳转", ""),
+                       "visual": slots.get("画面", ""), "transition": slots.get("经过", ""),
+                       "subtitle": slots.get("这一句") or slots.get("原文") or "",
+                       "audio": slots.get("听到", ""),
+                       "media_id": slots.get("媒体标识", ""),
                        "line": slots.get("这一句") or slots.get("原文") or slots.get("听到") or "",
                        "caption": slots.get("这一句") or slots.get("原文") or slots.get("听到") or "",
                        "line_source": "screen" if slots.get("这一句") or slots.get("原文") else "audio" if slots.get("听到") else "window"})

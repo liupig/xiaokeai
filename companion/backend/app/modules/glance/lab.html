@@ -144,8 +144,9 @@
         <section><h2>送给视觉模型的图</h2>${frames(row.id, 'sent', row.sent)}</section>
         <section><h2>视觉模型 prompt</h2><pre>${esc(row.prompt || '这一眼没有送模型')}</pre></section>
         <section><h2>视觉模型结果</h2><pre>${esc(result)}</pre></section>
+        ${row.media_context ? `<section><h2>画面、字幕与对白片段</h2><pre>${esc(row.media_context)}</pre></section>` : ''}
         <section><h2>交给小可爱</h2>${row.xiaoke_in ? `<pre>${esc(row.xiaoke_in)}</pre>` : hand}</section>
-        <section><h2>小可爱返回</h2>${back}</section>
+        <section><h2>小可爱返回</h2>${back}${row.xiaoke_reason ? `<div class="why">${esc(row.xiaoke_reason)}</div>` : ''}</section>
       </article>`;
     }
     function paint(data) {

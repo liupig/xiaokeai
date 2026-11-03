@@ -84,5 +84,5 @@ def prepare_visual(ask: str, character_id: int, cancel: threading.Event, *, time
     eyes_host.enable_glance()
     _, continuous = parse_glance(value)
     if continuous or value == "开启":
-        along.start(character_id)
+        along.start(character_id, request=value)
     return ""

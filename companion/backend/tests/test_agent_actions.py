@@ -42,7 +42,7 @@ def test_visual_action_can_start_on_demand_without_magic_phrase(monkeypatch, ask
     monkeypatch.setattr(eyes_host, "capability", lambda: {"available": True})
     monkeypatch.setattr(eyes_host, "ensure", lambda: "up")
     monkeypatch.setattr(eyes_host, "enable_glance", lambda: enabled.append(True))
-    monkeypatch.setattr(along, "start", started.append)
+    monkeypatch.setattr(along, "start", lambda cid, request="": started.append(cid))
     assert actions.prepare_visual(ask, 17, threading.Event()) == ""
     assert enabled == [True]
     assert started == ([17] if continuous else [])
@@ -285,3 +285,47 @@ def test_non_user_events_cannot_authorize_new_vision_or_game_actions(chat_route,
     send("看看屏幕，开英雄联盟", [{"type": "glance", "value": "陪看 当前屏幕"}, {"type": "play", "value": "英雄联盟"}], **extra)
     assert state["actions"] == []
     assert state["captures"] == []
+
+
+def test_together_watch_responds_once_without_waiting_for_model_or_second_capture(chat_route, monkeypatch):
+    send, state = chat_route
+    registered = []
+    monkeypatch.setattr(along, "register_opening", lambda text, cid: registered.append((text, cid)))
+    events = send("一起看", [{"type": "text", "delta": "我看看。我看看。"}])
+    spoken = "".join(event.get("delta", "") for event in events if event["type"] == "text")
+    assert spoken == "好呀，我陪你一起看。"
+    assert state["calls"] == []
+    assert state["actions"] == [("vision", "陪看 一起看")]
+    assert state["captures"] == []
+    assert registered == [(spoken, 1)]
+
+
+def test_fragmented_model_preface_is_not_repeated_by_host(chat_route):
+    send, _ = chat_route
+    events = send("瞅瞅屏幕上这个报错", [
+        {"type": "text", "delta": "我"}, {"type": "text", "delta": "看"},
+        {"type": "text", "delta": "看。"}, {"type": "glance", "value": "这个报错"},
+    ])
+    spoken = "".join(e.get("delta", "") for e in events if e["type"] == "text")
+    assert spoken.count("我看看") == 1
+
+
+def test_watch_command_is_applied_only_in_user_turns(chat_route, monkeypatch):
+    send, state = chat_route
+    controls = []
+    monkeypatch.setattr(along, "configure", lambda value, cid, user: controls.append((value, cid, user)) or {"ok": True})
+    events = send("多说说话", [{"type": "watch", "value": '{"talk":"more"}'}, {"type": "text", "delta": "好，那我多跟你聊聊。"}])
+    assert controls == [('{"talk":"more"}', 1, "多说说话")]
+    assert state["actions"] == [] and state["captures"] == []
+    assert any(e["type"] == "watch_status" and e["ok"] for e in events)
+    send("多说说话", [{"type": "watch", "value": '{"talk":"quiet"}'}], mode="welcome")
+    assert len(controls) == 1
+
+
+def test_rejected_watch_command_cannot_claim_success(chat_route, monkeypatch):
+    send, state = chat_route
+    monkeypatch.setattr(along, "configure", lambda *args: {"ok": False, "message": "当前没有开启陪看"})
+    events = send("多说说话", [{"type": "watch", "value": '{"talk":"more"}'}, {"type": "text", "delta": "错误地说已经调整。"}])
+    spoken = "".join(e.get("delta", "") for e in events if e["type"] == "text")
+    assert "错误地说已经调整" not in spoken
+    assert any("陪看要求未采用" in text for text in state["calls"])

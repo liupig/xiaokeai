@@ -39,6 +39,8 @@ def note_look(data: dict[str, Any], pack: dict[str, Any] | None, *, ask: str = "
         "frames": int(data.get("frames") or 0),
         "result": str(data.get("text") or "")[:2000],
         "media_inputs": str(data.get("media_inputs") or "")[:4000],
+        "media_context": str(data.get("media_context") or "")[:4000],
+        "media_segments": "",
         "message": str(data.get("message") or "")[:300],
         "prompt": str(pack.get("prompt") or "")[:4000],
         "handoff": "",
@@ -47,6 +49,7 @@ def note_look(data: dict[str, Any], pack: dict[str, Any] | None, *, ask: str = "
         "xiaoke_raw": "",
         "xiaoke_out": "",
         "xiaoke_action": "",
+        "xiaoke_reason": "",
         "playback_status": "",
         "playback_at": "",
         "captured": len(captured),
@@ -68,6 +71,8 @@ def mark(item_id: str, **fields: Any) -> None:
     if not item_id:
         return
     allowed = {
+        "media_context", "media_segments",
+        "xiaoke_reason",
         "handoff", "handoff_why", "xiaoke_in", "xiaoke_raw", "xiaoke_out", "xiaoke_action",
         "result", "prompt",
         "playback_status", "playback_at",
@@ -169,6 +174,8 @@ def _public(row: dict[str, Any]) -> dict[str, Any]:
         "frames": int(row.get("frames") or 0),
         "result": str(row.get("result") or ""),
         "media_inputs": str(row.get("media_inputs") or ""),
+        "media_context": str(row.get("media_context") or ""),
+        "media_segments": str(row.get("media_segments") or ""),
         "message": str(row.get("message") or ""),
         "prompt": str(row.get("prompt") or ""),
         "handoff": str(row.get("handoff") or ""),
@@ -177,6 +184,7 @@ def _public(row: dict[str, Any]) -> dict[str, Any]:
         "xiaoke_raw": str(row.get("xiaoke_raw") or ""),
         "xiaoke_out": str(row.get("xiaoke_out") or ""),
         "xiaoke_action": str(row.get("xiaoke_action") or ""),
+        "xiaoke_reason": str(row.get("xiaoke_reason") or ""),
         "playback_status": str(row.get("playback_status") or ""),
         "ocr_status": str(row.get("ocr_status") or ""),
         "ocr_engine": str(row.get("ocr_engine") or ""),

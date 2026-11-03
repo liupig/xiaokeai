@@ -79,6 +79,7 @@ async def grounded_reply(conf: dict, messages: list[dict], *, evidence: str, top
                 async with aclosing(generate(conf, turns)) as source:
                     async for event in source:
                         if not valid():
+                            attempts.append({"raw": "".join(pieces), "errors": ["candidate_expired"], "problem": ""})
                             return {"action": "drop", "text": "", "attempts": attempts, "performance": []}
                         if event.get("type") == "text":
                             pieces.append(event.get("delta") or "")
@@ -91,13 +92,25 @@ async def grounded_reply(conf: dict, messages: list[dict], *, evidence: str, top
         raw = "".join(pieces)
         parsed = parse_reaction(raw, topic)
         spoken = parsed[1] if parsed else ""
+        if spoken:
+            from .conversation import strip_opening
+            spoken = strip_opening(spoken)
         if scene in {"movie", "video", "music"}:
             from .media_director import unsupported_reply as check
         else:
             check = unsupported_reply
         problem = check(evidence, spoken) if spoken else ""
         attempts.append({"raw": raw, "errors": errors, "problem": problem})
-        if errors or not parsed or parsed[0] == "silent" or not spoken or not valid():
+        if not valid():
+            attempts[-1]["errors"].append("candidate_expired")
+            return {"action": "drop", "text": "", "attempts": attempts, "performance": []}
+        if not raw.strip() and not errors:
+            attempts[-1]["errors"].append("empty_reply")
+            if attempt == 0:
+                turns.append({"role": "user", "content":
+                    f"刚才没有返回内容。请就当前已经确认的事实「{evidence}」接一句自然的感受或向对方问一个相关的小问题。不要编造画面或后续。"})
+                continue
+        if errors or not parsed or parsed[0] == "silent" or not spoken:
             return {"action": "silent", "text": "", "attempts": attempts, "performance": []}
         if problem and attempt == 0:
             turns += [{"role": "assistant", "content": spoken}, {"role": "user", "content":

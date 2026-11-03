@@ -72,6 +72,27 @@ app.include_router(play_router)
 app.include_router(sight_router)
 
 
+@app.get('/api/releases/latest')
+async def latest_release(current_version: str | None = None):
+    """通过本地服务查询发布信息，避免浏览器跨域限制。"""
+    import re
+    import httpx
+    from fastapi.responses import JSONResponse
+
+    if current_version is not None and not re.fullmatch(r'[0-9]{14}', current_version):
+        raise HTTPException(422, '本地版本号必须是 14 位时间戳')
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(
+                'https://dub.sisss.cn/v1/xiaokeai/version',
+                params={'current_version': current_version} if current_version else {},
+            )
+            response.raise_for_status()
+            return JSONResponse(response.json(), headers={'Cache-Control': 'no-store'})
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(502, '暂时无法连接版本服务器，请稍后重试') from exc
+
+
 @app.get("/lab/watch", include_in_schema=False)
 def watch_lab():
     """陪看调试页。不挂进桌面、网页或桌宠。"""

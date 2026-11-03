@@ -15,6 +15,12 @@ export function useGlancePower() {
   const glanceTip = computed(() => {
     if (glance.value.eyes === 'starting' || glanceBusy.value) return t('top.glanceStarting');
     if (glance.value.message) return glance.value.message;
+    const contract = glance.value.contract;
+    if (glance.value.along && contract && settings.locale.ui.startsWith('zh')) {
+      const amount = { more: '多聊一点', normal: '自然接话', quiet: '只看，暂停主动说话' }[contract.talk];
+      return [t('top.glanceOff'), contract.task, contract.focus ? `留意：${contract.focus}` : '', amount, contract.feedback]
+        .filter(Boolean).join('\n');
+    }
     return glance.value.along ? t('top.glanceOff') : t('top.glance');
   });
 

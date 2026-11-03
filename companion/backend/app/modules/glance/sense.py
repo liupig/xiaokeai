@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+import json
 
 from .desktop import Desk, Motion, find_media_hwnd, read_foreground, read_hwnd, window_box
 from .hearing import ear
@@ -12,13 +13,19 @@ _EYE_FLOOR = 4.0
 motion = Motion()
 _last_eyes = 0.0
 _last_text = ""
+_last_ocr = 0.0
 _pinned = 0
 
 
 def reset() -> None:
-    global _last_eyes, _last_text, _pinned
+    global _last_eyes, _last_text, _last_ocr, _pinned
     _last_eyes = 0.0
     _last_text = ""
+    _last_ocr = 0.0
+    from .media_timeline import timeline
+    timeline.reset()
+    from .media_subtitles import subtitles
+    subtitles.reset()
     _pinned = 0
     motion.reset()
 
@@ -169,7 +176,7 @@ def collect(
     timeout: float = 30,
 ) -> dict:
     """陪看和口头看屏幕共用这一眼。返回的字典跟眼睛进程一样，多一个 channel。"""
-    global _last_eyes, _last_text, _pinned
+    global _last_eyes, _last_text, _last_ocr, _pinned
     desk = _stick(read_foreground())
     ear.bind(f"{desk.hwnd}:{desk.process}:{desk.title}")
     heard = _heard(desk, find)
@@ -189,6 +196,18 @@ def collect(
     from ..sight.service import prepare as sight_prepare
 
     order = sight_prepare(desk.process, desk.title, desk.window)
+    from .media_timeline import timeline, Moment
+    media_kind = (order.kind or desk.kind) in {"movie", "video", "music"}
+    source_key = f"{desk.hwnd}:{desk.process}:{desk.title}"
+    timeline_epoch = timeline.bind(source_key if media_kind else "")
+    from .media_subtitles import subtitles
+    from .along import snapshot as watch_snapshot
+    streaming_subtitles = media_kind and order.active and not find and bool(watch_snapshot().get("on"))
+    if streaming_subtitles:
+        subtitles.configure(source_key, lambda: _look(desk, ask=ask, along=along, before="",
+                                                     timeout=min(timeout, 8), order=order, ocr_only=True))
+    else:
+        subtitles.reset()
     found: dict = {"ok": True, "skipped": True, "text": "", "used_eyes": False}
     observed_at = time.time()
     if call:
@@ -204,8 +223,32 @@ def collect(
         observed_at = float(found.get("observed_at") or observed_at)
         if not found.get("ok"):
             return found
+    elif media_kind and order.active and not streaming_subtitles and time.time() - _last_ocr >= 1.5:
+        # Reuse the existing frames endpoint's CPU OCR between GPU calls.
+        found = _look(desk, ask=ask, along=along, before="", timeout=min(timeout, 8), order=order, ocr_only=True)
+        _last_ocr = time.time()
+        found["used_eyes"] = False
+        observed_at = float(found.get("observed_at") or observed_at)
+        if not found.get("ok"):
+            return found
+    subtitle_rows = subtitles.drain(source_key) if streaming_subtitles else []
+    def media_id(row):
+        return next((line.split("：", 1)[1].strip() for line in str(row.get("ocr_text") or row.get("text") or "").splitlines()
+                     if line.startswith("媒体标识：")), "")
+    switched_during_inference = bool(call and subtitle_rows and media_id(found) and media_id(subtitle_rows[-1]) and
+                                     media_id(found) != media_id(subtitle_rows[-1]))
+    if switched_during_inference:
+        from .trace import mark
+        mark(str(found.get("trace_id") or ""), handoff_why="视觉推理期间视频已切换，舍弃旧画面")
+        call = False
+    if not call and subtitle_rows:
+        found = dict(subtitle_rows[-1], used_eyes=False)
+        observed_at = float(found.get("observed_at") or observed_at)
+    if media_kind and not timeline.current(timeline_epoch, observed_at):
+        return {**found, "ok": True, "skipped": True, "text": "", "stale": True,
+                "message": "媒体来源已切换，丢弃旧窗口的结果"}
     eyes_text = str(found.get("text") or "") if found.get("ok") and not found.get("skipped") else ""
-    if found.get("ocr_text"):
+    if found.get("ocr_text") and str(found["ocr_text"]) not in eyes_text:
         eyes_text += "\n" + str(found["ocr_text"])
     if found.get("terminal_only"):
         from ..sight.league import result
@@ -247,8 +290,35 @@ def collect(
             if state["dead"]:
                 eyes_text += f"\n原文：返回于 {int(state['respawn'])}\n阶段：阵亡"
     brief = sight_commit(desk.process, desk.title, desk.window, eyes_text)
+    public = brief.public()
+    if brief.active and brief.kind in {"movie", "video", "music"}:
+        slots = brief.slots
+        if slots.get("switched") or slots.get("seek") or slots.get("playback") in {"paused", "stopped", "unavailable"}:
+            timeline.cut(observed_at)
+            ear.clear()
+        if slots.get("playback") not in {"paused", "stopped", "unavailable"}:
+            from ..sight.media import clean
+            for row in subtitle_rows:
+                if media_id(row) and slots.get("media_id") and media_id(row) != slots["media_id"]:
+                    continue
+                subtitle = "；".join(clean(line.split("：", 1)[1]) for line in str(row.get("ocr_text") or row.get("text") or "").splitlines()
+                                    if line.startswith(("字幕：", "原文：", "歌词：")))
+                stamp = float(row.get("observed_at") or 0)
+                timeline.add(Moment(stamp, stamp, subtitle=subtitle), epoch=timeline_epoch, now=time.time())
+            timeline.add(Moment(observed_at, observed_at,
+                                visual=slots.get("visual", ""), subtitle=slots.get("subtitle", ""),
+                                transition=slots.get("transition", "")), epoch=timeline_epoch, now=time.time())
+            for audio_segment in ear.segments():
+                if audio_segment["source"] == source_key and not _echoes(audio_segment["text"], echo or []):
+                    timeline.add(Moment(audio_segment["start"], audio_segment["end"], audio=audio_segment["text"]),
+                                 epoch=timeline_epoch, now=time.time())
+        public["timeline"] = timeline.context(time.time())
+        public["segments"] = timeline.rows(time.time())
+        found["media_context"] = public["timeline"]
+        found["sight"] = public
     if brief.active and brief.handoff:
         if brief.handoff == _last_text and not find:
+            _trace(found, called=bool(found.get("trace_id")))
             return {
                 "ok": True,
                 "skipped": True,
@@ -256,7 +326,7 @@ def collect(
                 "channel": "sight",
                 "source": "screen",
                 "used_eyes": bool(call),
-                "sight": brief.public(),
+                "sight": public,
                 "trace_id": str(found.get("trace_id") or ""),
             }
         _last_text = brief.handoff
@@ -267,13 +337,13 @@ def collect(
             "text": brief.handoff,
             "channel": "sight",
             "source": "screen",
-            "sight": brief.public(),
+            "sight": public,
         }
         if brief.kind in {"movie", "video", "music"}:
             found["channel"] = brief.slots.get("line_source") or "screen"
             if brief.slots.get("switched") or brief.slots.get("seek"):
                 found["continuity_gap"] = "媒体内容切换或进度跳转，不保证前后连续"
-        _trace(found, called=call)
+        _trace(found, called=bool(found.get("trace_id")))
         return found
     text, channel = render(desk, heard, eyes_text, echo)
     if text and text == _last_text and not find:
@@ -374,7 +444,7 @@ def _heard(desk: Desk, find: bool) -> str:
     return ear.once(2.0)
 
 
-def _look(desk: Desk, *, ask: str, along: bool, before: str, timeout: float, order=None) -> dict:
+def _look(desk: Desk, *, ask: str, along: bool, before: str, timeout: float, order=None, ocr_only: bool = False) -> dict:
     from .service import eyes_glance
     from .vision import uses_local
 
@@ -398,11 +468,12 @@ def _look(desk: Desk, *, ask: str, along: bool, before: str, timeout: float, ord
         timeout=timeout,
         before=context,
         gate=False,
-        detail=(order.detail if bound else False) or desk.kind in {"code", "slides"},
+        detail=ocr_only or (order.detail if bound else False) or desk.kind in {"code", "slides"},
         crop=box,
         prompt=prompt,
-        frames=order.frames if bound else 0,
+        frames=1 if ocr_only else order.frames if bound else 0,
         window_hwnd=desk.hwnd,
+        ocr_only=ocr_only,
     )
 
 
@@ -411,7 +482,9 @@ def _trace(found: dict, *, called: bool) -> None:
 
     if called and found.get("trace_id"):
         script = str(found.get("script") or "")
-        mark(str(found.get("trace_id")), result=script or str(found.get("text") or ""), media_inputs=str(found.get("media_inputs") or ""))
+        mark(str(found.get("trace_id")), result=script or str(found.get("text") or ""), media_inputs=str(found.get("media_inputs") or ""),
+             media_context=str(found.get("media_context") or ""),
+             media_segments=json.dumps((found.get("sight") or {}).get("segments") or [], ensure_ascii=False))
         return
     if called:
         return

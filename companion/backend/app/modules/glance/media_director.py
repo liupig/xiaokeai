@@ -5,6 +5,7 @@ import re
 def bind_context(offer, sight: dict) -> None:
     """Freeze verified identity after attention filtering has selected a point."""
     slots = sight.get("slots") or {}
+    offer.context = str(sight.get("timeline") or offer.context)
     context = []
     for key, label in (("title", "标题"), ("episode", "集数"), ("artist", "歌手"), ("version", "版本")):
         value = slots.get(key)
@@ -12,7 +13,7 @@ def bind_context(offer, sight: dict) -> None:
             context.append(label + "：" + value)
     context.append(offer.summary)
     for row in str(sight.get("handoff") or "").splitlines():
-        if row.startswith("画面：") and row[3:] not in offer.summary:
+        if row.startswith(("画面：", "经过：", "原文：", "听到：")) and row[3:] not in offer.summary:
             context.append(row)
     offer.summary = "\n".join(context)[:500]
 
@@ -20,7 +21,7 @@ def bind_context(offer, sight: dict) -> None:
 def cadence(scene: str, *, elapsed: float, opening: bool, talk: str, playback: str) -> bool:
     if talk == "quiet" or playback in {"paused", "暂停", "已暂停", "stopped", "unavailable"}:
         return False
-    gap = {"movie": 35, "music": 30, "video": 18}.get(scene, 30)
+    gap = {"movie": 25, "music": 25, "video": 12}.get(scene, 25)
     if talk == "more":
         gap /= 2
     return opening or elapsed >= gap

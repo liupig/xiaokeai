@@ -218,7 +218,6 @@ function releaseCaption(win) {
   // 先禁用再启用会放开这次捕获，标题栏按钮回到普通状态。
   try { win.setEnabled(false); } catch { /* */ }
   try { win.setEnabled(true); } catch { /* */ }
-  try { win.setTitleBarOverlay(STAGE_OVERLAY); } catch { /* */ }
 }
 
 function focusWindow(win) {
@@ -336,7 +335,7 @@ function createStageWindow() {
     backgroundColor: '#141420',
     roundedCorners: true,
     titleBarStyle: 'hidden',
-    titleBarOverlay: STAGE_OVERLAY,
+    titleBarOverlay: false,
     webPreferences: webPrefs(),
   };
   if (b) {
@@ -853,6 +852,12 @@ ipcMain.on('window-minimize', (e) => {
   }
   if (roleOf.get(win) === 'pet') win.setSkipTaskbar(false);
   win.minimize();
+});
+ipcMain.on('window-maximize', (e) => {
+  const target = BrowserWindow.fromWebContents(e.sender);
+  if (!target || target.isDestroyed()) return;
+  if (target.isMaximized()) target.unmaximize();
+  else target.maximize();
 });
 
 ipcMain.on('window-close', (e) => {

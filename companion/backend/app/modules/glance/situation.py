@@ -80,6 +80,7 @@ class Offer:
     max_age: float = 90.0
     phase: str = ""
     player_hero: str = ""
+    context: str = ""
 
 
 def _none_fact(text: str) -> bool:
@@ -131,8 +132,12 @@ _CHROME_HAS = re.compile(
 _STATS = re.compile(r"点赞|评论数|分享量|播放量|点量|\d+(\.\d+)?\s*万")
 _SCENERY = re.compile(r"^(沙漠|田野|室内|室外|货架)(场景|里|中)?$")
 _FAKE_TITLE = re.compile(r"^第\d+条$")
+_VISIBLE_ACTION = re.compile(
+    r"攀爬|爬上|爬山|翻山|背负|拖着|扛着|拥抱|质问|争吵|奔跑|追赶|摔倒|跌倒|救起|递给|推开|打开|关上|举着|挥手|流泪|回家|离开|弹奏|演唱|跳舞|"
+    r"坐在|站在|站立|侧身|手持|拿着|握着|低头|抬头|转身|走向|走进|漂浮|直视|绳索|手放在"
+)
 _LABELS = re.compile(
-    r"(界面|窗口|类型|标题|画面|原文|变化|进展|歌手|版本|阶段)\s*[是为:：]"
+    r"(界面|窗口|类型|标题|画面|经过|原文|变化|进展|歌手|版本|阶段)\s*[是为:：]"
 )
 
 
@@ -164,14 +169,19 @@ def _caption(text: str) -> bool:
     raw = " ".join((text or "").split())
     if not raw or _FAKE_TITLE.match(raw) or _dead(raw):
         return True
+    if raw in {"人物对话与动画", "人物对话", "人物在对话"}:
+        return True
     if re.search(r"\b(shirt|microphone|split view)\b", raw, re.I):
         return True
     if re.search(r"视频列表|四格|多段内容|缩略图|衣服颜色|户外场景|室内场景", raw):
         return True
-    action = re.search(r"攀爬|爬上|爬山|翻山|背负|拖着|扛着|拥抱|质问|争吵|奔跑|追赶|摔倒|跌倒|救起|递给|推开|打开|关上|举着|挥手|流泪|回家|离开|弹奏|演唱|跳舞", raw)
-    if re.search(r"戴眼镜|男子|女子|男生|女生|男人|女人|侧脸|人物|人影", raw) and not _quotes(raw) and not action:
+    action = _VISIBLE_ACTION.search(raw)
+    # An appearance alone is weak evidence. A sentence describing a relationship
+    # or an activity is useful even when its verb is absent from our vocabulary.
+    relation = re.search(r"(?:在|正|向|对着|与|把|被|将).{2,}|对话|交谈|处理|目光", raw)
+    if re.search(r"戴眼镜|男子|女子|男生|女生|男人|女人|侧脸|人物|人影", raw) and not _quotes(raw) and not action and not relation:
         return True
-    if _FRAME_COUNT.search(raw) or _POSITION.search(raw) or _SCENERY.match(raw.strip("。 ")):
+    if _FRAME_COUNT.search(raw) or (_POSITION.search(raw) and not action) or _SCENERY.match(raw.strip("。 ")):
         return True
     if re.match(r"^(左侧|右侧|左边|右边|屏幕左|屏幕右)", raw) and not _quotes(raw):
         return True
@@ -256,16 +266,23 @@ def _line(text: str) -> bool:
         return len(words) >= 2 or (len(words) == 1 and len(words[0]) >= 8)
     if _FUNCTION.search(han) and len(han) >= 4:
         return True
+    if len(han) >= 4 and _VISIBLE_ACTION.search(raw):
+        return True
     return bool(4 <= len(han) <= 12 and _NAME_MARK.search(han) and not letters)
 
 
 def _speakable(obs: Observation) -> str:
     """这一眼真正能交给她的那一点：一句原文，或一个具体名字。"""
     title = (obs.title or "").strip()
-    for item in list(obs.visible_text) + list(obs.visible_events):
+    for item in obs.visible_text:
         if not item or item == title or (title and (item in title or title in item)):
             continue
         if _line(item):
+            return item
+    # Visual facts are not subtitles or names. They need not contain one of our
+    # sentence particles or a preselected action verb (e.g. “天色尚暗”).
+    for item in obs.visible_events:
+        if item and item != title and not _caption(item) and len(re.findall(r"\w", item)) >= 4:
             return item
     return title if _line(title) else ""
 
@@ -433,7 +450,7 @@ def read_steer(text: str) -> tuple[str | None, str | None]:
     """从他这句话里读出留意什么、想听多少。没提到的那项返回 None。"""
     compact = re.sub(r"\s+", "", text or "")
     talk = None
-    if any(word in compact for word in ("多说点", "说多点", "多讲点", "多聊聊", "话多一点", "多说一些", "说详细点", "多说两句")):
+    if any(word in compact for word in ("多说点", "说多点", "多讲点", "多聊聊", "话多一点", "多说一些", "说详细点", "多说两句", "多陪我说说话", "多陪我聊", "多互动", "多说说话")):
         talk = "more"
     elif any(word in compact for word in ("别说了", "不要说", "别说话", "先别说", "安静点", "先安静", "少说点", "少说", "不用说", "别讲了")):
         talk = "quiet"
@@ -502,6 +519,44 @@ class Situation:
         self.secondary_objects: list[str] = []
         self.channel = ""
         self.latest: Observation | None = None
+        self.watch_task = ""
+        self.watch_command = ""
+        self.watch_revision = 0
+        self.watch_spoken = ""
+        self.watch_feedback = "等待画面"
+
+    def configure_watch(self, *, command: str = "", task: str | None = None,
+                        focus: str | None = None, talk: str | None = None) -> bool:
+        before = (self.watch_task, self.attention, self.talk)
+        if task is not None:
+            self.watch_task = task[:120]
+        if focus is not None:
+            self.attention = focus[:80]
+        if talk in {"more", "normal", "quiet"}:
+            self.talk = talk
+        changed = before != (self.watch_task, self.attention, self.talk)
+        if changed:
+            self.watch_revision += 1
+            self.watch_command = command[:120]
+            self.watch_feedback = "要求已更新，后续观察和接话按此执行"
+            self._replan("陪看要求")
+        return changed
+
+    def watch_contract(self) -> dict:
+        return {"task": self.watch_task, "focus": self.attention, "talk": self.talk,
+                "revision": self.watch_revision, "command": self.watch_command,
+                "observed": self.progress, "spoken": self.watch_spoken, "feedback": self.watch_feedback}
+
+    def watch_brief(self) -> str:
+        amount = {"more": "主动多聊，接具体细节，可以有相关的小问题；不要等用户催",
+                  "quiet": "只观察，暂停主动开口；用户直接提问仍要回答",
+                  "normal": "自然接话，给内容留出空间"}[self.talk]
+        return (f"【当前持续陪看任务，第{self.watch_revision}版】\n"
+                f"任务：{self.watch_task or '陪他看当前内容'}\n"
+                f"关注：{self.attention or '当前具体内容'}\n话量：{amount}\n"
+                f"执行反馈：{self.watch_feedback}\n"
+                "这些要求持续生效，直到他修改或停止。普通聊天不会清除。"
+                "回应调整要求时说明已采用的变化，不要重新开视觉，不要只承诺以后再说。")
 
     def note_user(self, text: str) -> None:
         spoken = " ".join((text or "").split())[:80]
@@ -513,10 +568,7 @@ class Situation:
         if self.title and self.title in spoken:
             self.user_mentioned = True
         attention, talk = read_steer(spoken)
-        if attention is not None:
-            self.attention = attention
-        if talk is not None:
-            self.talk = talk
+        self.configure_watch(command=spoken, focus=attention, talk=talk)
         if any(word in spoken for word in ("陪", "安静", "别说", "别看", "帮我", "怎么看", "先别", "关注", "留意", "多说")):
             self._replan("用户")
 
@@ -594,6 +646,12 @@ class Situation:
         if point:
             self.progress = point[:180]
             self.topic_id = f"{self.object_id}:{_slug(point)}"
+            if self.talk == "quiet":
+                self.watch_feedback = "正在按要求观察，暂停主动开口"
+            elif self.attention and not self._on_attention(obs):
+                self.watch_feedback = "这一眼未确认关注对象，继续留意"
+            else:
+                self.watch_feedback = "已获得当前内容，按陪看要求选择接话时机"
         elif object_id != object_before:
             self.topic_id = f"{object_id}:none"
         self.phase = self._phase(obs)

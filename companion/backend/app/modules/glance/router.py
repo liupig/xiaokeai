@@ -44,7 +44,8 @@ def _power() -> Dict[str, Any]:
     from .eyes_host import eyes_status
 
     snap = along.snapshot()
-    return {**eyes_status(), "along": bool(snap.get("on")), "character_id": snap.get("character_id") or 0}
+    return {**eyes_status(), "along": bool(snap.get("on")), "character_id": snap.get("character_id") or 0,
+            "contract": snap.get("contract")}
 
 
 @router.get("/power")

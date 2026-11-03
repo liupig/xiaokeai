@@ -13,6 +13,7 @@ import { useCharacterStore } from '../../stores/character';
 import { useChatStore } from '../../stores/chat';
 import { LOCAL_SCENES } from '../scenes/catalog';
 import { defaultVoice, featureOn, t } from '../../i18n';
+import { CURRENT_VERSION } from '../update/updateService';
 import {
   pickScene as pickPlayScene, restoreOrRotateScene, sceneExtra, sceneSession,
 } from '../scenes/session';
@@ -1259,6 +1260,8 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
       </n-tab-pane>
       <n-tab-pane name="download" :tab="t('settings.download')">
         <div class="form">
+          <h3 class="section-title">版本更新</h3>
+          <p class="hint">当前本地版本：{{ CURRENT_VERSION === 'dev' ? '开发版（未打包）' : CURRENT_VERSION }}</p>
           <label>{{ t('set.dl.token') }}</label>
           <n-input v-model:value="settings.download.aplaybox_token" type="password"
                    show-password-on="click" :placeholder="t('set.dl.ph')" />

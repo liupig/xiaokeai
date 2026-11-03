@@ -27,6 +27,9 @@ const openTitle = computed(() => {
   settings.locale.ui;
   return t('chrome.open');
 });
+function minimizeWindow() { window.companionDesktop?.minimize?.(); }
+function maximizeWindow() { window.companionDesktop?.maximize?.(); }
+function closeWindow() { window.companionDesktop?.close?.(); }
 
 async function copy(text: string, which: 'qq' | 'discord') {
   try {
@@ -70,6 +73,11 @@ onUnmounted(() => window.clearTimeout(timer));
         <span class="value">{{ GITHUB_SHOWN }}</span>
       </a>
     </span>
+    <span class="window-actions">
+      <button type="button" title="最小化" @click.stop="minimizeWindow"><svg viewBox="0 0 20 20"><path d="M4 10h12" /></svg></button>
+      <button type="button" title="最大化 / 还原" @click.stop="maximizeWindow"><svg viewBox="0 0 20 20"><rect x="4.5" y="4.5" width="11" height="11" rx="2" /></svg></button>
+      <button type="button" class="window-close" title="关闭" @click.stop="closeWindow"><svg viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" /></svg></button>
+    </span>
   </div>
 </template>
 
@@ -78,7 +86,7 @@ onUnmounted(() => window.clearTimeout(timer));
   position: absolute;
   top: 0;
   left: 0;
-  right: var(--desk-controls, 0px);
+  right: 0;
   height: var(--desk-chrome, 36px);
   display: flex;
   align-items: center;
@@ -97,6 +105,11 @@ onUnmounted(() => window.clearTimeout(timer));
   opacity: 0.9;
   flex: none;
 }
+.window-actions { display: flex; align-items: stretch; height: 100%; margin-left: auto; pointer-events: auto; position: relative; z-index: 50; -webkit-app-region: no-drag; }
+.window-actions button { width: 42px; border: 0; background: transparent; color: rgba(232,232,240,.68); cursor: pointer; }
+.window-actions button:hover { background: rgba(255,255,255,.09); color: #fff; }
+.window-actions .window-close:hover { background: rgba(210,70,95,.78); }
+.window-actions svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.45; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
 .links {
   display: flex;
   align-items: center;

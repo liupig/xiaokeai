@@ -42,6 +42,7 @@ interface CompanionDesktop {
   getPetSpot?: () => Promise<{ x: number; y: number } | null>;
   setPetSpot?: (spot: { x: number; y: number } | null) => void;
   minimize?: () => void;
+  maximize?: () => void;
   close?: () => void;
   reload?: () => Promise<boolean>;
   getTrayPrefs?: () => Promise<{ minimize: boolean; close: boolean }>;

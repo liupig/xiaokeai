@@ -416,11 +416,23 @@ export interface LiveDouyinFeed {
   items?: LiveDanmaku[];
 }
 
+export interface WatchContract {
+  task: string;
+  focus: string;
+  talk: 'more' | 'normal' | 'quiet';
+  revision: number;
+  command: string;
+  observed: string;
+  spoken: string;
+  feedback: string;
+}
+
 export interface GlanceAlong {
   on: boolean;
   seq: number;
   text: string;
   character_id: number;
+  contract?: WatchContract;
 }
 
 export interface GlancePower {
@@ -428,6 +440,7 @@ export interface GlancePower {
   eyes: 'up' | 'down' | 'starting' | 'remote';
   message: string;
   character_id: number;
+  contract?: WatchContract;
 }
 
 export interface CodewatchStatus {
