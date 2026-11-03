@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MiniCPM-V 4.7 1B · 录屏看画面</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: "Segoe UI", "PingFang SC", sans-serif;
+      background: #12121c; color: #eee;
+    }
+    main { max-width: 1080px; margin: 0 auto; padding: 28px 20px 64px; }
+    h1 { font-size: 22px; font-weight: 600; margin: 0 0 8px; }
+    .hint { opacity: .65; font-size: 13px; line-height: 1.7; }
+    .grid { display: grid; grid-template-columns: 360px 1fr; gap: 16px; margin-top: 18px; }
+    .card {
+      padding: 16px; border-radius: 14px;
+      background: #1b1b2a; border: 1px solid #2c2c40;
+    }
+    label { display: block; font-size: 12px; opacity: .7; margin: 12px 0 4px; }
+    input, textarea, select {
+      width: 100%; background: #12121c; color: #eee;
+      border: 1px solid #34344a; border-radius: 8px; padding: 8px 10px; font: inherit;
+    }
+    textarea { min-height: 88px; resize: vertical; }
+    button {
+      background: #5b5bd6; color: #fff; border: 0; border-radius: 10px;
+      padding: 10px 16px; font-size: 14px; cursor: pointer;
+    }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    button.stop { background: #c45c7a; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+    .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    img.preview {
+      width: 100%; min-height: 180px; object-fit: contain;
+      background: #000; border-radius: 10px;
+    }
+    #live { white-space: pre-wrap; line-height: 1.7; min-height: 3em; font-size: 15px; }
+    #log { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+    .item { display: grid; grid-template-columns: 140px 1fr; gap: 10px; align-items: start; }
+    .item img { width: 140px; border-radius: 8px; background: #000; }
+    .item p { margin: 0; white-space: pre-wrap; line-height: 1.6; font-size: 14px; }
+    .meta { opacity: .55; font-size: 12px; margin-bottom: 4px; }
+    #status { font-size: 12px; opacity: .75; }
+    @media (max-width: 800px) {
+      .grid, .item { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>MiniCPM-V 4.7 1B · 录屏看画面</h1>
+  <p class="hint">
+    持续录屏，模型回答时也继续采集。每次从不断更新的视频流里取最新窗口理解，直到点击停止。
+  </p>
+  <div class="grid">
+    <div class="card">
+      <img id="preview" class="preview" alt="最近一帧" />
+      <div id="status">查询状态…</div>
+      <label>屏幕</label>
+      <select id="monitor"></select>
+      <div class="pair">
+        <div>
+          <label>降采样</label>
+          <select id="downsample">
+            <option value="16x" selected>16x 更快</option>
+            <option value="4x">4x 更细</option>
+          </select>
+        </div>
+        <div>
+          <label>录屏采样（帧/秒）</label>
+          <select id="fps">
+            <option value="1">1 FPS</option>
+            <option value="2" selected>2 FPS</option>
+            <option value="4">4 FPS</option>
+            <option value="6">6 FPS</option>
+          </select>
+        </div>
+      </div>
+      <div class="pair">
+        <div>
+          <label>画面长边</label>
+          <input id="edge" type="number" min="480" max="2560" value="960" />
+        </div>
+        <div>
+          <label>回复上限</label>
+          <input id="tokens" type="number" min="16" max="512" value="32" />
+        </div>
+      </div>
+      <label>连续视频的滑动理解窗口（秒）</label>
+      <input id="window" type="number" min="2" max="6" step="1" value="4" />
+      <label>两次理解的额外间隔（秒，录屏始终继续）</label>
+      <input id="gap" type="number" min="0" max="60" step="0.5" value="0" />
+      <label>识别场景（运行中可直接切换）</label>
+      <select id="scene">
+        <option value="auto" selected>自动判断</option>
+        <option value="video">刷短视频</option>
+        <option value="movie">看电影 / 剧集</option>
+        <option value="music">听音乐</option>
+        <option value="game">陪玩游戏</option>
+        <option value="work">工作 / 普通屏幕</option>
+      </select>
+      <label>另外留意</label>
+      <textarea id="prompt" placeholder="默认关注主要内容、关键事件和状态变化。也可以写：重点观察对局阶段切换"></textarea>
+      <label><input id="compare" type="checkbox" checked style="width:auto" /> 对比上一段，只报告有意义的新变化</label>
+      <div class="row">
+        <button id="btnStart" type="button">开始连续录屏理解</button>
+        <button id="btnUpdate" type="button" disabled>应用当前场景</button>
+        <button id="btnStop" class="stop" type="button" disabled>停止</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="meta">这一眼</div>
+      <div id="live">还没开始。</div>
+      <div id="log"></div>
+    </div>
+  </div>
+</main>
+<script>
+const statusEl = document.getElementById("status");
+const liveEl = document.getElementById("live");
+const logEl = document.getElementById("log");
+const preview = document.getElementById("preview");
+const btnStart = document.getElementById("btnStart");
+const btnStop = document.getElementById("btnStop");
+const btnUpdate = document.getElementById("btnUpdate");
+let liveText = "";
+let liveJpeg = "";
+let liveStarted = 0;
+
+function paintStatus(r) {
+  statusEl.textContent =
+    `${r.backend || "未加载"} · ${r.message || ""} · ${r.cuda || ""}` +
+    (r.weights_ok ? " · 权重已在本地" : " · 权重还没下载") +
+    (r.last_ms ? ` · 上次理解 ${r.last_ms} ms` : "") +
+    (r.video_frames ? ` · 实际 ${r.actual_fps} FPS · ${r.video_frames}帧/${r.video_span}秒 · 结果距画面 ${r.result_age}秒 · 跳过 ${r.skipped_frames}帧` : "");
+  const sel = document.getElementById("monitor");
+  if (r.monitors && sel.options.length === 0) {
+    for (const m of r.monitors) {
+      const opt = document.createElement("option");
+      opt.value = String(m.index);
+      opt.textContent = m.label;
+      if (m.index === 1) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+  }
+  btnStop.disabled = !r.running;
+  btnUpdate.disabled = !r.running;
+}
+
+async function refreshStatus() {
+  const r = await fetch("/api/status").then(x => x.json());
+  paintStatus(r);
+  return r;
+}
+
+function pushLog(text, ms, jpeg) {
+  const item = document.createElement("div");
+  item.className = "item";
+  const img = document.createElement("img");
+  img.src = "data:image/jpeg;base64," + jpeg;
+  img.alt = "";
+  const box = document.createElement("div");
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const t = new Date();
+  meta.textContent = `${t.toLocaleTimeString()} · ${ms} ms`;
+  const p = document.createElement("p");
+  p.textContent = text || "（模型没说出字）";
+  box.append(meta, p);
+  item.append(img, box);
+  logEl.prepend(item);
+  while (logEl.children.length > 30) logEl.lastChild.remove();
+}
+
+document.getElementById("btnStart").onclick = async () => {
+  btnStart.disabled = true;
+  liveEl.textContent = "正在加载模型并截第一眼…";
+  const body = {
+    monitor: Number(document.getElementById("monitor").value || 1),
+    prompt: document.getElementById("prompt").value,
+    scene: document.getElementById("scene").value,
+    min_gap: Number(document.getElementById("gap").value || 0),
+    capture_fps: Number(document.getElementById("fps").value || 2),
+    window_seconds: Number(document.getElementById("window").value || 4),
+    max_new_tokens: Number(document.getElementById("tokens").value || 32),
+    max_edge: Number(document.getElementById("edge").value || 960),
+    downsample: document.getElementById("downsample").value,
+    max_slice_nums: 1,
+    compare_prev: document.getElementById("compare").checked,
+  };
+  const r = await fetch("/api/start", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body),
+  }).then(x => x.json());
+  btnStart.disabled = false;
+  if (!r.ok) {
+    liveEl.textContent = r.message || "启动失败";
+    await refreshStatus();
+  }
+};
+
+btnUpdate.onclick = async () => {
+  btnUpdate.disabled = true;
+  const r = await fetch("/api/watch", {
+    method: "PATCH",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      scene: document.getElementById("scene").value,
+      prompt: document.getElementById("prompt").value,
+      compare_prev: document.getElementById("compare").checked,
+      max_new_tokens: Number(document.getElementById("tokens").value || 32),
+    }),
+  }).then(x => x.json());
+  if (!r.ok) liveEl.textContent = r.message || "切换失败";
+  else liveEl.textContent = `已切换为${document.getElementById("scene").selectedOptions[0].textContent}，下一段滑动视频开始按新规则观察。`;
+  await refreshStatus();
+};
+
+btnStop.onclick = async () => {
+  btnStop.disabled = true;
+  await fetch("/api/stop", {method: "POST"});
+  await refreshStatus();
+};
+
+const es = new EventSource("/api/events");
+es.onmessage = (e) => {
+  const ev = JSON.parse(e.data);
+  if (ev.type === "status") paintStatus(ev);
+  if (ev.type === "preview") {
+    preview.src = "data:image/jpeg;base64," + ev.jpeg;
+  }
+  if (ev.type === "peek") {
+    liveEl.textContent = ev.text || "跟着看这几秒…";
+  }
+  if (ev.type === "frame") {
+    liveStarted = performance.now();
+    liveText = "";
+    liveJpeg = ev.jpeg;
+    preview.src = "data:image/jpeg;base64," + ev.jpeg;
+    liveEl.textContent = "正在理解最新滑动视频窗口，录屏仍在继续…";
+  }
+  if (ev.type === "delta") {
+    liveText += ev.text || "";
+    liveEl.textContent = liveText;
+  }
+  if (ev.type === "same") {
+    liveEl.textContent = "没变";
+  }
+  if (ev.type === "done") {
+    liveEl.textContent = ev.text || "（模型没说出字）";
+    pushLog(ev.text, ev.ms, ev.jpeg || liveJpeg);
+    refreshStatus();
+  }
+  if (ev.type === "video_stats") refreshStatus();
+  if (ev.type === "scene_changed") refreshStatus();
+  if (ev.type === "error") {
+    liveEl.textContent = ev.message || "出错";
+    btnStart.disabled = false;
+    refreshStatus();
+  }
+};
+refreshStatus();
+</script>
+</body>
+</html>

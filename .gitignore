@@ -207,4 +207,13 @@ companion/package-lock.json
 *.gguf
 
 # 本地试验目录（MiniCPM-o 4.5 与 MiniCPM-V 4.7 录屏）。整目录不入库。
-/minicpm-o-demo/
+/minicpm-o-demo/*
+!/minicpm-o-demo/v47/
+/minicpm-o-demo/v47/*
+!/minicpm-o-demo/v47/*.py
+!/minicpm-o-demo/v47/*.ps1
+!/minicpm-o-demo/v47/*.bat
+!/minicpm-o-demo/v47/requirements.txt
+!/minicpm-o-demo/v47/README.md
+!/minicpm-o-demo/v47/static/
+/minicpm-o-demo/v47/logs/
