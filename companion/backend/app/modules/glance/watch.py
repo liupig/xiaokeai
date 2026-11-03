@@ -106,7 +106,7 @@ def hollow_company(line: str) -> bool:
         r"[\"“「『].+[\"”」』]", line or ""
     ):
         return True
-    compact = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", line or "")
+    compact = re.sub(r"[^\w]", "", line or "", flags=re.UNICODE)
     removed = False
     for word in _HOLLOW:
         if word in compact:
@@ -197,6 +197,7 @@ class Candidate:
     object_id: str
     key: str
     observation_time: float
+    context: str = ""
 
 
 class WatchSession:
@@ -281,7 +282,7 @@ class WatchSession:
 
         schedule(scene, title, artist, apply)
 
-    def admit(self, obs, offer):
+    def admit(self, obs, offer, *, defer: bool = False):
         """眼睛已经看过的一条结果。重复事件不重新交点。"""
         stamp = float(getattr(obs, "timestamp", 0) or 0)
         if stamp < self.clock:
@@ -313,6 +314,8 @@ class WatchSession:
         self._maybe_lookup(obs)
         if offer is None:
             return None
+        if defer:
+            return offer
         if self.candidate is not None and self.candidate.key != key:
             self.candidate = None
         if self.candidate is not None:
@@ -370,26 +373,31 @@ class WatchSession:
         self.candidate = None
         kind = "chat"
         compact = _compact(spoken)
-        if any(word in compact for word in _PAUSE):
+        from ..sight.media_language import control
+        localized = control(spoken)
+        if localized == "pause" or any(word in compact for word in _PAUSE):
             self.speak_locked = True
             self.eyes_on = True
             kind = "pause"
-        elif any(word in compact for word in _LOOK_OFF):
+        elif localized == "look_off" or any(word in compact for word in _LOOK_OFF):
             self.eyes_on = False
             self.speak_locked = True
             kind = "look_off"
-        elif any(word in _compact(spoken) for word in _LOOK_ON):
+        elif localized == "look_on" or any(word in _compact(spoken) for word in _LOOK_ON):
             self.eyes_on = True
             kind = "look_on"
-        elif any(word in _compact(spoken) for word in _HUSH):
+        elif localized == "hush" or any(word in _compact(spoken) for word in _HUSH):
             self.speak_locked = True
             kind = "hush"
-        elif any(word in _compact(spoken) for word in _TALK_ON):
+        elif localized in {"talk_on", "more"} or any(word in _compact(spoken) for word in _TALK_ON):
             self.speak_locked = False
             kind = "talk_on"
         turn = classify_turn(spoken)
         self.turn_kind = turn
+        previous_request = self.situation.watch_revision
         self.situation.note_user(spoken)
+        if self.situation.watch_revision != previous_request or kind in {"talk_on", "look_on"}:
+            self.plan_standby = False
         if self.situation.talk == "quiet":
             self.speak_locked = True
         elif self.situation.talk == "more" and kind not in {"pause", "look_off"}:
@@ -623,7 +631,7 @@ class WatchSession:
             self.eyes_on
             and self.source_valid
             and not self.speak_locked
-            and not self.plan_standby
+            and (not self.plan_standby or job.changed)
             and self.clock >= self.conversation_until
         )
         before = self.situation.progress

@@ -264,7 +264,7 @@ def read_hwnd(hwnd: int) -> Desk:
             user32.SetProcessDPIAware()
         except Exception:
             pass
-        if not user32.IsWindow(hwnd) or not user32.IsWindowVisible(hwnd):
+        if not user32.IsWindow(hwnd) or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
             return Desk()
         return _desk_of(int(hwnd))
     except Exception:
@@ -287,12 +287,13 @@ def find_media_hwnd() -> int:
         def _each(hwnd, _lparam):
             nonlocal best, best_area
             hwnd = int(hwnd)
-            if not user32.IsWindowVisible(hwnd):
+            if not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
                 return True
             title = _window_text(hwnd)
             if not title or _ours(title):
                 return True
-            if not any(word in title.lower() for word in _VIDEO_WORD):
+            league = _process_name(hwnd).lower() in {"leagueclient.exe", "leagueclientux.exe", "league of legends.exe"}
+            if not league and not any(word in title.lower() for word in _VIDEO_WORD):
                 return True
             rect = wintypes.RECT()
             if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):

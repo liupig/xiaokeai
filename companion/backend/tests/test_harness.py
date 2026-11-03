@@ -12,15 +12,15 @@ from app.modules.harness.brief import (  # noqa: E402
 from app.modules.harness.service import sync_skills  # noqa: E402
 
 
-def test_user_talk_uses_harness_and_side_paths_do_not():
+def test_all_character_speech_uses_harness():
     assert wants_harness(enabled=True, mode="user")
     assert wants_harness(enabled=True, mode="along")
     assert not wants_harness(enabled=False, mode="user")
-    assert not wants_harness(enabled=True, mode="along", afterglow=True)
-    assert not wants_harness(enabled=True, mode="welcome")
-    assert not wants_harness(enabled=True, mode="continue")
-    assert not wants_harness(enabled=True, mode="user", reroll=True)
-    assert not wants_harness(enabled=True, mode="user", afterglow=True)
+    assert wants_harness(enabled=True, mode="along", afterglow=True)
+    assert wants_harness(enabled=True, mode="welcome")
+    assert wants_harness(enabled=True, mode="continue")
+    assert wants_harness(enabled=True, mode="user", reroll=True)
+    assert wants_harness(enabled=True, mode="user", afterglow=True)
 
 
 def test_brief_keeps_persona_and_drops_the_director_manual():
@@ -264,6 +264,73 @@ def test_skill_catalog_talk_is_not_spoken():
     assert gate.flush() == ""
 
 
+def test_saved_model_is_not_replaced_by_the_env_character_model():
+    from app.services import settings_store
+
+    old = settings_store.env_llm
+    settings_store.env_llm = lambda: {
+        "api_key": "env-key",
+        "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+        "model": "doubao-seed-character-260628",
+    }
+    try:
+        kept = settings_store.apply_llm_overlay({
+            "api_key": "",
+            "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+            "model": "doubao-seed-evolving",
+        })
+        filled = settings_store.apply_llm_overlay({"api_key": "", "model": "", "base_url": ""})
+    finally:
+        settings_store.env_llm = old
+    assert kept["model"] == "doubao-seed-evolving"
+    assert kept["api_key"] == "env-key"
+    assert filled["model"] == "doubao-seed-character-260628"
+    assert filled["api_key"] == "env-key"
+
+
+def test_a_separate_harness_model_keeps_the_chat_model():
+    from app.modules.harness.service import harness_llm, turn_uses_harness
+
+    ark = "https://ark.cn-beijing.volces.com/api/v3"
+    conf = {
+        "model": "doubao-seed-character-260628",
+        "base_url": ark,
+        "api_key": "test-key",
+        "harness_model": "ep-20260405035755-f27w6",
+        "harness_base_url": "",
+        "harness_api_key": "",
+    }
+    other = harness_llm(conf)
+    assert other["model"] == "ep-20260405035755-f27w6"
+    assert other["base_url"] == ark
+    assert other["api_key"] == "test-key"
+    assert conf["model"] == "doubao-seed-character-260628"
+    assert turn_uses_harness(
+        enabled=True, mode="user", model=other["model"], base_url=other["base_url"],
+    )
+    assert turn_uses_harness(
+        enabled=True, mode="welcome", model=other["model"], base_url=other["base_url"],
+    )
+
+
+def test_character_model_stays_on_chat_completions():
+    from app.modules.harness.service import turn_uses_harness
+
+    ark = "https://ark.cn-beijing.volces.com/api/v3"
+    assert not turn_uses_harness(
+        enabled=True, mode="user", model="doubao-seed-character-260628", base_url=ark,
+    )
+    assert turn_uses_harness(
+        enabled=True, mode="user", model="ep-20260405035755-f27w6", base_url=ark,
+    )
+    assert turn_uses_harness(
+        enabled=True, mode="user", model="doubao-seed-2-0-lite-260428", base_url=ark,
+    )
+    assert not turn_uses_harness(
+        enabled=False, mode="user", model="doubao-seed-2-0-lite-260428", base_url=ark,
+    )
+
+
 def test_character_model_asks_for_an_endpoint():
     from app.modules.harness.service import ENDPOINT_HINT, character_model_needs_endpoint
 
@@ -297,6 +364,15 @@ def test_volc_openai_base_becomes_the_messages_base():
     assert messages_base("https://api.deepseek.com/anthropic") == (
         "https://api.deepseek.com/anthropic"
     )
+    assert messages_base("https://token-plan-cn.xiaomimimo.com/v1") == (
+        "https://token-plan-cn.xiaomimimo.com/anthropic"
+    )
+    assert messages_base("https://token-plan-cn.xiaomimimo.com/anthropic") == (
+        "https://token-plan-cn.xiaomimimo.com/anthropic"
+    )
+    assert messages_base("https://api.xiaomimimo.com/v1") == (
+        "https://api.xiaomimimo.com/anthropic"
+    )
     assert messages_base(None) is None
     assert messages_base("") is None
 
@@ -319,6 +395,11 @@ def test_unset_volc_max_is_a_chat_cap():
     assert turn_max_tokens(volc, 4000, "off") == 4000
     assert turn_max_tokens(volc, 200000, "off") == 131072
     assert turn_max_tokens("https://api.deepseek.com", 0, "off") is None
+    mimo = "https://token-plan-cn.xiaomimimo.com/anthropic"
+    assert turn_max_tokens(mimo, 0, "off") == 256
+    assert turn_max_tokens(mimo, 0, "default") == 256
+    assert turn_max_tokens(mimo, 0, "on") == 8192
+    assert turn_max_tokens(mimo, 256000, "off") == 131072
 
 
 def test_a_missing_session_is_not_an_already_open_one():

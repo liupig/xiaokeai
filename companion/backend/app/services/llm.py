@@ -12,7 +12,7 @@ import httpx
 from .narration import STAGE_RE, map_stage_inner
 
 TAG_RE = re.compile(
-    r"\[(emo|act|dance|cam|expr|intent|stand|draw|lookup|glance):([^\[\]]{0,160})\]"
+    r"\[(emo|act|dance|cam|expr|intent|stand|draw|lookup|glance|play|watch):([^\[\]]{0,160})\]"
 )
 
 SYSTEM_PROTOCOL = """
@@ -130,6 +130,8 @@ def auth_headers(base_url: str, api_key: str) -> Dict[str, str]:
     headers = {"Authorization": f"Bearer {api_key}"}
     if "api.anthropic.com" in (base_url or ""):
         headers["anthropic-version"] = "2023-06-01"
+    if "xiaomimimo.com" in (base_url or ""):
+        headers["api-key"] = api_key
     return headers
 
 
@@ -155,8 +157,9 @@ def build_payload(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]) -> D
         base_url = llm_conf.get("base_url") or ""
         if "dashscope.aliyuncs.com" in base_url:
             payload["enable_thinking"] = enabled          # 阿里云百炼
-        elif "volces.com" in base_url or "bigmodel.cn" in base_url:
-            # 火山方舟 / 智谱 GLM 共用 thinking.type 协议
+        elif "volces.com" in base_url or "bigmodel.cn" in base_url or "xiaomimimo.com" in base_url:
+            # 火山方舟 / 智谱 GLM / 小米 MiMo 共用 thinking.type。
+            # 小米 v2.6 默认开启思考，不传就会先想再答。
             payload["thinking"] = {"type": "enabled" if enabled else "disabled"}
         elif enabled and "openai.com" in base_url:
             payload["reasoning_effort"] = "medium"        # OpenAI 推理系列
@@ -197,6 +200,57 @@ async def test_connection(llm_conf: Dict[str, Any]) -> Dict[str, Any]:
     reply = (msg.get("content") or "").strip()
     thinking = "，模型输出了思考过程" if msg.get("reasoning_content") else ""
     return {"ok": True, "message": f"连接成功（{ms}ms）：{reply[:40]}{thinking}"}
+
+
+async def test_messages(llm_conf: Dict[str, Any]) -> Dict[str, Any]:
+    """打 harness 用的 Messages 口。聊天那条仍走 chat/completions。"""
+    import time
+    from ..modules.harness.service import character_model_needs_endpoint, messages_base
+
+    llm_conf = _conf(llm_conf)
+    model = (llm_conf.get("model") or "").strip()
+    raw_base = (llm_conf.get("base_url") or "").strip()
+    if character_model_needs_endpoint(model, raw_base):
+        return {"ok": False, "message": "角色模型没有 Messages 权限，请另填技能目录模型"}
+    base = messages_base(raw_base)
+    if not base:
+        return {"ok": False, "message": "没有接口地址"}
+    if not llm_conf.get("api_key"):
+        return {"ok": False, "message": "未填写 API Key"}
+    payload = {
+        "model": model or "deepseek-v4-flash",
+        "max_tokens": 32,
+        "messages": [{"role": "user", "content": "回复两个字：你好"}],
+    }
+    thinking = llm_conf.get("thinking") or "default"
+    if thinking in ("on", "off") and "xiaomimimo.com" in (raw_base or "").lower():
+        payload["thinking"] = {"type": "enabled" if thinking == "on" else "disabled"}
+    headers = {
+        "x-api-key": llm_conf["api_key"],
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    t0 = time.time()
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10),
+                                     trust_env=False) as client:
+            resp = await client.post(f"{base.rstrip('/')}/v1/messages", headers=headers, json=payload)
+    except httpx.HTTPError as exc:
+        return {"ok": False, "message": f"网络错误：{exc}"}
+    ms = int((time.time() - t0) * 1000)
+    if resp.status_code != 200:
+        return {"ok": False, "message": f"HTTP {resp.status_code}：{resp.text[:200]}"}
+    try:
+        blocks = resp.json().get("content") or []
+    except ValueError:
+        return {"ok": False, "message": f"响应格式异常：{resp.text[:200]}"}
+    reply = ""
+    for block in blocks:
+        if isinstance(block, dict) and block.get("type") == "text":
+            reply = str(block.get("text") or "").strip()
+            if reply:
+                break
+    return {"ok": True, "message": f"Messages 连接成功（{ms}ms）：{reply[:40]}"}
 
 
 async def stream_chat(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]

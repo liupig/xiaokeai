@@ -6,6 +6,7 @@
 OpenAI：对话地址是 api.openai.com 时，同一把 Key 覆盖识别、朗读和向量。
 Gemini：对话地址是 generativelanguage.googleapis.com 时同样共用。
 ElevenLabs 没有对话模型，Key 放环境变量 ELEVENLABS_API_KEY。
+小米：对话地址是 xiaomimimo.com 时用对话那把 Key，否则用 XIAOMI_KEY / MIMO_API_KEY。
 """
 from __future__ import annotations
 
@@ -60,6 +61,18 @@ def gemini_key(llm: Dict[str, Any]) -> str:
     if key and "generativelanguage.googleapis.com" in _base(llm):
         return key
     return (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+
+
+def mimo_key(llm: Dict[str, Any]) -> str:
+    key = _chat_key(llm)
+    if key and "xiaomimimo.com" in _base(llm):
+        return key
+    env = (os.environ.get("XIAOMI_KEY") or os.environ.get("MIMO_API_KEY") or "").strip()
+    if env:
+        return env
+    if key.startswith("tp-"):
+        return key
+    return ""
 
 
 def eleven_key(llm: Dict[str, Any]) -> str:

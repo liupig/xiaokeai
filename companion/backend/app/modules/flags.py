@@ -5,10 +5,15 @@ from sqlmodel import Session
 
 from ..services import settings_store
 
-MODULE_KEYS = ("memory", "scenes", "rewrite", "keepsake", "tarot", "codewatch", "touch", "harness", "glance")
+MODULE_KEYS = (
+    "memory", "scenes", "rewrite", "keepsake", "tarot", "tavern", "codewatch", "touch",
+    "harness", "glance", "live_douyin", "live", "play", "sight",
+)
 # 缺省都开。dsh 内核在 requirements 里，克隆后装环境就能用。
 # glance 默认关：不开就不截屏，也不把「看一眼」写进技能目录。
-_DEFAULT_OFF = frozenset({"glance"})
+# live_douyin 默认关：不开就不去连直播间。
+# live 默认关：不开就不主持，也不连哔哩哔哩开放平台。
+_DEFAULT_OFF = frozenset({"glance", "live_douyin", "live"})
 
 
 def all_flags(session: Session) -> Dict[str, bool]:

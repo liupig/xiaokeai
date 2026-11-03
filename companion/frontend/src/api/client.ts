@@ -170,6 +170,69 @@ export interface KeepsakeItem {
   created_at: string;
 }
 
+export interface TavernCard { id: string; face: string }
+export interface TavernSeat { id: string; alive: boolean; cards: number; pulls: number; out?: boolean; finish?: number }
+export interface TavernShow {
+  kind: 'reveal' | 'clear';
+  who?: string;
+  actor?: string;
+  caller?: string;
+  cards?: string[];
+  honest?: boolean;
+  shooter?: string;
+  hit?: boolean;
+}
+export interface TavernNote {
+  seq: number;
+  t: string;
+  line?: string;
+  scripted?: boolean;
+  beats?: { verdict?: string; rite?: string; end?: string };
+  who?: string;
+  n?: number;
+  face?: string;
+  actor?: string;
+  caller?: string;
+  cards?: string[];
+  honest?: boolean;
+  shooter?: string;
+  hit?: boolean;
+  follow?: boolean;
+  seated?: string[];
+  dealt?: boolean;
+}
+export interface TavernPlace {
+  id: string;
+  place: number;
+  points: number;
+  tag?: string;
+  rank?: number;
+}
+export interface TavernScore {
+  played: number;
+  wins: number;
+  points: number;
+}
+export interface TavernState {
+  phase: 'idle' | 'act' | 'name' | 'show' | 'over';
+  table?: string;
+  turn?: string;
+  winner?: string;
+  places?: TavernPlace[];
+  board?: Record<string, TavernScore>;
+  coin_delta?: number;
+  balance_milli?: number;
+  her_name?: string;
+  deck?: string;
+  faces?: string[];
+  round?: number;
+  pile?: { actor: string; n: number } | null;
+  show?: TavernShow | null;
+  note?: TavernNote | null;
+  you?: { alive: boolean; pulls: number; hand: TavernCard[] };
+  seats?: TavernSeat[];
+}
+
 export interface TarotCard {
   id: string;
   name: string;
@@ -305,11 +368,71 @@ export interface CoinPreview {
   ladder: CoinTier[];
 }
 
+export interface LiveDanmaku {
+  seq: number;
+  msg_id: string;
+  kind: 'comment' | 'gift' | 'like' | 'follow' | 'control';
+  nickname: string;
+  content: string;
+  gift?: string;
+  count?: number;
+  source?: string;
+  ts?: number;
+}
+
+export interface LiveDeskSnap {
+  ok?: boolean;
+  on_air: boolean;
+  missing?: string[];
+  segment?: { id: string; index?: number; left?: number };
+  budget?: { spent_cny?: number; cap_cny?: number; tokens?: number; tripped?: boolean };
+  health?: { uptime_sec?: number; last_error?: string; llm_failures?: number; degraded?: boolean };
+  bilibili?: { state?: string; error?: string; anchor?: string; room_id?: string; reconnects?: number };
+  douyin?: { callback?: string; room_id?: string; last_ago?: number };
+  events?: Array<{
+    seq: number; platform: string; kind: string; nickname: string; content: string;
+    gift?: string; count?: number;
+  }>;
+  regulars?: number;
+  wishes?: number;
+  ai_label?: boolean;
+  schedule?: string;
+  community?: string;
+  queue?: number;
+  processing?: {
+    intake?: { accepted?: number; duplicate?: number };
+    expired?: number; overflow?: number; playback_failures?: number; generating?: boolean;
+  };
+  turn?: { id: string; text: string; cue: string; act?: string; interrupt?: boolean } | null;
+}
+
+export interface LiveDouyinFeed {
+  listening: boolean;
+  room: string;
+  web_rid: string;
+  room_id: string;
+  error: string;
+  seq: number;
+  items?: LiveDanmaku[];
+}
+
+export interface WatchContract {
+  task: string;
+  focus: string;
+  talk: 'more' | 'normal' | 'quiet';
+  revision: number;
+  command: string;
+  observed: string;
+  spoken: string;
+  feedback: string;
+}
+
 export interface GlanceAlong {
   on: boolean;
   seq: number;
   text: string;
   character_id: number;
+  contract?: WatchContract;
 }
 
 export interface GlancePower {
@@ -317,6 +440,7 @@ export interface GlancePower {
   eyes: 'up' | 'down' | 'starting' | 'remote';
   message: string;
   character_id: number;
+  contract?: WatchContract;
 }
 
 export interface CodewatchStatus {
@@ -352,6 +476,11 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 /** TTS 不要走前端反代：Vite / 打包版 pack_web 都会把 PCM 攒包，播出来一字一顿。 */
 function speechTtsUrl(): string {
+  if (window.location.pathname.endsWith('/live-lab.html')) {
+    return import.meta.env.DEV
+      ? `${import.meta.env.VITE_LIVE_LAB_BACKEND || 'http://127.0.0.1:8610'}/api/speech/tts`
+      : '/api/speech/tts';
+  }
   if (import.meta.env.DEV) return 'http://127.0.0.1:8600/api/speech/tts';
   const { protocol, hostname, port } = window.location;
   if (port === '5211') return `${protocol}//${hostname}:5201/api/speech/tts`;
@@ -790,6 +919,13 @@ export const api = {
       body: JSON.stringify({ character_id: characterId }),
     });
   },
+  tarotSynth(characterId: number) {
+    return request<TarotSession>('/api/modules/tarot/synth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
   tarotSynthDone(characterId: number) {
     return request<TarotSession>('/api/modules/tarot/synth-done', {
       method: 'POST',
@@ -825,6 +961,66 @@ export const api = {
     return request<TarotSession>(`/api/modules/tarot/session/${characterId}`);
   },
 
+  tavernState(characterId: number) {
+    return request<TavernState>(`/api/modules/tavern/state?character_id=${characterId}`);
+  },
+  tavernStart(characterId: number, herName: string, deck = 'rose') {
+    return request<TavernState>('/api/modules/tavern/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, her_name: herName, deck }),
+    });
+  },
+  tavernName(characterId: number, face: string) {
+    return request<TavernState>('/api/modules/tavern/name', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, face }),
+    });
+  },
+  tavernPlay(characterId: number, cards: string[]) {
+    return request<TavernState>('/api/modules/tavern/play', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, cards }),
+    });
+  },
+  tavernCall(characterId: number) {
+    return request<TavernState>('/api/modules/tavern/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tavernAck(characterId: number) {
+    return request<TavernState>('/api/modules/tavern/ack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tavernNext(characterId: number) {
+    return request<TavernState>('/api/modules/tavern/next', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tavernEnd(characterId: number) {
+    return request<TavernState>('/api/modules/tavern/end', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  tavernStep(characterId: number) {
+    return request<TavernState>('/api/modules/tavern/step', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+
   glanceAlong() {
     return request<GlanceAlong>('/api/modules/glance/along');
   },
@@ -838,15 +1034,74 @@ export const api = {
       body: JSON.stringify({ on, character_id: characterId }),
     });
   },
-  glanceAlongAck(seq: number) {
+  glanceAlongAck(seq: number, status: 'completed' | 'failed' | 'interrupted' | 'displayed' = 'completed') {
     return request<GlanceAlong>('/api/modules/glance/along/ack', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seq }),
+      body: JSON.stringify({ seq, status }),
     });
   },
   glanceLabOpen() {
     return request<{ ok: boolean; url: string }>('/api/modules/glance/lab/open', { method: 'POST' });
+  },
+  liveDouyinFeed(after = 0) {
+    return request<LiveDouyinFeed>(`/api/modules/live/douyin/feed?after=${after}`);
+  },
+  liveDouyinListen(room: string) {
+    return request<LiveDouyinFeed>('/api/modules/live/douyin/listen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room }),
+    });
+  },
+  liveDouyinStop() {
+    return request<LiveDouyinFeed>('/api/modules/live/douyin/stop', { method: 'POST' });
+  },
+  liveDesk(busy = 0, characterId = 0) {
+    return request<LiveDeskSnap>(`/api/modules/live/desk?busy=${busy ? 1 : 0}&character_id=${characterId}`);
+  },
+  liveOn(characterId: number) {
+    return request<LiveDeskSnap>('/api/modules/live/on', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  },
+  liveOff() {
+    return request<LiveDeskSnap>('/api/modules/live/off', { method: 'POST' });
+  },
+  liveClaim(turnId: string, playerId: string) {
+    return request<{ ok: boolean }>('/api/modules/live/claim', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ turn_id: turnId, player_id: playerId }),
+    });
+  },
+  liveAck(turnId: string, outcome: 'completed' | 'displayed' | 'interrupted' | 'failed' = 'completed', playerId = '') {
+    return request<{ ok: boolean }>('/api/modules/live/ack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ turn_id: turnId, outcome, player_id: playerId }),
+    });
+  },
+  liveBiliStart() {
+    return request<{ ok: boolean; error?: string }>('/api/modules/live/bilibili/start', { method: 'POST' });
+  },
+  liveBiliStop() {
+    return request<{ ok: boolean }>('/api/modules/live/bilibili/stop', { method: 'POST' });
+  },
+  liveRehearsal(content: string) {
+    return request<{ ok: boolean }>('/api/modules/live/rehearsal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, kind: 'comment', nickname: '彩排' }),
+    });
+  },
+  liveCue(act: string) {
+    return request<{ ok: boolean }>('/api/modules/live/cue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ act }),
+    });
   },
   codewatchStatus() {
     return request<CodewatchStatus>('/api/modules/codewatch/status');

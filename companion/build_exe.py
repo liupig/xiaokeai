@@ -127,7 +127,7 @@ def latest_pack_dir(exclude: Path | None = None) -> Path | None:
     return max(cands, key=lambda p: p.name)
 
 
-def step_frontend(py: Path) -> None:
+def step_frontend(py: Path, version: str) -> None:
     print("\n[1/8] 构建前端（压缩混淆）")
     npm = shutil.which("npm")
     if not npm:
@@ -136,7 +136,10 @@ def step_frontend(py: Path) -> None:
         run([npm, "install", "--legacy-peer-deps"], cwd=FRONTEND)
     else:
         run([npm, "install", "--legacy-peer-deps", "terser@^5.31.0"], cwd=FRONTEND)
-    run([npm, "run", "build"], cwd=FRONTEND)
+    build_env = os.environ.copy()
+    # 版本号必须和整合包目录名保持一致，前端启动时用它和线上发布版本比较。
+    build_env["VITE_XIAOKEAI_VERSION"] = version
+    run([npm, "run", "build"], cwd=FRONTEND, env=build_env)
     dist = FRONTEND / "dist"
     if not (dist / "index.html").is_file():
         raise SystemExit("前端构建失败：没有 dist/index.html")
@@ -167,16 +170,14 @@ def step_electron(dist_dir: Path) -> None:
     if app_dir.exists():
         shutil.rmtree(app_dir)
     app_dir.mkdir(parents=True, exist_ok=True)
-    # trayMenu.js 被 main.js 同步 require，漏拷会在主进程启动时直接崩溃。
-    # 图标缺失时主进程会回退，所以只强制代码文件。
-    required = ("main.js", "preload.js", "petScreen.js", "trayMenu.js", "package.json")
-    optional = ("icon.png", "tray-icon.png")
-    for name in required + optional:
+    required = ("main.js", "preload.js", "petScreen.js", "trayMenu.js", "branding.js", "package.json")
+    for name in required:
         src_file = DESKTOP / name
         if src_file.is_file():
             shutil.copy2(src_file, app_dir / name)
         elif name in required:
             raise SystemExit(f"缺少桌面壳文件：{src_file}")
+    shutil.copytree(FRONTEND / "public" / "branding", app_dir / "branding")
     if not (dest / "electron.exe").is_file():
         raise SystemExit("electron/electron.exe 缺失")
     print(f"  ok {dest / 'electron.exe'}")
@@ -867,6 +868,13 @@ def step_copy_payload(dist_dir: Path) -> None:
         (dist_dir / "assets" / "tarot").mkdir(parents=True, exist_ok=True)
 
     # 许愿池、金币和道具牌面是小图，跟塔罗一样放在 A。漏掉的话道具只剩纯色块。
+    tavern = COMPANION / "assets" / "tavern"
+    if tavern.is_dir():
+        robocopy(tavern, dist_dir / "assets" / "tavern")
+        print("  ok assets/tavern")
+    else:
+        print("  skip assets/tavern（没有魅影酒馆牌面）")
+
     wish = COMPANION / "assets" / "wish"
     if wish.is_dir():
         robocopy(wish, dist_dir / "assets" / "wish")
@@ -1070,6 +1078,19 @@ def step_pyinstaller(dist_dir: Path, py: Path) -> None:
     spec = COMPANION / "build_exe.spec"
     work = WORK_DIR / "pyi"
     work.mkdir(parents=True, exist_ok=True)
+    branding = FRONTEND / "public" / "branding"
+    brand = json.loads((branding / "brand.json").read_text(encoding="utf-8"))
+    logo = branding / brand["logos"][brand["defaultLogo"]]["file"]
+    # PyInstaller converts the selected PNG to the Windows executable icon.
+    # Generate a build-local spec so changing the central default also changes the exe.
+    spec_text = spec.read_text(encoding="utf-8")
+    name_line = "    name='xiaoke-ai',"
+    if name_line not in spec_text:
+        raise SystemExit("启动器 spec 缺少 xiaoke-ai EXE 配置")
+    spec_text = spec_text.replace("['launcher.py']", repr([str(COMPANION / "launcher.py")]))
+    spec_text = spec_text.replace(name_line, name_line + "\n    icon=" + repr(str(logo)) + ",")
+    spec = work / "branding.spec"
+    spec.write_text(spec_text, encoding="utf-8")
     run([
         str(py), "-m", "PyInstaller",
         "--clean", "--noconfirm",
@@ -1241,7 +1262,7 @@ def build_a(py: Path, skip_7z: bool, stamp: str) -> Path:
     dist_dir = OUT_ROOT / f"xiaoke-ai-agent-A-{stamp}"
     dist_dir.mkdir(parents=True, exist_ok=True)
     print(f"A 输出: {dist_dir}")
-    step_frontend(py)
+    step_frontend(py, stamp)
     step_electron(dist_dir)
     step_copy_runtime(dist_dir, py)
     slim_a_runtime(dist_dir)
@@ -1261,7 +1282,7 @@ def build_full(py: Path, skip_7z: bool) -> Path:
     dist_dir = OUT_ROOT / f"xiaoke-ai-{stamp}"
     dist_dir.mkdir(parents=True, exist_ok=True)
     print(f"一体包输出: {dist_dir}")
-    step_frontend(py)
+    step_frontend(py, stamp)
     step_electron(dist_dir)
     step_copy_runtime(dist_dir, py)
     junk = strip_build_junk(dist_dir / "runtime")
@@ -1284,7 +1305,7 @@ def build_online(py: Path, skip_7z: bool) -> Path:
     dist_dir = OUT_ROOT / f"xiaoke-ai-online-{stamp}"
     dist_dir.mkdir(parents=True, exist_ok=True)
     print(f"在线包输出: {dist_dir}")
-    step_frontend(py)
+    step_frontend(py, stamp)
     step_electron(dist_dir)
     step_copy_runtime(dist_dir, py)
     slim_online_runtime(dist_dir)

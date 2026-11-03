@@ -14,6 +14,7 @@ _LAB_PAGE = Path(__file__).with_name("lab.html")
 
 class AckBody(BaseModel):
     seq: int = 0
+    status: str = "completed"
 
 
 class KeepBody(BaseModel):
@@ -43,7 +44,8 @@ def _power() -> Dict[str, Any]:
     from .eyes_host import eyes_status
 
     snap = along.snapshot()
-    return {**eyes_status(), "along": bool(snap.get("on")), "character_id": snap.get("character_id") or 0}
+    return {**eyes_status(), "along": bool(snap.get("on")), "character_id": snap.get("character_id") or 0,
+            "contract": snap.get("contract")}
 
 
 @router.get("/power")
@@ -68,7 +70,7 @@ def power_set(body: PowerBody) -> Dict[str, Any]:
 
 @router.post("/along/ack")
 def along_ack(body: AckBody) -> Dict[str, Any]:
-    along.ack(body.seq)
+    along.ack(body.seq, body.status)
     return along.snapshot()
 
 

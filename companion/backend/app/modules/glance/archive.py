@@ -20,8 +20,12 @@ DAYS = 3
 _DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _ID = re.compile(r"^g\d{17}-\d{4}$")
 _FIELDS = {
+    "media_context", "media_segments",
+    "xiaoke_reason",
     "handoff", "handoff_why", "xiaoke_in", "xiaoke_raw", "xiaoke_out", "xiaoke_action",
     "result", "prompt",
+    "playback_status", "playback_at", "source_process", "source_window", "source_title", "media_inputs",
+    "freshness_phase", "capture_age", "freshness_limit",
 }
 
 _lock = threading.Lock()

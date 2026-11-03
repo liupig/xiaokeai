@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from '../api/client';
+import { defaultLive, normalizeLive } from '../features/live/config';
 import { stage } from '../engine/stage';
 import {
   DEFAULT_DUPLEX_REMAIN_SEC,
@@ -24,8 +25,9 @@ export const useSettingsStore = defineStore('settings', {
       base_url: 'https://ark.cn-beijing.volces.com/api/v3', api_key: '',
       model: 'doubao-seed-character-260628', temperature: 0.85, top_p: 1.0,
       max_tokens: 0, thinking: 'off',
+      harness_model: '', harness_base_url: '', harness_api_key: '',
     },
-    tts: { engine: 'qwen' as 'cosy' | 'edge' | 'qwen' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'browser' | 'off',
+    tts: { engine: 'qwen' as 'cosy' | 'edge' | 'qwen' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'mimo' | 'browser' | 'off',
            voice: 'Serena', rate: '+0%', qwen_size: '0.6b' as '0.6b' | '1.7b',
            qwen_style: 'yujie' as string, qwen_instruct: '',
            duplex_cmd: 'interrupt_or_queue' as DuplexCmd,
@@ -35,7 +37,8 @@ export const useSettingsStore = defineStore('settings', {
            duplex_goodbye_sec: DEFAULT_DUPLEX_GOODBYE_SEC,
            duplex_session_max_min: DEFAULT_DUPLEX_SESSION_MAX_MIN,
            duplex_filler: false, duplex_ingress: true,
-           voice_by_lang: {} as Record<string, string> },
+           voice_by_lang: {} as Record<string, string>,
+           tavern_cast: {} as Record<string, Record<string, { engine: string; voice: string }>> },
     stt: { engine: 'sensevoice' as 'browser' | 'sensevoice' | 'ali' | 'volc' | 'openai' | 'eleven' | 'gemini' },
     omni: {
       chat_url: 'https://api.modelbest.cn/v1',
@@ -57,7 +60,8 @@ export const useSettingsStore = defineStore('settings', {
       stage_show: true, stage_color: '#232342', stage_glow: '#5b5bd6', stage_style: 'classic',
       stage_texture: '', stage_opacity: 1,
     },
-    modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, codewatch: true, touch: true, harness: true, glance: false },
+    modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, tavern: true, codewatch: true, touch: true, harness: true, glance: false, live_douyin: false, live: false, play: true },
+    live: defaultLive(),
     vision: { provider: 'minicpm' as 'minicpm' | 'openai', base_url: '', api_key: '', model: '' },
     memory: { embedder: 'auto' as 'auto' | 'local' | 'doubao' | 'qwen' | 'openai' | 'gemini' },
     hardware: {
@@ -65,7 +69,7 @@ export const useSettingsStore = defineStore('settings', {
       reason: '', fingerprint: '',
       failed: { stt: '', tts: '', memory: '' },
     },
-    voices: [] as { id: string; label: string; engine?: string }[],
+    voices: [] as { id: string; label: string; engine?: string; lang?: string }[],
     content: {
       packed: false,
       path: '',
@@ -86,6 +90,9 @@ export const useSettingsStore = defineStore('settings', {
       this.llm_env = !!(flags.llm_env || flags.llm_local);
       this.llm_local = this.llm_env;
       // 旧数据可能缺 engine 字段
+      if (this.llm.harness_model == null) this.llm.harness_model = '';
+      if (this.llm.harness_base_url == null) this.llm.harness_base_url = '';
+      if (this.llm.harness_api_key == null) this.llm.harness_api_key = '';
       if (!this.tts.engine) this.tts.engine = 'edge';
       if (!this.tts.qwen_size) this.tts.qwen_size = '0.6b';
       if (!this.tts.qwen_style) this.tts.qwen_style = 'yujie';
@@ -116,6 +123,9 @@ export const useSettingsStore = defineStore('settings', {
       if (this.tts.duplex_ingress == null) this.tts.duplex_ingress = true;
       if (!this.tts.voice_by_lang || typeof this.tts.voice_by_lang !== 'object') {
         this.tts.voice_by_lang = {};
+      }
+      if (!this.tts.tavern_cast || typeof this.tts.tavern_cast !== 'object') {
+        this.tts.tavern_cast = {};
       }
       if (!this.stt.engine) this.stt.engine = 'browser';
       const omni = (data as { omni?: Record<string, unknown>; omni_env?: boolean }).omni;
@@ -176,11 +186,16 @@ export const useSettingsStore = defineStore('settings', {
         rewrite: mods?.rewrite !== false,
         keepsake: mods?.keepsake !== false,
         tarot: mods?.tarot !== false,
+        tavern: mods?.tavern !== false,
         codewatch: mods?.codewatch !== false,
         touch: mods?.touch !== false,
         harness: mods?.harness === true,
+        play: mods?.play !== false,
         glance: mods?.glance === true,
+        live_douyin: mods?.live_douyin === true,
+        live: mods?.live === true,
       };
+      this.live = normalizeLive((data as { live?: unknown }).live);
       const vision = (data as { vision?: { provider?: string; base_url?: string; api_key?: string; model?: string } }).vision;
       this.vision = {
         provider: vision?.provider === 'openai' ? 'openai' : 'minicpm',
@@ -213,7 +228,8 @@ export const useSettingsStore = defineStore('settings', {
         if (!v.length) return;
         const ok = v.some((x) => x.engine === this.tts.engine && x.id === this.tts.voice);
         if ((this.tts.engine === 'edge' || this.tts.engine === 'qwen' || this.tts.engine === 'volc'
-          || this.tts.engine === 'openai' || this.tts.engine === 'eleven' || this.tts.engine === 'gemini') && !ok) {
+          || this.tts.engine === 'openai' || this.tts.engine === 'eleven' || this.tts.engine === 'gemini'
+          || this.tts.engine === 'mimo') && !ok) {
           this.tts.voice = defaultVoice(this.tts.engine, this.locale.reply);
         } else if (this.tts.engine === 'cosy' && !ok) {
           this.tts.voice = '';
@@ -233,6 +249,7 @@ export const useSettingsStore = defineStore('settings', {
         llm: this.llm, tts: this.tts, stt: this.stt, omni: this.omni, vision: this.vision,
         locale: this.locale,
         download: this.download, quality: this.quality, modules: this.modules,
+        live: this.live,
         memory: this.memory,
       });
       const flags = data as { llm_env?: boolean; llm_local?: boolean; omni_env?: boolean };

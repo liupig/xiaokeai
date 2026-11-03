@@ -102,8 +102,6 @@ function glueParts(parts: string[]): string[] {
 function packComplete(text: string): string[] {
   const s = text.trim();
   if (!s) return [];
-  const complete = HARD_END.test(s);
-  if (charLen(s) <= SENTENCE_MAX && (complete || charLen(s) <= TARGET_MAX)) return [s];
   const out: string[] = [];
   for (const part of glueParts(splitPunct(s))) {
     if (charLen(part) <= TARGET_MAX) out.push(part);

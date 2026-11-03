@@ -6,6 +6,7 @@ import edge_tts
 from . import tts_cosy
 from . import tts_eleven
 from . import tts_gemini
+from . import tts_mimo
 from . import tts_openai
 from . import tts_qwen
 from . import tts_volc
@@ -15,6 +16,7 @@ EDGE_VOICES = [
     {"id": "zh-CN-XiaoxiaoNeural", "label": "晓晓（温柔女声）"},
     {"id": "zh-CN-YunxiNeural", "label": "云希（少年）"},
     {"id": "zh-CN-YunjianNeural", "label": "云健（青年男声）"},
+    {"id": "zh-CN-YunyangNeural", "label": "云扬（主持）"},
     {"id": "zh-CN-liaoning-XiaobeiNeural", "label": "晓北（东北话）"},
     {"id": "zh-TW-HsiaoChenNeural", "label": "晓臻（台湾腔）", "lang": "zh-CN"},
     {"id": "en-US-AriaNeural", "label": "Aria（英语）", "lang": "en"},
@@ -28,12 +30,43 @@ EDGE_VOICES = [
 VOICES = EDGE_VOICES
 
 
+def language_route(engine: str, lang: str) -> tuple[str, str]:
+    """MiMo presets have no Japanese/Korean voice; use a matching online voice."""
+    from ..locale_pack import normalize, default_voice
+    lang = normalize(lang)
+    if engine == "mimo" and lang in {"ja", "ko"}:
+        return "edge", default_voice("edge", lang)
+    return engine, ""
+
+
+def _edge_lang(voice: Dict[str, str]) -> str:
+    named = str(voice.get("lang") or "")
+    if named in ("zh-CN", "en", "ja", "ko"):
+        return named
+    vid = voice.get("id") or ""
+    if vid.startswith("en"):
+        return "en"
+    if vid.startswith("ja"):
+        return "ja"
+    if vid.startswith("ko"):
+        return "ko"
+    return "zh-CN"
+
+
+_QWEN_LANG = {"Chinese": "zh-CN", "English": "en", "Japanese": "ja", "Korean": "ko"}
+
+
 def list_voices(engine: str = "") -> List[Dict[str, str]]:
     items: List[Dict[str, str]] = []
     for v in EDGE_VOICES:
-        items.append({**v, "engine": "edge"})
+        items.append({**v, "engine": "edge", "lang": _edge_lang(v)})
     for v in tts_qwen.QWEN_VOICES:
-        items.append({"id": v["id"], "label": v["label"], "engine": "qwen"})
+        items.append({
+            "id": v["id"],
+            "label": v["label"],
+            "engine": "qwen",
+            "lang": _QWEN_LANG.get(v.get("language") or "", ""),
+        })
     for v in tts_cosy.list_voices():
         items.append(v)
     for v in tts_volc.list_voices():
@@ -43,6 +76,8 @@ def list_voices(engine: str = "") -> List[Dict[str, str]]:
     for v in tts_eleven.list_voices():
         items.append(v)
     for v in tts_gemini.list_voices():
+        items.append(v)
+    for v in tts_mimo.list_voices():
         items.append(v)
     if engine:
         items = [x for x in items if x["engine"] == engine]

@@ -2,7 +2,7 @@
 
 开源免费的**本地 3D 陪玩 / 虚拟陪玩**：挑选 / 下载 3D 角色，配置人设与声音，通过文本或语音对话；角色用语音 + 口型 + 表情 + 动作 + 舞蹈实时回应。也可以陪你看电影、刷视频、听音乐：画面和声音留在本机，值得说的时候她才开口。
 
-不想自己装 Node / Python 时，用仓库根目录 [README · 体验包](../README.md#体验包不用自己编译)：网盘里是 A、B 两份 7z 和一份一体包，解压后双击 `xiaoke-ai.exe`。[下载（提取码 xkai）](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)
+不想自己装 Node / Python 时，用仓库根目录 [README · 体验包](../README.md#体验包不用自己编译)。2026-10-28 的 A、B 在 [Hugging Face](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main) 和 [Google Drive](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link)，百度网盘仍可用：[下载（提取码 xkai）](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)。解压后双击 `xiaoke-ai.exe`。
 
 ## 功能一览
 

@@ -112,9 +112,9 @@ def _hint(st: Dict[str, Any]) -> str:
         left = n - len(st.get("revealed") or [])
         if left > 0:
             return f"说「翻转」或点牌 · 还剩 {left} 张，语音约 10 秒后自动翻"
-        return "可以收线了"
+        return "牌已翻完 · 点击「听完整解读」，或继续点牌追问"
     if phase == "synth":
-        return "她在收线"
+        return "正在解读整组牌 · 回答你的问题"
     if phase == "linger":
         if not st.get("clarifier_used"):
             return "点一张追问，或说「再翻一张补」「收起来」"
@@ -644,7 +644,7 @@ def reveal(character_id: int, index: int) -> Dict[str, Any]:
         if st.get("phase") in ("placed", "open"):
             st["phase"] = "open"
             if len(revealed) >= n:
-                st["want_synth"] = n > 1
+                st["want_synth"] = False
                 if n <= 1:
                     st["done"] = False
         elif st.get("phase") == "linger":
@@ -663,6 +663,21 @@ def enter_linger(character_id: int, *, as_synth: bool = False) -> Dict[str, Any]
         st["focus"] = None
         if as_synth:
             st["last_text"] = "综合"
+    return snapshot(character_id)
+
+
+def start_synth(character_id: int) -> Dict[str, Any]:
+    """Only summarize a complete spread, including any clarifier."""
+    with _lock:
+        st = _sessions.get(character_id)
+        if not st or st.get("phase") not in ("open", "linger"):
+            return snapshot(character_id)
+        cards = st.get("cards") or []
+        revealed = set(st.get("revealed") or [])
+        if not cards or not all(i in revealed for i in range(len(cards))):
+            return snapshot(character_id)
+        st.update(phase="synth", focus=None, want_synth=True, done=False,
+                  last_text="完整解读", last_action="keep")
     return snapshot(character_id)
 
 
@@ -703,6 +718,7 @@ def clarifier(character_id: int, host: Optional[int] = None) -> Dict[str, Any]:
         row["position"] = pos
         row["index"] = len(cards)
         row["clarifier"] = True
+        row["host"] = host_i if isinstance(host_i, int) and 0 <= host_i < len(cards) else None
         cards.append(row)
         st["cards"] = cards
         revealed = list(st.get("revealed") or [])
@@ -1077,16 +1093,7 @@ def _digest_user_text(character_id: int, mode: str, text: str) -> str:
         return "clarifier"
 
     if active(character_id) and _SYNTH_RE.search(t):
-        with _lock:
-            st = _sessions.get(character_id)
-            if st:
-                play = plays.get_play(str(st["spread"]))
-                n = int(play["n"])
-                if len(st.get("revealed") or []) >= n:
-                    st["want_synth"] = True
-                    st["done"] = False
-                    st["phase"] = "synth"
-                    st["last_text"] = t
+        start_synth(character_id)
         return "keep"
 
     if _is_draw(t) or (playing and _REDEAL_RE.search(t)):

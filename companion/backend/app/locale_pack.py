@@ -42,6 +42,18 @@ VOLC_DEFAULT = {
     "ja": "ja_female_bv522_uranus_bigtts",
     "ko": "ko_female_bv546_uranus_bigtts",
 }
+# 小米预置音色只有中文和英文。日语、韩语没有对应音色，落到冰糖。
+MIMO_DEFAULT = {
+    "zh-CN": "冰糖",
+    "en": "Mia",
+    "ja": "冰糖",
+    "ko": "冰糖",
+}
+_MIMO_LANG = {
+    "冰糖": "zh-CN", "茉莉": "zh-CN", "苏打": "zh-CN", "白桦": "zh-CN",
+    "mimo_default": "zh-CN",
+    "Mia": "en", "Chloe": "en", "Milo": "en", "Dean": "en",
+}
 # 本地英语只有男声。英语默认用中文女声的音色，合成时把语言标成 English。
 _QWEN_EN_FEMALE = {"Serena", "Vivian"}
 _QWEN_LANG = {
@@ -268,6 +280,8 @@ def voice_lang(engine: str, voice: str) -> str:
     eng = (engine or "").strip().lower()
     if eng == "volc":
         return _volc_lang(vid)
+    if eng == "mimo" or vid in _MIMO_LANG:
+        return _MIMO_LANG.get(vid, "")
     if eng == "qwen" or vid in _QWEN_LANG:
         return _QWEN_LANG.get(vid, "")
     if vid.startswith("zh-"):
@@ -294,6 +308,8 @@ def default_voice(engine: str, lang: str | None) -> str:
         return "21m00Tcm4TlvDq8ikWAM"
     if eng == "gemini":
         return "Kore"
+    if eng == "mimo":
+        return MIMO_DEFAULT.get(lang, "冰糖")
     return EDGE_DEFAULT.get(lang, "zh-CN-XiaoyiNeural")
 
 
@@ -313,6 +329,9 @@ def align_voice(engine: str, voice: str, lang: str | None) -> str:
     lang = normalize(lang)
     vid = (voice or "").strip()
     if not vid:
+        return default_voice(engine, lang)
+    eng = (engine or "").strip().lower()
+    if eng == "mimo" and vid not in _MIMO_LANG:
         return default_voice(engine, lang)
     if voice_fits(engine, vid, lang):
         return vid

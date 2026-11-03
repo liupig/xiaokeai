@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
 import { api } from '../api/client';
 import { caster } from '../features/performance/caster';
+import { canWakeTavern } from '../features/tavern/intent';
+import { openTavern, tavernUi } from '../features/tavern/session';
 import { orchestrator } from '../features/performance/orchestrator';
 import { shots } from '../features/performance/shotConductor';
 import { speechPlayer } from '../features/voice/tts';
@@ -313,6 +315,10 @@ export const useChatStore = defineStore('chat', {
     },
   },
   actions: {
+    pauseSidecar() {
+      clearDelayed();
+      silencePhase = 'idle';
+    },
     async bargeIn() {
       clearDelayed();
       clearTarotNext();
@@ -420,6 +426,7 @@ export const useChatStore = defineStore('chat', {
     },
     async classifyIngress(text: string, busy: IngressBusy) {
       const settings = useSettingsStore();
+      if (settings.modules.tavern && canWakeTavern(text)) return 'cut' as const;
       const { deskActivity } = await import('../features/desk/activity');
       const onDesk = deskActivity();
       if (settings.modules.tarot && onDesk !== 'dance') {
@@ -583,6 +590,7 @@ export const useChatStore = defineStore('chat', {
     /** 双方都沉默、当前音频播完后：Delayed → Proactive → Goodbye */
     async scheduleDelayed() {
       clearDelayed();
+      if (tavernUi.on) return;
       if (sessionClosed || this.sending || speechPlayer.streamOpen) return;
       if (useSettingsStore().modules.tarot) {
         const chars = useCharacterStore();
@@ -830,7 +838,7 @@ export const useChatStore = defineStore('chat', {
         }
       }
 
-      if (!wishSpeak && useSettingsStore().modules.tarot && chars.currentId) {
+      if (!wishSpeak && useSettingsStore().modules.tarot && chars.currentId && !canWakeTavern(input)) {
         try {
           const tarot = await import('../features/tarot');
           const live = tarot.tarotLive.value
@@ -842,6 +850,7 @@ export const useChatStore = defineStore('chat', {
           console.warn('[tarot]', e);
         }
       }
+      if (useSettingsStore().modules.tavern && canWakeTavern(input)) openTavern();
 
       let apiKeyMissing = false;
       const bag = { speech: false };
@@ -917,6 +926,7 @@ export const useChatStore = defineStore('chat', {
       return 'sent';
     },
     async sidecarChat(mode: 'continue' | 'proactive' | 'goodbye' | 'welcome', reason = '', extra: ChatExtra = {}) {
+      if (tavernUi.on) return;
       if (mode === 'continue' || mode === 'proactive' || mode === 'goodbye') {
         const { alongLive } = await import('../features/glance/along');
         if (alongLive.on) return;
@@ -1126,7 +1136,7 @@ export const useChatStore = defineStore('chat', {
         speechPlayer.streamOpen = false;
       }
     },
-    async alongSpeak(seen: string): Promise<'skip' | 'spoke' | 'empty'> {
+    async alongSpeak(seen: string): Promise<'skip' | 'spoke' | 'empty' | 'failed' | 'interrupted' | 'displayed'> {
       const text = (seen || '').trim();
       if (!text) return 'skip';
       if (dancePlaying()) return 'skip';
@@ -1134,8 +1144,7 @@ export const useChatStore = defineStore('chat', {
       if (!chars.currentId) return 'skip';
       if (this.sending) return 'skip';
       if (speechPlayer.streamOpen || speechPlayer.isSpeaking()) {
-        speechPlayer.stop();
-        speechPlayer.streamOpen = false;
+        return 'skip';
       }
       sessionClosed = false;
       this.sending = true;
@@ -1150,6 +1159,7 @@ export const useChatStore = defineStore('chat', {
       this.messages.push(assistant);
       this.applyVoice();
       orchestrator.beginContinue('proactive');
+      const playback = speechPlayer.playbackTicket();
       const bag = { speech: false };
       const onEvent = (ev: any) => {
         if (ev.type === 'error') {
@@ -1180,7 +1190,9 @@ export const useChatStore = defineStore('chat', {
         this.sending = false;
         speechPlayer.streamOpen = false;
       }
-      return (assistant.content || assistant.fullContent) ? 'spoke' : 'empty';
+      if (!(assistant.content || assistant.fullContent)) return 'empty';
+      const outcome = await speechPlayer.playbackResult(playback, controller.signal);
+      return outcome === 'completed' ? 'spoke' : outcome;
     },
     /** 被碰到之后偶尔的一句。走和续聊同一条表演，不另开说话。 */
     async touchSpeak(brief: string, line: string) {

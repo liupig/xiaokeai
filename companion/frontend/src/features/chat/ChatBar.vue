@@ -16,12 +16,14 @@ import { api } from '../../api/client';
 import { friendlyWhen } from './when';
 import XkIcon from '../icons/XkIcon.vue';
 import { tarotGameLock, tarotUi } from '../tarot/session';
+import { openTavern } from '../tavern/session';
 import { featureOn, t } from '../../i18n';
 
 const TarotDock = defineAsyncComponent(() => import('../tarot/Dock.vue'));
 const CodewatchDock = defineAsyncComponent(() => import('../codewatch/Dock.vue'));
 
 const chat = useChatStore();
+const collapsed = ref(false);
 const characters = useCharacterStore();
 const settings = useSettingsStore();
 const message = useMessage();
@@ -352,7 +354,9 @@ async function toggleMsgPin(id?: number) {
 </script>
 
 <template>
-  <div class="chat-dock">
+  <div class="chat-dock" :class="{ collapsed }">
+    <button v-if="collapsed" type="button" class="chat-restore" @click="collapsed = false"><XkIcon name="expand" :size="18" />展开对话</button>
+    <template v-else>
     <MemoryPanel v-if="mods.memory" />
     <div class="chat-head">
       <span class="dot" :class="{ busy: chat.sending }" />
@@ -363,6 +367,7 @@ async function toggleMsgPin(id?: number) {
       </button>
       <button v-if="mods.memory" class="head-btn" :class="{ on: memorySession.open }"
               @click="memorySession.open = !memorySession.open">{{ t('chat.memory') }}{{ memCount ? ` ${memCount}` : '' }}</button>
+      <button type="button" class="chat-minimize" @click="collapsed = true" aria-label="收起聊天"><XkIcon name="collapse" :size="18" /></button>
     </div>
     <ScenePicker v-if="scenesOn" class="scene-slot" />
     <div v-show="histOpen" ref="messagesEl" class="messages" @scroll="onMsgScroll" @wheel="onMsgWheel">
@@ -416,7 +421,11 @@ async function toggleMsgPin(id?: number) {
                 class="mic" @click="toggleMic" @pointerenter="warmupMic">
         <XkIcon name="mic" :size="18" />
       </n-button>
+      <div class="input-secondary">
       <TarotDock v-if="tarotOn" />
+      <n-button v-if="mods.tavern" quaternary circle size="small" :title="t('mod.tavern')" @click="openTavern">
+        <span class="tavern-mark">魅</span>
+      </n-button>
       <CodewatchDock v-if="mods.codewatch" />
       <n-button v-if="mods.keepsake" quaternary circle size="small"
                 :disabled="keepsakeSession.saving || keepsakeSession.recording"
@@ -457,7 +466,9 @@ async function toggleMsgPin(id?: number) {
           <XkIcon v-else name="rec" :size="18" />
         </n-button>
       </span>
+      </div>
       <n-input
+        class="chat-input"
         v-model:value="input" size="small" round
         :placeholder="tarotUi.phase !== 'off' && tarotUi.phase !== 'leaving'
           ? (tarotGameLock()
@@ -483,6 +494,7 @@ async function toggleMsgPin(id?: number) {
         <span>{{ t('chat.send') }}</span>
       </n-button>
     </div>
+    </template>
   </div>
 </template>
 
@@ -717,10 +729,17 @@ async function toggleMsgPin(id?: number) {
 .input-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
   padding: 8px 10px 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+
+.input-row .mic { order: 1; }
+.input-row .chat-input { order: 2; min-width: 90px; }
+.input-row .send { order: 3; flex-shrink: 0; }
+.input-secondary { order: 4; flex: 0 0 100%; display: flex; align-items: center; justify-content: center; gap: 4px; padding-top: 2px; border-top: 1px solid rgba(255,255,255,.05); }
+.input-secondary > .n-button { width: 30px; height: 30px; }
 
 .input-row :deep(.n-input) {
   flex: 1;
@@ -800,4 +819,15 @@ async function toggleMsgPin(id?: number) {
 .vmark.drop { background: rgba(100,116,139,0.12); color: #94a3b8; border-color: rgba(100,116,139,0.28); }
 .vmark.echo { background: rgba(148,163,184,0.1); color: #94a3b8; border-color: rgba(148,163,184,0.22); }
 .vmark.fail { background: rgba(239,68,68,0.16); color: #fca5a5; border-color: rgba(239,68,68,0.4); }
+.tavern-mark {
+  font-family: "Palatino Linotype", "Songti SC", serif;
+  font-size: 15px;
+  color: #e4c56a;
+}
+.chat-restore { position: absolute; right: 10px; bottom: 10px; z-index: 2; padding: 8px 13px; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; background: rgba(18,28,51,.9); color: rgba(235,235,245,.85); cursor: pointer; }
+.chat-restore:hover { background: rgba(78,76,150,.9); }
+.chat-dock { resize: both; overflow: hidden; min-width: 330px; min-height: 150px; max-width: min(92vw, 760px); max-height: 82vh; }
+.chat-dock.collapsed { min-height: 0; height: 46px; width: 150px; resize: none; }
+.chat-minimize { margin-left: auto; width: 26px; height: 26px; border: 0; border-radius: 8px; background: transparent; color: rgba(235,235,245,.58); font-size: 20px; line-height: 20px; cursor: pointer; }
+.chat-minimize:hover { background: rgba(255,255,255,.1); color: #fff; }
 </style>

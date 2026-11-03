@@ -3,6 +3,13 @@ import { createPinia } from 'pinia';
 import App from './App.vue';
 import { i18n } from './i18n';
 import './styles/global.css';
+import { getLogoUrl } from './branding';
+
+const favicon = document.createElement('link');
+favicon.rel = 'icon';
+favicon.type = 'image/png';
+favicon.href = getLogoUrl();
+document.head.appendChild(favicon);
 
 if (window.companionDesktop?.isShell) {
   document.documentElement.classList.add('is-desktop');

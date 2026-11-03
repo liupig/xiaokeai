@@ -63,6 +63,10 @@
     "hint": "타로|카드 뽑|한 장|세 장|오늘의 카드|draw (?:a |one |three )?cards?|one card|three cards|daily card|yes or no|tarot|read my cards|celtic|a reading",
     "ritual": "컷|네가 뽑아|뒤집어|한 장 더|치워|무슨 뜻|왼쪽|오른쪽|가운데|과거|현재|미래|\\bcut\\b|you pick|you choose|flip|turn it over|another card|put the cards away|what does it mean|the left|the right|the middle|past|present|future"
   },
+  "tavern": {
+    "open": "매영주점|주점 가자|주점 열어|주점에서 놀|라이어스 바|phantom tavern",
+    "close": "주점 가지 마|주점 나가|주점 닫|매영은 됐어"
+  },
   "wish": {
     "hint": "소원 빌|소원 하나|소원 연못|다시 빌어|소원 하자|make a wish|我要许愿|许个愿"
   }

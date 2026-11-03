@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 from sqlmodel import Session, select
 
 from ..models import Setting
+from ..modules.live.config import normalize as normalize_live
 from ..paths import DATA_DIR, ROOT_DIR
 
 DEFAULTS: Dict[str, Any] = {
@@ -13,13 +14,15 @@ DEFAULTS: Dict[str, Any] = {
     # max_tokens 为 0 表示不传该参数（用服务商默认值）
     "llm": {"base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "",
             "model": "doubao-seed-character-260628", "temperature": 0.85, "top_p": 1.0,
-            "max_tokens": 0, "thinking": "off"},
+            "max_tokens": 0, "thinking": "off",
+            "harness_model": "", "harness_base_url": "", "harness_api_key": ""},
     "tts": {"engine": "qwen", "voice": "Serena", "rate": "+0%", "qwen_size": "0.6b",
             "qwen_style": "yujie", "qwen_instruct": "",
             "duplex_cmd": "interrupt_or_queue", "duplex_remain_sec": 3,
             "duplex_delayed_sec": 16, "duplex_proactive_sec": 45,
             "duplex_goodbye_sec": 140, "duplex_session_max_min": 0,
-            "duplex_filler": False, "duplex_ingress": True},
+            "duplex_filler": False, "duplex_ingress": True,
+            "tavern_cast": {}},
     "stt": {"engine": "sensevoice"},  # browser=在线 Web Speech；sensevoice=离线 SenseVoice
     "download": {"aplaybox_token": ""},
     "quality": {"physics": False, "pixel_ratio_cap": 2, "camera_follow": False, "bgm_volume": 0.5,
@@ -27,7 +30,8 @@ DEFAULTS: Dict[str, Any] = {
                 # 圆形舞台底座：显隐 / 台面颜色 / 发光环颜色 / 风格 / 台面贴图 / 不透明度
                 "stage_show": True, "stage_color": "#232342", "stage_glow": "#5b5bd6",
                 "stage_style": "classic", "stage_texture": "", "stage_opacity": 1.0},
-    "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "codewatch": True, "touch": True, "harness": True, "glance": False},
+    "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "tavern": True, "codewatch": True, "touch": True, "harness": True, "glance": False, "live_douyin": False, "live": False, "play": True, "sight": True},
+    "live": {"douyin": {"room": "", "push_secret": ""}},
     "locale": {"ui": "zh-CN", "reply": "zh-CN", "reply_mode": "fixed"},
     "memory": {"embedder": "auto"},
     "hardware": {
@@ -135,15 +139,27 @@ def llm_overlay() -> Dict[str, Any]:
 
 
 def apply_llm_overlay(llm: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """前端没填 API Key 时，回退到环境变量。前端有 Key 则完全以前端为准。"""
+    """前端没填 API Key 时，只补钥匙。
+
+    设置里已经写了模型名或地址就保持。钥匙留空不能把模型盖回 .env，
+    否则技能目录会一直被角色模型挡住。
+    """
     out = dict(llm or {})
+    _load_local_env()
+    base = str(out.get("base_url") or "").lower()
+    if "xiaomimimo.com" in base:
+        if not (out.get("api_key") or "").strip():
+            key = (os.environ.get("XIAOMI_KEY") or os.environ.get("MIMO_API_KEY") or "").strip()
+            if key:
+                out["api_key"] = key
+        return out
     env = env_llm()
     if (out.get("api_key") or "").strip() or not env.get("api_key"):
         return out
     out["api_key"] = env["api_key"]
-    if env.get("base_url"):
+    if not (out.get("base_url") or "").strip() and env.get("base_url"):
         out["base_url"] = env["base_url"]
-    if env.get("model"):
+    if not (out.get("model") or "").strip() and env.get("model"):
         out["model"] = env["model"]
         if "character" in str(env["model"]).lower():
             out["thinking"] = "off"
@@ -204,6 +220,7 @@ def get_all(session: Session) -> Dict[str, Any]:
     result = _read_all(session)
     result["llm"] = apply_llm_overlay(result.get("llm") or {})
     result["omni"] = apply_omni_overlay(result.get("omni") or {})
+    result["live"] = normalize_live(result.get("live"))
     return result
 
 
@@ -217,6 +234,7 @@ def public_all(session: Session) -> Dict[str, Any]:
     omni = dict(result.get("omni") or {})
     result["omni_env"] = omni_env_fallback(omni)
     result["locale_set"] = "locale" in saved_keys(session)
+    result["live"] = normalize_live(result.get("live"))
     return result
 
 

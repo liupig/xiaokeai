@@ -10,7 +10,7 @@ from ..db import get_session
 from ..paths import content_status
 from ..services import content as content_svc
 from ..services import settings_store
-from ..services.llm import test_connection
+from ..services.llm import test_connection, test_messages
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -21,8 +21,16 @@ class ContentBody(BaseModel):
 
 @router.post("/test_llm")
 async def test_llm(conf: Dict[str, Any]) -> Dict[str, Any]:
-    """用面板里正在编辑（未必已保存）的 LLM 配置做连通性测试。"""
-    return await test_connection(conf)
+    """对话模型和技能目录模型都测。技能目录没另填时只测对话。"""
+    from ..modules.harness.service import harness_llm
+
+    chat = await test_connection(conf)
+    other = harness_llm(conf)
+    skill = await test_messages(other)
+    return {
+        "ok": bool(chat.get("ok")) and bool(skill.get("ok")),
+        "message": f"对话：{chat.get('message')}\n技能目录：{skill.get('message')}",
+    }
 
 
 @router.get("/content")
@@ -58,6 +66,9 @@ def update_settings(patch: Dict[str, Any],
     _sync_speech_workers(runtime)
     prev_mods = prev.get("modules") or {}
     now_mods = runtime.get("modules") or {}
+    if not bool(now_mods.get("harness", True)):
+        from ..modules.harness.service import release as harness_release
+        harness_release()
     if bool(prev_mods.get("glance", False)) != bool(now_mods.get("glance", False)):
         try:
             from ..modules.harness.service import release as harness_release
@@ -70,6 +81,18 @@ def update_settings(patch: Dict[str, Any],
                 along_stop()
             except Exception:
                 pass
+    if bool(prev_mods.get("live_douyin", False)) and not bool(now_mods.get("live_douyin", False)):
+        try:
+            from ..modules.live.douyin.listen import stop as live_douyin_stop
+            live_douyin_stop()
+        except Exception:
+            pass
+    if bool(prev_mods.get("live", False)) and not bool(now_mods.get("live", False)):
+        try:
+            from ..modules.live.host import host as live_host
+            live_host.shutdown()
+        except Exception:
+            pass
     if not bool(now_mods.get("codewatch", True)):
         try:
             from ..modules.codewatch.router import release as codewatch_release
@@ -98,6 +121,14 @@ def update_settings(patch: Dict[str, Any],
         )
         if prev_emb != now_emb or cred_changed:
             threading.Thread(target=_reload_memory_index, daemon=True).start()
+    if (
+        bool(now_mods.get("harness", True))
+        and (not bool(prev_mods.get("harness", True))
+             or prev.get("llm") != runtime.get("llm")
+             or bool(prev_mods.get("glance", False)) != bool(now_mods.get("glance", False)))
+    ):
+        from ..modules.harness.service import schedule_warmup
+        schedule_warmup(runtime)
     return out
 
 

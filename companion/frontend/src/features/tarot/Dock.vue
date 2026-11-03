@@ -6,7 +6,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { t } from '../../i18n';
 import XkIcon from '../icons/XkIcon.vue';
 import { tarotLive } from './gate';
-import { tarotUi } from './session';
+import { tarotUi, canReadSpread, readSpread } from './session';
 
 const ZH_PLAYS = [
   { group: '普通', items: [
@@ -17,9 +17,9 @@ const ZH_PLAYS = [
     { id: 'body', title: '身心三张', sub: '心 / 身 / 气' },
   ]},
   { group: '进阶', items: [
-    { id: 'choice', title: '二选一', sub: 'A / B 各三张 + 总建议' },
     { id: 'bond', title: '关系五张', sub: '我、对方、连接、卡住、潜力' },
     { id: 'work', title: '事业五张', sub: '现状、优势、挑战、机会、行动' },
+    { id: 'choice', title: '二选一', sub: 'A / B 各三张 + 总建议' },
     { id: 'celtic', title: '凯尔特十字', sub: '十字 + 右侧一列' },
   ]},
 ];
@@ -33,9 +33,9 @@ const EN_PLAYS = [
     { id: 'body', title: 'Heart and body', sub: 'Heart / body / breath' },
   ]},
   { group: 'Further', items: [
-    { id: 'choice', title: 'Two paths', sub: 'A and B, then advice' },
     { id: 'bond', title: 'The bond', sub: 'Five cards' },
     { id: 'work', title: 'Work', sub: 'Five cards' },
+    { id: 'choice', title: 'Two paths', sub: 'A and B, then advice' },
     { id: 'celtic', title: 'Celtic cross', sub: 'Ten cards' },
   ]},
 ];
@@ -49,9 +49,9 @@ const JA_PLAYS = [
     { id: 'body', title: '心と体', sub: '心 / 体 / 息' },
   ]},
   { group: 'さらに', items: [
-    { id: 'choice', title: '二つに一つ', sub: 'A と B' },
     { id: 'bond', title: '関係', sub: '五枚' },
     { id: 'work', title: '仕事', sub: '五枚' },
+    { id: 'choice', title: '二つに一つ', sub: 'A と B' },
     { id: 'celtic', title: 'ケルト十字', sub: '十枚' },
   ]},
 ];
@@ -65,9 +65,9 @@ const KO_PLAYS = [
     { id: 'body', title: '마음과 몸', sub: '마음 / 몸 / 숨' },
   ]},
   { group: '더', items: [
-    { id: 'choice', title: '둘 중 하나', sub: 'A 와 B' },
     { id: 'bond', title: '관계', sub: '다섯 장' },
     { id: 'work', title: '일', sub: '다섯 장' },
+    { id: 'choice', title: '둘 중 하나', sub: 'A 와 B' },
     { id: 'celtic', title: '켈틱 크로스', sub: '열 장' },
   ]},
 ];
@@ -174,20 +174,21 @@ async function redeal() {
         <input v-model="question" maxlength="80" :placeholder="t('tarot.askPh')" />
       </label>
       <div v-if="live" class="ops ritual">
-        <button v-if="tarotUi.canCut || tarotUi.phase === 'shuffle'" type="button" :disabled="busy" @click="cut">{{ t('tarot.cut') }}</button>
-        <button v-if="tarotUi.canHerDraw" type="button" :disabled="busy" @click="herDraw">{{ t('tarot.her') }}</button>
-        <button v-if="tarotUi.canClarifier" type="button" :disabled="busy" @click="clarifier">{{ t('tarot.extra') }}</button>
-        <button type="button" :disabled="busy" @click="redeal">{{ t('tarot.redeal') }}</button>
+        <button v-if="canReadSpread()" type="button" :disabled="busy || tarotUi.busy" @click="readSpread">听完整解读</button>
+        <button v-if="tarotUi.canCut || tarotUi.phase === 'shuffle'" type="button" :disabled="busy || tarotUi.busy" @click="cut">{{ t('tarot.cut') }}</button>
+        <button v-if="tarotUi.canHerDraw" type="button" :disabled="busy || tarotUi.busy" @click="herDraw">{{ t('tarot.her') }}</button>
+        <button v-if="tarotUi.canClarifier" type="button" :disabled="busy || tarotUi.busy" @click="clarifier">{{ t('tarot.extra') }}</button>
+        <button type="button" :disabled="busy || tarotUi.busy" @click="redeal">{{ t('tarot.redeal') }}</button>
         <button type="button" class="ghost" :disabled="busy" @click="pack">{{ t('tarot.pack') }}</button>
       </div>
-      <div v-for="g in plays" :key="g.group" class="group">
+      <div v-for="g in (live && !tarotUi.canPickPlay ? [] : plays)" :key="g.group" class="group">
         <p class="g">{{ g.group }}</p>
         <div class="ops">
           <button
             v-for="p in g.items"
             :key="p.id"
             type="button"
-            :disabled="busy"
+            :disabled="busy || tarotUi.busy"
             @click="go(p.id)"
           >
             <strong>{{ p.title }}</strong>

@@ -20,10 +20,17 @@ export { DEFAULT_DUPLEX_REMAIN_SEC, normalizeDuplexCmd };
  * Pool + 播放器。
  * pushUnit 按 DuplexCmd 决定插队/排队/丢掉；真正拉 TTS 流只在决定要播之后。
  */
-export type TtsEngine = 'cosy' | 'edge' | 'qwen' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'browser' | 'off';
+export type TtsEngine = 'cosy' | 'edge' | 'qwen' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'mimo' | 'browser' | 'off';
 
-const STREAM_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'volc', 'openai', 'eleven', 'gemini']);
-const VOICE_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'volc', 'openai', 'eleven', 'gemini']);
+const STREAM_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'volc', 'openai', 'eleven', 'gemini', 'mimo']);
+const VOICE_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'volc', 'openai', 'eleven', 'gemini', 'mimo']);
+
+/** 小米朗读吃情绪。从原文取出 [emo:happy:0.8]，念出去的字仍然去掉标记。 */
+function mimoCue(raw: string): string {
+  const matched = (raw || '').match(/\[emo:([A-Za-z_]+)(?::([0-9]*\.?[0-9]+))?\]/);
+  if (!matched) return '';
+  return matched[2] ? `${matched[1]}:${matched[2]}` : matched[1];
+}
 
 function isSidecarClip(clip: { duplexCmd?: DuplexCmd; kind?: string } | null): boolean {
   if (!clip) return false;
@@ -107,6 +114,25 @@ export class SpeechPlayer {
   /** 每一句开播时回调（给选角器做句拍表演） */
   onSentence: ((text: string) => void) | null = null;
   onAllEnded: (() => void) | null = null;
+  private audibleCount = 0;
+  private playbackErrors = 0;
+
+  playbackTicket() {
+    return { generation: this.generation, token: this.playToken, inputGen: this.inputGen, audible: this.audibleCount, errors: this.playbackErrors };
+  }
+
+  async playbackResult(ticket: ReturnType<SpeechPlayer['playbackTicket']>, signal?: AbortSignal): Promise<'completed' | 'failed' | 'interrupted' | 'displayed'> {
+    if (this.engine === 'off') return 'displayed';
+    const until = Date.now() + 90000;
+    while (Date.now() < until) {
+      if (signal?.aborted || ticket.generation !== this.generation || ticket.token !== this.playToken || ticket.inputGen !== this.inputGen) return 'interrupted';
+      if (!this.isSpeaking()) {
+        return this.audibleCount > ticket.audible && this.playbackErrors === ticket.errors ? 'completed' : 'failed';
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
+    }
+    return 'failed';
+  }
 
   /** 正在合成或排队的语音，欢迎语 / 沉默续聊不要叠上去。 */
   isSpeaking(): boolean {
@@ -398,6 +424,9 @@ export class SpeechPlayer {
     const cleaned = stripCaption(text.trim());
     if (!cleaned || this.engine === 'off') return null;
     if (VOICE_ENGINES.has(this.engine) && !this.voice) return null;
+    const instruct = this.engine === 'mimo'
+      ? (mimoCue(text) || this.qwenInstruct)
+      : this.qwenInstruct;
     const gen = this.generation;
     const ac = new AbortController();
     this.ensureCtx();
@@ -417,7 +446,7 @@ export class SpeechPlayer {
     } else if (STREAM_ENGINES.has(this.engine)) {
       job = withTimeout(api.ttsResponse(
         speakForEngine(cleaned), this.voice, this.engine, ac.signal,
-        this.qwenSize, this.qwenStyle, this.qwenInstruct,
+        this.qwenSize, this.qwenStyle, instruct,
       ));
     } else {
       job = withTimeout(this.fetchBuffer(cleaned, ac.signal, gen));
@@ -645,6 +674,7 @@ export class SpeechPlayer {
           continue;
         }
         console.error('TTS 播放失败（不改用其它音色）', e);
+        this.playbackErrors += 1;
       } finally {
         this.clipReceiving = false;
         if (this.currentClip === item) this.currentClip = null;
@@ -684,6 +714,7 @@ export class SpeechPlayer {
         return;
       }
       src.start();
+      this.audibleCount += 1;
       if (gen !== this.generation || token !== this.playToken) {
         try { src.stop(); } catch { /* already stopped */ }
         resolve();
@@ -740,6 +771,7 @@ export class SpeechPlayer {
       this.pcmSources.push(src);
       this.currentSource = src;
       src.start(t);
+      this.audibleCount += 1;
       this.maybeCutForPending();
     };
 
@@ -818,6 +850,7 @@ export class SpeechPlayer {
           return;
         }
         if (audio.currentTime > heardTime + 0.05) {
+          if (!heardAt) this.audibleCount += 1;
           heardTime = audio.currentTime;
           heardAt = Date.now();
         }
@@ -918,7 +951,13 @@ export class SpeechPlayer {
     const audio = this.currentAudio!;
     const url = URL.createObjectURL(blob);
     return new Promise((resolve) => {
-      audio.onended = audio.onerror = () => {
+      audio.onended = () => {
+        if (audio.currentTime > 0) this.audibleCount += 1;
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      audio.onerror = () => {
+        this.playbackErrors += 1;
         URL.revokeObjectURL(url);
         resolve();
       };
@@ -927,7 +966,7 @@ export class SpeechPlayer {
         if (this.clipStartTime <= 0) this.clipStartTime = this.ctx?.currentTime ?? 0;
         this.clipReceiving = false;
         this.maybeCutForPending();
-      }).catch(() => resolve());
+      }).catch(() => { this.playbackErrors += 1; URL.revokeObjectURL(url); resolve(); });
       if (gen !== this.generation || token !== this.playToken) {
         audio.pause();
         URL.revokeObjectURL(url);
@@ -951,13 +990,19 @@ export class SpeechPlayer {
           return;
         }
         this.ensureCtx();
+        this.audibleCount += 1;
         this.clipStartTime = this.ctx!.currentTime;
         this.clipReceiving = false;
         this.noteCaption(text, this.clipStartTime, this.clipStartTime + estimateSpeechSec(text));
         stage.lipsync.setTalking(true);
         this.maybeCutForPending();
       };
-      utter.onend = utter.onerror = () => {
+      utter.onend = () => {
+        stage.lipsync.setTalking(false);
+        resolve();
+      };
+      utter.onerror = () => {
+        this.playbackErrors += 1;
         stage.lipsync.setTalking(false);
         resolve();
       };

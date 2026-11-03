@@ -48,11 +48,17 @@ def probe() -> bool:
 
 
 def eyes_status() -> dict:
-    global _phase
+    global _phase, _message
     if not _local():
         return {"eyes": "remote", "message": ""}
     if probe():
-        _phase = "up"
+        # A listening HTTP port does not mean the vision model has finished
+        # warming up. The warmup worker owns this transition.
+        if _phase != "starting" and not _message:
+            _phase = "up"
+    elif _phase == "starting" and _proc is not None and _proc.poll() is not None:
+        _phase = "down"
+        _message = "视觉进程启动失败，请检查视觉环境和显存"
     elif _phase != "starting":
         _phase = "down"
     return {"eyes": _phase, "message": _message}
@@ -160,11 +166,20 @@ def _warmup(token: int) -> None:
         if probe():
             client = _borrow()
             try:
-                client.post(f"{eyes_url()}/api/warmup", timeout=180)
+                response = client.post(f"{eyes_url()}/api/warmup", timeout=180)
+                response.raise_for_status()
+                try:
+                    data = response.json()
+                except ValueError:
+                    data = None
+                if isinstance(data, dict) and data.get("ok") is False:
+                    raise RuntimeError(str(data.get("message") or "视觉模型加载失败"))
             except Exception as exc:
                 if token != _token or _phase != "starting":
                     return
                 _message = str(exc)[:160]
+                _phase = "down"
+                return
             finally:
                 _release(client)
             if token != _token or _phase != "starting":
@@ -204,6 +219,22 @@ def eyes_python(home: Path) -> Path:
     return home / ".venv" / "Scripts" / "python.exe"
 
 
+def capability() -> dict:
+    """Configuration check only: never start a process or capture a screen."""
+    if not _local():
+        return {"available": True, "message": "已配置远程眼睛，实际可用性在请求时确认"}
+    if _phase in {"up", "starting"}:
+        return {"available": True, "message": "视觉进程已启动"}
+    home = eyes_home()
+    available = (home / "app.py").is_file() and eyes_python(home).is_file()
+    if available:
+        from .vision import uses_local, vision_config
+        conf = vision_config()
+        if not uses_local(conf) and not (conf.get("api_key") and conf.get("base_url")):
+            return {"available": False, "message": "视觉模型还没有配置地址或 Key"}
+    return {"available": available, "message": "视觉环境已安装，启动时确认是否就绪" if available else "这台机器尚未配置可用的视觉环境"}
+
+
 def _shared_torch(home: Path) -> Path | None:
     """打包后的眼睛不再自带 PyTorch，用资源包里语音那一份。"""
     local = home / "runtime" / "Lib" / "site-packages" / "torch"
@@ -238,6 +269,10 @@ def ensure() -> str:
     if not _local():
         return "remote"
     if probe():
+        if _phase == "starting":
+            return "starting"
+        if _message:
+            return "failed"
         bind_running()
         _phase = "up"
         _message = ""

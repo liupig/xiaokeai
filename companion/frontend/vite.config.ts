@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import vue from '@vitejs/plugin-vue';
 import { defineConfig, type Plugin } from 'vite';
 
-const BACKEND = 'http://127.0.0.1:8600';
+const BACKEND = process.env.COMPANION_BACKEND || 'http://127.0.0.1:8600';
 const root = dirname(fileURLToPath(import.meta.url));
 
 /** 把开麦要用的静态资源拷到 public：VAD/ONNX，以及不能打进 ES 模块的 AEC3 */
@@ -62,6 +62,7 @@ export default defineConfig({
       mangle: true,
     },
     rollupOptions: {
+      input: { main: resolve(root, 'index.html'), 'live-lab': resolve(root, 'live-lab.html') },
       output: {
         manualChunks(id) {
           if (id.includes('node_modules/naive-ui')) return 'naive-ui';

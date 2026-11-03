@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import traceback
 from queue import Queue
-from threading import Thread
+from threading import Lock, Thread
 
 
 def main(in_q, out_q, cancel_ev) -> None:
@@ -19,6 +19,8 @@ def main(in_q, out_q, cancel_ev) -> None:
 
     work: Queue = Queue()
     current = {"job": ""}
+    cancelled: set[str] = set()
+    gate = Lock()
 
     def recv() -> None:
         while True:
@@ -31,8 +33,10 @@ def main(in_q, out_q, cancel_ev) -> None:
                 work.put(("stop",))
                 return
             if cmd[0] == "cancel":
-                if cmd[1] == current["job"]:
-                    cancel_ev.set()
+                with gate:
+                    cancelled.add(str(cmd[1]))
+                    if cmd[1] == current["job"]:
+                        cancel_ev.set()
                 continue
             work.put(cmd)
 
@@ -52,8 +56,16 @@ def main(in_q, out_q, cancel_ev) -> None:
             elif kind == "synth":
                 _, job, text, voice, size, instruct, *extra = cmd
                 language = extra[0] if extra else ""
-                current["job"] = job
-                cancel_ev.clear()
+                with gate:
+                    dropped = job in cancelled
+                    if dropped:
+                        cancelled.discard(job)
+                    else:
+                        current["job"] = job
+                        cancel_ev.clear()
+                if dropped:
+                    out_q.put(("done", job, b""))
+                    continue
                 try:
                     for pcm in synthesize_pcm_sync(text, voice, size, instruct, cancel_ev, language):
                         if cancel_ev.is_set():

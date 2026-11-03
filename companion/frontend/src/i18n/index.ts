@@ -110,8 +110,13 @@ const QWEN: Record<string, ReplyLang> = {
   Vivian: 'zh-CN', Serena: 'zh-CN', Uncle_Fu: 'zh-CN', Dylan: 'zh-CN', Eric: 'zh-CN',
   Ryan: 'en', Aiden: 'en', Ono_Anna: 'ja', Sohee: 'ko',
 };
+const MIMO: Record<string, ReplyLang> = {
+  冰糖: 'zh-CN', 茉莉: 'zh-CN', 苏打: 'zh-CN', 白桦: 'zh-CN', mimo_default: 'zh-CN',
+  Mia: 'en', Chloe: 'en', Milo: 'en', Dean: 'en',
+};
 
 export function voiceLang(id: string): ReplyLang | '' {
+  if (MIMO[id]) return MIMO[id];
   if (QWEN[id]) return QWEN[id];
   if (id.startsWith('zh_')) return 'zh-CN';
   if (id.startsWith('en_')) return 'en';
@@ -141,6 +146,10 @@ export function defaultVoice(engine: string, lang: string = reply): string {
   if (engine === 'openai') return 'marin';
   if (engine === 'eleven') return '21m00Tcm4TlvDq8ikWAM';
   if (engine === 'gemini') return 'Kore';
+  if (engine === 'mimo') {
+    if (l === 'en') return 'Mia';
+    return '冰糖';
+  }
   if (l === 'en') return 'en-US-AriaNeural';
   if (l === 'ja') return 'ja-JP-NanamiNeural';
   if (l === 'ko') return 'ko-KR-SunHiNeural';

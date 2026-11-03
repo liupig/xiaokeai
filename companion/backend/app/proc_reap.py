@@ -270,10 +270,13 @@ class WinJob:
                 ("PeakJobMemoryUsed", ctypes.c_size_t),
             ]
 
+        JOB_OBJECT_LIMIT_BREAKAWAY_OK = 0x800
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
         JobObjectExtendedLimitInformation = 9
         info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        info.BasicLimitInformation.LimitFlags = (
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK
+        )
         ok = kernel32.SetInformationJobObject(
             job,
             JobObjectExtendedLimitInformation,
