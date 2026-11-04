@@ -254,6 +254,10 @@ def _shared_torch(home: Path) -> Path | None:
     return None
 
 
+def _log_enabled() -> bool:
+    return (os.environ.get("XIAOKE_EYES_LOG") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _log_path(home: Path) -> Path:
     root = (os.environ.get("COMPANION_ROOT") or "").strip()
     if root:
@@ -294,7 +298,8 @@ def ensure() -> str:
         _phase = "starting"
         _message = ""
         _close_log(_log)
-        _log = open(_log_path(home), "a", encoding="utf-8")
+        _log = open(_log_path(home), "a", encoding="utf-8") if _log_enabled() else None
+        output = _log if _log is not None else subprocess.DEVNULL
         env = os.environ.copy()
         runtime = home / "runtime"
         path_parts = []
@@ -317,8 +322,8 @@ def ensure() -> str:
             [str(py), "app.py"],
             cwd=str(home),
             env=env,
-            stdout=_log,
-            stderr=_log,
+            stdout=output,
+            stderr=output,
             creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
         )
         if _proc is not None:

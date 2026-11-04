@@ -136,6 +136,46 @@ def test_capability_check_never_launches_or_probes(monkeypatch, tmp_path):
     assert eyes_host.capability()["available"]
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_eyes_process_log_is_opt_in(monkeypatch, tmp_path, enabled):
+    import subprocess
+    from types import SimpleNamespace
+
+    home = tmp_path / "eyes"
+    home.mkdir()
+    (home / "app.py").write_text("", encoding="utf-8")
+    python = home / "python.exe"
+    python.write_text("", encoding="utf-8")
+    if enabled:
+        monkeypatch.setenv("XIAOKE_EYES_LOG", "1")
+    else:
+        monkeypatch.delenv("XIAOKE_EYES_LOG", raising=False)
+    monkeypatch.setattr(eyes_host, "_local", lambda: True)
+    monkeypatch.setattr(eyes_host, "probe", lambda: False)
+    monkeypatch.setattr(eyes_host, "_phase", "down")
+    monkeypatch.setattr(eyes_host, "_proc", None)
+    monkeypatch.setattr(eyes_host, "_log", None)
+    monkeypatch.setattr(eyes_host, "eyes_home", lambda: home)
+    monkeypatch.setattr(eyes_host, "eyes_python", lambda _: python)
+    monkeypatch.setattr(eyes_host, "_listeners", lambda _: [])
+    monkeypatch.setattr(eyes_host, "_bind", lambda _: None)
+    monkeypatch.setattr(eyes_host, "_warmup", lambda _: None)
+    launched = {}
+    def popen(*args, **kwargs):
+        launched.update(kwargs)
+        return SimpleNamespace(pid=123)
+    monkeypatch.setattr(eyes_host.subprocess, "Popen", popen)
+
+    assert eyes_host.ensure() == "starting"
+    assert launched["stdout"] is launched["stderr"]
+    if enabled:
+        assert launched["stdout"].name == str(home / "eyes-host.log")
+        eyes_host._close_log(launched["stdout"])
+    else:
+        assert launched["stdout"] == subprocess.DEVNULL
+        assert not (home / "eyes-host.log").exists()
+
+
 @pytest.fixture
 def chat_route(monkeypatch, tmp_path):
     """Exercise the real /api/chat coordinator with fake action/model backends."""
