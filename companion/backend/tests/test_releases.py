@@ -60,6 +60,21 @@ def test_http_failure_waits_for_other_source():
     assert fetch_with_transport(handler)["version"] == "20261028135252"
 
 
+def test_gitee_redirect_is_followed():
+    async def handler(request: httpx.Request):
+        if request.url.host == "gitee.com":
+            return httpx.Response(
+                302,
+                headers={"location": "https://raw.giteeusercontent.com/release.json"},
+            )
+        if request.url.host == "raw.githubusercontent.com":
+            await asyncio.sleep(0.05)
+            return httpx.Response(200, json=release("20261101000000"))
+        return httpx.Response(200, json=release("20261028135252"))
+
+    assert fetch_with_transport(handler)["version"] == "20261028135252"
+
+
 def test_all_sources_failing_raises_http_error():
     def handler(request: httpx.Request):
         return httpx.Response(503)

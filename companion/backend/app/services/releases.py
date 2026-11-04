@@ -29,7 +29,7 @@ def validate_release(payload: object) -> dict:
 
 
 async def fetch_release(client: httpx.AsyncClient, url: str) -> dict:
-    response = await client.get(url)
+    response = await client.get(url, follow_redirects=True)
     response.raise_for_status()
     return validate_release(response.json())
 
