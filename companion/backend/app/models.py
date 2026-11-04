@@ -27,12 +27,24 @@ class Character(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     model_asset_id: int = 0
-    persona: str = ""  # 人设 system prompt
+    persona: str = ""  # 人设 system prompt（酒馆卡的 description 原样落这里）
     boundary: str = "free"  # 聊天尺度：strict清爽 | warm心动 | flirt可撩 | lover恋人 | free自由（默认，仅保违法/未成年底线）
     greeting: str = ""
     voice: str = ""  # 必须是当前 TTS 引擎支持的音色；空则用设置里的默认音色
     emotion_map: str = "{}"  # JSON：emo -> {morphs:{name:v}, action, motion}
     idle_motion: str = ""  # 闲置时循环的 vmd 文件名（可空）
+    # --- 角色卡 v2：兼容 SillyTavern 的扩展字段（空值 = 未填，不影响旧卡）---
+    personality: str = ""  # 性格关键词（酒馆 personality）
+    scenario: str = ""  # 场景背景（酒馆 scenario）
+    mes_example: str = ""  # 对话示例（酒馆 mes_example）
+    greetings: str = "[]"  # JSON[str]：开场白变体（first_mes + alternate_greetings）
+    lorebook: str = "[]"  # JSON[entry]：世界书，关键词触发注入（酒馆 character_book）
+    tags: str = "[]"  # JSON[str]
+    creator: str = ""
+    card_version: str = ""
+    source_format: str = "native"  # native | tavern_v1 | tavern_v2 | tavern_v3
+    source_card: str = ""  # 原始酒馆卡 JSON：导出时按原结构回写，保留未知字段
+    avatar_path: str = ""  # 角色封面 PNG（相对数据目录），导入酒馆卡时留档
     created_at: datetime = Field(default_factory=utc_now)
 
 

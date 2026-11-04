@@ -31,6 +31,35 @@ MERGE_MAX = 15
 _jieba_ok: bool | None = None
 
 
+# ---------------------------------------------------------------------------
+# TTS 输入归一化：省略号在合成里会被念成怪声，统一改成逗号/句号。
+# 只改送去合成的文本，聊天记录原文不动。
+# ---------------------------------------------------------------------------
+
+_ELLIPSIS_ZH = re.compile(r"…+")
+_ELLIPSIS_ASCII = re.compile(r"(?<!\d)\.{2,}(?!\d)")
+_LEADING_ELLIPSIS = re.compile(r"^\s*(?:…+|(?<!\d)\.{2,}(?!\d))\s*")
+_MULTI_COMMA = re.compile(r"，{2,}")
+_COMMA_BEFORE_END = re.compile(r"，([。！？!?])")
+_END_BEFORE_COMMA = re.compile(r"([。！？!?])，")
+
+
+def sanitize_tts_text(text: str) -> str:
+    """省略号处理：句首的直接删（只是分句停顿标记），句中改逗号，句尾改句号。
+    在分句出口调用：先按省略号切句，再清掉每段里的省略号。"""
+    if not text:
+        return text
+    s = _LEADING_ELLIPSIS.sub("", text)
+    s = _ELLIPSIS_ZH.sub("，", s)
+    s = _ELLIPSIS_ASCII.sub("，", s)
+    s = _MULTI_COMMA.sub("，", s)
+    s = _COMMA_BEFORE_END.sub(r"\1", s)
+    s = _END_BEFORE_COMMA.sub(r"\1", s)
+    if s.endswith("，"):
+        s = s[:-1] + "。"
+    return s.strip()
+
+
 def _ensure_jieba() -> bool:
     global _jieba_ok
     if _jieba_ok is not None:
@@ -174,7 +203,8 @@ class SentenceSplitter:
         out.extend(self._drain_hard())
         out.extend(self._drain_soft())
         out.extend(self._drain_jieba())
-        return [s for s in out if s.strip()]
+        cleaned = [sanitize_tts_text(s) for s in out]
+        return [s for s in cleaned if s]
 
     def flush(self) -> List[str]:
         if self.lang == "en":
@@ -183,7 +213,8 @@ class SentenceSplitter:
             return self._drain_mark(flush=True)
         left = self.buf
         self.buf = ""
-        return [s for s in pack_complete(left) if s.strip()]
+        cleaned = [sanitize_tts_text(s) for s in pack_complete(left)]
+        return [s for s in cleaned if s]
 
     def _pack_words(self, text: str, limit: int) -> List[str]:
         words = [w for w in (text or "").split() if w]
