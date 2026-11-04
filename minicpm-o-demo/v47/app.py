@@ -64,6 +64,8 @@ def api_start(body: StartBody):
 
 @app.post("/api/stop")
 def api_stop():
+    from companion_video import close
+    close()
     return engine.stop_watch()
 
 
@@ -80,6 +82,7 @@ def api_update_watch(body: UpdateWatchBody):
 
 
 class GlanceBody(BaseModel):
+    scene: str = "auto"
     monitor: int = 1
     ask: str = ""
     along: bool = False
@@ -90,6 +93,22 @@ class GlanceBody(BaseModel):
     prompt: str = ""
     frames: int = 0
     window_hwnd: int = 0
+
+
+@app.post("/api/video/observe")
+def api_video_observe(body: GlanceBody):
+    from companion_video import observe
+    try:
+        return observe(engine, body)
+    except Exception as exc:
+        return {"ok": False, "text": "", "message": str(exc)}
+
+
+@app.post("/api/video/stop")
+def api_video_stop():
+    from companion_video import request_close
+    request_close()
+    return {"ok": True}
 
 
 @app.post("/api/glance")

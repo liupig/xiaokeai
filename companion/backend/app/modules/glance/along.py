@@ -758,7 +758,7 @@ def _loop() -> None:
         force = (time.time() - _last_model) >= limit
         from .sense import collect
 
-        found = collect(force=force, before=situation.eyes_before() + "\n" + eyes_context(), echo=list(live.speeches[-3:]), timeout=30)
+        found = collect(force=force, along=True, before=situation.eyes_before() + "\n" + eyes_context(), echo=list(live.speeches[-3:]), timeout=30)
         if _halt.is_set():
             return
         from .trace import mark
@@ -831,6 +831,26 @@ def _loop() -> None:
             live.admit(quiet_obs, None)
         if offer is None and not speak_locked:
             offer = _company_offer()
+        if (offer is None and not speak_locked and not stale_look
+                and situation.scene in {"video", "movie", "music"}
+                and found.get("used_eyes") and live.source_valid):
+            # Re-evaluate a fresh visible scene after prolonged silence, without
+            # reviving stale observations or using an OCR title as a new event.
+            from .situation import parse_observation
+            current = parse_observation(text, timestamp=found.get("observed_at"))
+            age = now - float(found.get("observed_at") or 0)
+            with _lock:
+                due = (not _state.speaking and not _state.pending
+                       and time.time() - _state.spoke_at >= 30
+                       and situation.talk != "quiet")
+            if due and 0 <= age < 30 and current.visible_events:
+                offer = Offer(scene_id=situation.scene_id,
+                              object_id=situation.latest_object_id or situation.object_id,
+                              topic_id=situation.topic_id,
+                              observation_time=float(found["observed_at"]),
+                              revision=situation.revision,
+                              summary="；".join(current.visible_events)[:180],
+                              channel="screen", max_age=30)
         if offer is None and not speak_locked:
             offer, held_trace = _take_held_offer()
             if offer is not None:
@@ -845,7 +865,7 @@ def _loop() -> None:
                 from ..sight.league import ttl
                 from .game_director import cadence, direction
 
-                offer.max_age = ttl(offer.phase)
+                offer.max_age = 30
                 offer.speech_rule += direction(offer.phase, offer.summary)
                 with _lock:
                     allowed = cadence(offer.phase, offer.summary, talk=situation.talk,
@@ -862,7 +882,7 @@ def _loop() -> None:
                 from .media_director import cadence, bind_context
 
                 bind_context(offer, sight)
-                offer.max_age = {"movie": 25, "music": 20, "video": 18}[sight["kind"]]
+                offer.max_age = 30
                 with _lock:
                     allowed = cadence(sight["kind"], elapsed=time.time()-_state.spoke_at,
                                       opening=not _state.greeted, talk=situation.talk,

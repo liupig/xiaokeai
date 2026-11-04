@@ -37,6 +37,13 @@ def abort_eyes_calls() -> None:
             client.close()
         except Exception:
             pass
+    def stop_video():
+        try:
+            with httpx.Client(timeout=3) as client:
+                client.post(f"{eyes_url()}/api/video/stop")
+        except Exception:
+            pass
+    threading.Thread(target=stop_video, daemon=True, name="stop-companion-video").start()
 
 _ALONG = ("看剧", "追剧", "陪我看", "陪看", "一起看", "看视频", "看片子", "看直播")
 
@@ -98,6 +105,7 @@ def eyes_glance(
     frames: int = 0,
     window_hwnd: int = 0,
     ocr_only: bool = False,
+    scene: str = "auto",
 ) -> dict:
     """截屏始终问眼睛进程。本机 MiniCPM 由它看；其他视觉模型只向它要原图。"""
     from .vision import uses_local, describe
@@ -105,6 +113,7 @@ def eyes_glance(
     if not detail:
         detail = _read_detail(ask)
     body = {
+        "scene": scene,
         "monitor": 1,
         "ask": ask,
         "along": along,
@@ -118,6 +127,8 @@ def eyes_glance(
     if crop and len(crop) == 4:
         body["crop"] = [int(crop[0]), int(crop[1]), int(crop[2]), int(crop[3])]
     path = "/api/glance" if uses_local() and not ocr_only else "/api/frames"
+    if uses_local() and along and not ocr_only:
+        path = "/api/video/observe"
     client = _borrow()
     try:
         resp = client.post(f"{eyes_url()}{path}", json=body, timeout=timeout)
@@ -136,7 +147,7 @@ def eyes_glance(
         # screenshots. The normal MiniCPM observations retain their images.
         data.pop("images", None)
         data["trace"] = {"prompt": "现有 CPU OCR 字幕采样，不调用视觉模型，不重复保存截图"}
-    return _keep_for_lab(data, ask=ask, before=before, gate=gate, detail=detail, timeout=timeout, local=path == "/api/glance" or ocr_only)
+    return _keep_for_lab(data, ask=ask, before=before, gate=gate, detail=detail, timeout=timeout, local=path in {"/api/glance", "/api/video/observe"} or ocr_only)
 
 
 def _keep_for_lab(data: dict, *, ask: str, before: str, gate: bool, detail: bool, timeout: float, local: bool) -> dict:

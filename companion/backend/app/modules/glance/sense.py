@@ -474,6 +474,7 @@ def _look(desk: Desk, *, ask: str, along: bool, before: str, timeout: float, ord
         frames=1 if ocr_only else order.frames if bound else 0,
         window_hwnd=desk.hwnd,
         ocr_only=ocr_only,
+        scene=order.kind if bound else desk.kind,
     )
 
 
