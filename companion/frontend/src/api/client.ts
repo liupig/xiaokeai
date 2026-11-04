@@ -29,6 +29,17 @@ export interface CharacterItem {
   voice: string;
   emotion_map: string;
   idle_motion: string;
+  /** 角色卡 v2（兼容酒馆）：以下都可选，空串/空数组 = 未填 */
+  personality?: string;   // 性格关键词
+  scenario?: string;      // 场景背景
+  mes_example?: string;   // 对话示例
+  greetings?: string;     // JSON[str] 开场白变体
+  lorebook?: string;      // JSON[entry] 世界书
+  tags?: string;          // JSON[str]
+  creator?: string;
+  card_version?: string;
+  source_format?: string; // native | tavern_v1/v2/v3
+  avatar_path?: string;   // 有封面时可用 /api/characters/{id}/avatar
 }
 
 export interface DownloadTask {
@@ -557,6 +568,24 @@ export const api = {
   },
   deleteCharacter(id: number) {
     return request(`/api/characters/${id}`, { method: 'DELETE' });
+  },
+  importCharacter(file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return request<CharacterItem>('/api/characters/import', {
+      method: 'POST',
+      body: form,
+    });
+  },
+  characterExportUrl(id: number) {
+    return `/api/characters/${id}/export`;
+  },
+  characterAvatarUrl(id: number) {
+    return `/api/characters/${id}/avatar`;
+  },
+  speakGreeting(id: number) {
+    return request<{ spoken: boolean; text: string; message_id: number | null }>(
+      `/api/characters/${id}/greeting`, { method: 'POST' });
   },
 
   getCamReview() {

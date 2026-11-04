@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import {
-  NButton, NDrawer, NDrawerContent, NInput, NPopconfirm, NSelect, useMessage,
+  NButton, NDrawer, NDrawerContent, NInput, NInputNumber, NPopconfirm, NSelect,
+  NSwitch, useMessage,
 } from 'naive-ui';
 import type { CharacterItem } from '../../api/client';
+import { api } from '../../api/client';
 import { useAssetsStore } from '../../stores/assets';
 import { useCharacterStore } from '../../stores/character';
 import { useChatStore } from '../../stores/chat';
@@ -26,6 +28,82 @@ const editing = ref<CharacterItem | null>(null);
 // 情绪映射编辑：每种情绪可叠加模型自带的形态键
 const EMO_KEYS = ['happy', 'angry', 'sad', 'relaxed'] as const;
 const emotionMap = ref<Record<string, string[]>>({});
+
+// 角色卡 v2：世界书条目编辑态（存结构化行，保存时序列化进 Character.lorebook）
+interface LorebookRow {
+  keys: string;
+  content: string;
+  constant: boolean;
+  enabled: boolean;
+  selective: boolean;
+  selective_keys: string;
+  order: number;
+  position: 'before_char' | 'before_hist';
+}
+const lorebookRows = ref<LorebookRow[]>([]);
+const greetingsText = ref('');
+
+const lorebookPositionOptions = computed(() => [
+  { label: t('char.lorebookPosChar'), value: 'before_char' },
+  { label: t('char.lorebookPosMid'), value: 'after_char' },
+  { label: t('char.lorebookPosHist'), value: 'before_hist' },
+]);
+
+function emptyLorebookRow(): LorebookRow {
+  return {
+    keys: '', content: '', constant: false, enabled: true,
+    selective: false, selective_keys: '', order: 100, position: 'before_char',
+  };
+}
+
+function parseLorebookRows(json: string): LorebookRow[] {
+  try {
+    const arr = JSON.parse(json || '[]');
+    if (!Array.isArray(arr)) return [];
+    return arr.map((e: Record<string, unknown>) => ({
+      keys: Array.isArray(e.keys) ? (e.keys as string[]).join(', ') : String(e.keys || ''),
+      content: String(e.content || ''),
+      constant: !!e.constant,
+      enabled: e.enabled !== false,
+      selective: !!e.selective,
+      selective_keys: Array.isArray(e.selective_keys)
+        ? (e.selective_keys as string[]).join(', ') : String(e.selective_keys || ''),
+      order: Number(e.order ?? 100) || 100,
+      position: e.position === 'before_hist' ? 'before_hist' : 'before_char',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function serializeLorebook(rows: LorebookRow[]): string {
+  const list = rows
+    .filter((r) => (r.keys.trim() || r.constant) && r.content.trim())
+    .map((r) => ({
+      keys: r.keys.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
+      content: r.content,
+      constant: r.constant,
+      enabled: r.enabled,
+      selective: r.selective,
+      selective_keys: r.selective_keys.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
+      order: r.order,
+      position: r.position,
+    }));
+  return JSON.stringify(list);
+}
+
+function splitLines(text: string): string[] {
+  return text.split('\n').map((s) => s.trim()).filter(Boolean);
+}
+
+const greetingVariants = computed(() => splitLines(greetingsText.value));
+
+function nextGreeting() {
+  if (!editing.value || greetingVariants.value.length < 2) return;
+  const cur = editing.value.greeting || '';
+  const idx = greetingVariants.value.indexOf(cur);
+  editing.value.greeting = greetingVariants.value[(idx + 1) % greetingVariants.value.length];
+}
 
 const morphOptions = computed(() =>
   (characters.modelInfo?.morphNames ?? []).map((n) => ({ label: n, value: n }))
@@ -59,22 +137,29 @@ const motionOptions = computed(() => {
   ];
 });
 
+function fillEditor(c: CharacterItem) {
+  editing.value = { ...c };
+  const ids = voiceOptions.value.map((o) => o.value);
+  if (editing.value.voice && !ids.includes(editing.value.voice)) {
+    editing.value.voice = '';
+  }
+  emotionMap.value = parseMap(c.emotion_map);
+  lorebookRows.value = parseLorebookRows(c.lorebook || '[]');
+  greetingsText.value = splitLines(
+    (() => { try { return JSON.parse(c.greetings || '[]').join('\n'); } catch { return ''; } })(),
+  ).join('\n');
+}
+
 watch(() => props.show, (v) => {
   if (v && characters.current) {
-    editing.value = { ...characters.current };
-    const ids = voiceOptions.value.map((o) => o.value);
-    if (editing.value.voice && !ids.includes(editing.value.voice)) {
-      editing.value.voice = '';
-    }
-    emotionMap.value = parseMap(characters.current.emotion_map);
+    fillEditor(characters.current);
   }
 });
 
 async function switchTo(id: number) {
   await characters.switchTo(id);
   if (characters.current) {
-    editing.value = { ...characters.current };
-    emotionMap.value = parseMap(characters.current.emotion_map);
+    fillEditor(characters.current);
   }
   await chat.loadHistory();
   await chat.beginVisit();
@@ -98,6 +183,8 @@ function applyTemplate(id: string | null) {
 async function save() {
   if (!editing.value) return;
   editing.value.emotion_map = JSON.stringify(emotionMap.value);
+  editing.value.lorebook = serializeLorebook(lorebookRows.value);
+  editing.value.greetings = JSON.stringify(splitLines(greetingsText.value));
   await characters.save(editing.value);
   message.success(t('char.saved'));
 }
@@ -118,6 +205,48 @@ async function removeCurrent() {
   await characters.remove(editing.value.id);
   editing.value = characters.current ? { ...characters.current } : null;
 }
+
+// --- 酒馆卡导入 / 导出 ---
+const importInput = ref<HTMLInputElement | null>(null);
+const importing = ref(false);
+const showSources = ref(false);
+
+function pickImport() {
+  importInput.value?.click();
+}
+
+async function onImportFile(ev: Event) {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file || importing.value) return;
+  importing.value = true;
+  try {
+    const created = await api.importCharacter(file);
+    await characters.loadList();
+    await switchTo(created.id!);
+    message.success(t('char.imported', { name: created.name }));
+  } catch (e) {
+    message.error(t('char.importFail', { err: String(e) }), { duration: 6000, closable: true });
+  } finally {
+    importing.value = false;
+  }
+}
+
+function exportCurrent() {
+  const id = editing.value?.id ?? characters.currentId;
+  if (!id) return;
+  const a = document.createElement('a');
+  a.href = api.characterExportUrl(id);
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function avatarUrl(c: CharacterItem): string {
+  return c.avatar_path ? api.characterAvatarUrl(c.id!) : '';
+}
 </script>
 
 <template>
@@ -129,10 +258,37 @@ async function removeCurrent() {
         <div v-for="c in characters.list" :key="c.id"
              class="item" :class="{ active: c.id === characters.currentId }"
              @click="switchTo(c.id!)">
-          <span class="item-avatar">{{ c.name.slice(0, 1) }}</span>
+          <img v-if="avatarUrl(c)" class="item-avatar img" :src="avatarUrl(c)" alt="" />
+          <span v-else class="item-avatar">{{ c.name.slice(0, 1) }}</span>
           <span>{{ c.name }}</span>
         </div>
         <n-button dashed size="small" @click="createNew">+ {{ t('char.new') }}</n-button>
+        <div class="list-actions">
+          <n-button size="small" :loading="importing" @click="pickImport">
+            {{ t('char.import') }}
+          </n-button>
+          <n-button size="small" :disabled="!editing?.id" @click="exportCurrent">
+            {{ t('char.export') }}
+          </n-button>
+          <input ref="importInput" type="file" accept=".png,.json" hidden
+                 @change="onImportFile" />
+        </div>
+      </div>
+
+      <button class="sources-toggle" type="button" @click="showSources = !showSources">
+        {{ t('char.sources') }}
+      </button>
+      <div v-if="showSources" class="sources">
+        <a href="https://chub.ai" target="_blank" rel="noopener">
+          chub.ai<span class="src-desc">{{ t('char.sourceChub') }}</span>
+        </a>
+        <a href="https://aicharactercards.com" target="_blank" rel="noopener">
+          aicharactercards.com<span class="src-desc">{{ t('char.sourceAicc') }}</span>
+        </a>
+        <a href="https://character-tavern.com" target="_blank" rel="noopener">
+          character-tavern.com<span class="src-desc">{{ t('char.sourceCt') }}</span>
+        </a>
+        <p class="hint">{{ t('char.sourcesHint') }}</p>
       </div>
 
       <div v-if="editing" class="form">
@@ -153,8 +309,64 @@ async function removeCurrent() {
                   @update:value="applyTemplate" />
         <n-input v-model:value="editing.persona" type="textarea" :rows="14"
                  :placeholder="t('char.personaBody')" />
+        <label>{{ t('char.personality') }}</label>
+        <n-input v-model:value="editing.personality" type="textarea" :rows="2"
+                 :placeholder="t('char.personalityPh')" />
+        <label>{{ t('char.scenario') }}</label>
+        <n-input v-model:value="editing.scenario" type="textarea" :rows="2"
+                 :placeholder="t('char.scenarioPh')" />
+        <label>{{ t('char.mesExample') }}</label>
+        <n-input v-model:value="editing.mes_example" type="textarea" :rows="3"
+                 :placeholder="t('char.mesExamplePh')" />
         <label>{{ t('char.greeting') }}</label>
-        <n-input v-model:value="editing.greeting" />
+        <div class="greeting-row">
+          <n-input v-model:value="editing.greeting" />
+          <n-button size="tiny" :disabled="greetingVariants.length < 2"
+                    @click="nextGreeting">{{ t('char.greetingNext') }}</n-button>
+        </div>
+        <label>{{ t('char.greetings') }}</label>
+        <n-input v-model:value="greetingsText" type="textarea" :rows="2"
+                 :placeholder="t('char.greetingsPh')" />
+        <label>{{ t('char.tags') }}</label>
+        <n-input v-model:value="editing.tags" :placeholder="t('char.tagsPh')" />
+        <label>{{ t('char.creator') }}</label>
+        <n-input v-model:value="editing.creator" />
+
+        <div class="lorebook-head">
+          <label>{{ t('char.lorebook') }}</label>
+          <n-button size="tiny" dashed @click="lorebookRows.push(emptyLorebookRow())">
+            + {{ t('char.lorebookAdd') }}
+          </n-button>
+        </div>
+        <p class="hint">{{ t('char.lorebookHint') }}</p>
+        <div v-for="(row, idx) in lorebookRows" :key="idx" class="lorebook-row">
+          <div class="lb-bar">
+            <n-input v-model:value="row.keys" size="small"
+                     :placeholder="t('char.lorebookKeysPh')" />
+            <n-input-number v-model:value="row.order" size="small" :min="0" :max="9999"
+                            style="width: 84px" :placeholder="t('char.lorebookOrder')" />
+            <n-select v-model:value="row.position" size="small" :options="lorebookPositionOptions"
+                      style="width: 104px" />
+            <n-switch v-model:value="row.enabled" size="small" />
+            <n-button size="tiny" quaternary type="error"
+                      @click="lorebookRows.splice(idx, 1)">×</n-button>
+          </div>
+          <n-input v-model:value="row.content" type="textarea" :rows="2" size="small"
+                   :placeholder="t('char.lorebookContentPh')" />
+          <div class="lb-flags">
+            <label class="lb-flag">
+              <n-switch v-model:value="row.constant" size="small" />
+              <span>{{ t('char.lorebookConstant') }}</span>
+            </label>
+            <label class="lb-flag">
+              <n-switch v-model:value="row.selective" size="small" />
+              <span>{{ t('char.lorebookSelective') }}</span>
+            </label>
+            <n-input v-if="row.selective" v-model:value="row.selective_keys" size="small"
+                     :placeholder="t('char.lorebookSecPh')" style="flex: 1" />
+          </div>
+        </div>
+
         <label>{{ t('char.idle') }}</label>
         <n-select v-model:value="editing.idle_motion" :options="motionOptions" />
         <label>{{ t('char.morph') }}</label>
@@ -226,6 +438,115 @@ async function removeCurrent() {
   justify-content: center;
   font-size: 13px;
   color: #fff;
+  flex-shrink: 0;
+}
+
+.item-avatar.img {
+  object-fit: cover;
+  background: none;
+}
+
+.sources-toggle {
+  background: none;
+  border: none;
+  color: #8b8bd6;
+  font-size: 12px;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.sources-toggle:hover {
+  color: #b0b0ff;
+}
+
+.sources {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.sources a {
+  color: #b0b0ff;
+  text-decoration: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sources a:hover {
+  text-decoration: underline;
+}
+
+.src-desc {
+  opacity: 0.6;
+  font-size: 11px;
+}
+
+.greeting-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.list-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.lorebook-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.lorebook-head label {
+  margin-top: 0;
+}
+
+.hint {
+  font-size: 12px;
+  opacity: 0.55;
+  margin: 0;
+}
+
+.lorebook-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+
+.lb-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lb-flags {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lb-flag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.75;
+  margin-top: 0;
 }
 
 .form {

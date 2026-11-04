@@ -138,11 +138,25 @@
 每轮实际送给模型的层序（欢迎/主动等边路句同架子，只是不更新扮演状态）：
 
 ```text
-[0] system  L0/L1 角色卡 persona（Character.persona，清宵见 personas/qingxiao.md）
+[0] system  L0/L1 角色卡 persona（Character.persona，清宵见 personas/qingxiao.md；
+           拼装时附 personality / scenario / mes_example 小节，见 modules/character/card.py compose_persona）
 [1] system  L6 长期记忆（memory 模块 hooks 插入，命中才有）
-[2] system  L5+L2 【本轮上下文】时间槽 + 场景包（chat/knowledge/dance 三选一）
-[3] system  L3 【当前扮演】overlay（在扮演时才有；刚退出则换成一轮【扮演结束】）
-[4] system  L4 导演手册 SYSTEM_PROTOCOL + 舞蹈清单
-[5] system  情境卡 / 节奏 hint（scenes、duplex 按需追加）
+[2] system  红线层（boundary 五档，prompt_stack._REDLINES）
+[2.5] system 世界书 before_char（角色卡 lorebook 命中关键词的条目，modules/character/lorebook.py 扫描）
+[2.6] system 用户档案（设置 user_persona，compose_user_persona；开启才注入）
+[2.7] system 世界书 after_char（人设块之后、上下文槽之前；AICC/新版酒馆卡常用这个档位）
+[3] system  L5+L2 【本轮上下文】时间槽 + 场景包（chat/knowledge/dance 三选一）
+[4] system  L3 【当前扮演】overlay（在扮演时才有；刚退出则换成一轮【扮演结束】）
+[5] system  L4 导演手册 SYSTEM_PROTOCOL + 舞蹈清单
+[5.5] system 世界书 before_hist（注入位置=历史前的条目）
 [6+]        L7 历史（QA 优先裁剪） + L8 本轮输入
 ```
+
+角色卡 v2（兼容 SillyTavern）：`Character` 表扩展了 personality / scenario / mes_example /
+greetings / lorebook / tags / creator / source_card 等列；PNG 卡导入导出适配器在
+`modules/character/importer.py`、`exporter.py`，导出走 v2 规格（chara 元数据），
+导入收的 v1/v2/v3 都归一到内部格式，原始 JSON 存 source_card 供回写。
+PNG 文本块自己扫（PIL 只读 IDAT 前的块，真实站点常把元数据写在图像数据后），
+tEXt / zTXt / iTXt 全收。也收 aicharactercards.com 的 `aicc_card` 1.0 规格：
+general_description/appearance/personality/background_history/world_setting_context/
+dialogue.greetings/world.worldbook_entries → 内部同名字段，{{char}}/{{user}} 宏导入即替换。

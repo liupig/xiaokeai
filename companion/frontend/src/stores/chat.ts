@@ -506,6 +506,19 @@ export const useChatStore = defineStore('chat', {
           return;
         }
       }
+      if (!this.messages.length) {
+        // 首次进角色：用角色卡的开场白（酒馆的 first_mes），不调模型直接说
+        const current = chars.current;
+        let greet = (current?.greeting || '').trim();
+        if (!greet) {
+          try { greet = String(JSON.parse(current?.greetings || '[]')[0] || '').trim(); } catch { /* 无变体 */ }
+        }
+        if (greet) {
+          this.openSession();
+          await this.playGreeting(greet);
+          return;
+        }
+      }
       if (!this.shouldWelcome()) {
         sessionClosed = false;
         sessionOverdue = false;
@@ -924,6 +937,37 @@ export const useChatStore = defineStore('chat', {
         }
       })();
       return 'sent';
+    },
+    /** 开场白：角色卡的第一句，直接本地发声；后端幂等落库，进聊天历史 */
+    async playGreeting(text: string) {
+      if (tavernUi.on) return;
+      const chars = useCharacterStore();
+      if (!chars.currentId) return;
+      this.applyVoice();
+      this.sending = true;
+      const assistant: Message = {
+        role: 'assistant', content: '', fullContent: '', kind: 'welcome',
+        spokenLen: 0,
+        created_at: new Date().toISOString(),
+        when: localStamp(),
+      };
+      this.messages.push(assistant);
+      touchLastChat(chars.currentId);
+      orchestrator.beginContinue('welcome');
+      const onEvent = (ev: any) => {
+        if (ev.type === 'meta') {
+          if (ev.message_id) assistant.id = ev.message_id;
+          return;
+        }
+        applyBubbleEvent(assistant, ev, { speech: false });
+        orchestrator.handle(ev);
+      };
+      try {
+        const row = await api.speakGreeting(chars.currentId);
+        if (row?.message_id) assistant.id = row.message_id;
+      } catch { /* 入库失败也照说 */ }
+      emitLocal(`[emo:relaxed][intent:greet]${text}`, onEvent);
+      this.sending = false;
     },
     async sidecarChat(mode: 'continue' | 'proactive' | 'goodbye' | 'welcome', reason = '', extra: ChatExtra = {}) {
       if (tavernUi.on) return;

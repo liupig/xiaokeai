@@ -133,6 +133,8 @@ def _tts_conf(session: Session) -> Dict[str, Any]:
 async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Depends(get_session)):
     if not req.text.strip():
         raise HTTPException(400, "文本为空")
+    from ..services.speech_split import sanitize_tts_text
+    req.text = sanitize_tts_text(req.text)
     conf = _tts_conf(session)
     engine = (req.engine or conf.get("engine") or "qwen").strip().lower()
     if engine in ("browser", "off"):

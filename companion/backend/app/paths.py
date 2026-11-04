@@ -246,6 +246,7 @@ AUDIO_DIR = ASSETS_DIR / "audio"
 MUSIC_DIR = ASSETS_DIR / "music"
 DB_PATH = DATA_DIR / "app.db"
 TMP_DIR = DATA_DIR / "tmp"
+AVATARS_DIR = DATA_DIR / "avatars"
 SPEECH_DIR = _speech_dir(CONTENT_DIR, DATA_DIR) if CONTENT_DIR else (DATA_DIR / "speech")
 EMBED_DIR = _embed_dir(CONTENT_DIR, DATA_DIR) if CONTENT_DIR else (DATA_DIR / "embed")
 
@@ -338,6 +339,6 @@ def asset_static():
 for d in (
     MODELS_DIR, MOTIONS_DIR, CAMERAS_DIR, AUDIO_DIR, MUSIC_DIR,
     DATA_DIR, TMP_DIR, SPEECH_DIR, EMBED_DIR, MINILM_DIR, FASTEMBED_DIR,
-    KEEPSAKES_DIR, MEM0_DIR, LOGS_DIR, LOCAL_ASSETS_DIR / "tarot",
+    KEEPSAKES_DIR, MEM0_DIR, LOGS_DIR, AVATARS_DIR, LOCAL_ASSETS_DIR / "tarot",
 ):
     d.mkdir(parents=True, exist_ok=True)

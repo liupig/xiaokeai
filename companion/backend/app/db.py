@@ -49,6 +49,24 @@ def _migrate_columns() -> None:
                 conn.execute(text(
                     'ALTER TABLE "character" ADD COLUMN boundary VARCHAR '
                     "DEFAULT 'strict'"))
+        char_alters = {
+            "personality": "VARCHAR DEFAULT ''",
+            "scenario": "VARCHAR DEFAULT ''",
+            "mes_example": "VARCHAR DEFAULT ''",
+            "greetings": "VARCHAR DEFAULT '[]'",
+            "lorebook": "VARCHAR DEFAULT '[]'",
+            "tags": "VARCHAR DEFAULT '[]'",
+            "creator": "VARCHAR DEFAULT ''",
+            "card_version": "VARCHAR DEFAULT ''",
+            "source_format": "VARCHAR DEFAULT 'native'",
+            "source_card": "VARCHAR DEFAULT ''",
+            "avatar_path": "VARCHAR DEFAULT ''",
+        }
+        for name, typedef in char_alters.items():
+            if name not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        f'ALTER TABLE "character" ADD COLUMN {name} {typedef}'))
     if "memory_fact" in tables:
         cols = {c["name"] for c in insp.get_columns("memory_fact")}
         alters = {
