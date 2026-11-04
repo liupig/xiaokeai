@@ -111,6 +111,7 @@ _dl/
 
 # 运行时数据：SQLite、设置里的 API Key / 模之屋 token、
 # 记忆向量库、证物、临时文件、SenseVoice / Qwen3-TTS 权重（数 GB）
+/companion/data/
 companion/backend/data/
 
 # 构建时从 node_modules 拷贝的 Silero VAD / ONNX Runtime / AEC3 资源
