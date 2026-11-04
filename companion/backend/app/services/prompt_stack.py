@@ -377,9 +377,15 @@ def build_messages(
     last_at: Optional[datetime],
     character_id: int,
     boundary: str = "strict",
+    lorebook_before_char: Optional[List[str]] = None,
+    lorebook_after_char: Optional[List[str]] = None,
+    lorebook_before_hist: Optional[List[str]] = None,
+    user_persona: str = "",
 ) -> List[Dict[str, str]]:
-    """固定架子：persona -> (记忆由 hooks 插这里) -> 上下文+场景包 -> 扮演 overlay
-    -> 导演手册 -> 历史。system 各层每轮重算，不随历史窗口滚掉。"""
+    """固定架子：persona -> (记忆由 hooks 插这里) -> 红线 -> 世界书(before_char)
+    -> 用户档案 -> 世界书(after_char) -> 上下文+场景包 -> 扮演 overlay -> 导演手册
+    -> (世界书 before_hist) -> 历史。system 各层每轮重算，不随历史窗口滚掉。"""
+    from ..modules.character.card import LOREBOOK_HEADER
     pack = locale_prompts()
     name = (char_name or "").strip() or str(pack.get("self_name") or "你自己")
     if mode == "user":
@@ -403,9 +409,28 @@ def build_messages(
         {"role": "system", "content": (persona or persona_fallback).strip()},
         {"role": "system",
          "content": redlines.get(boundary) or redlines.get("strict") or _REDLINES["strict"]},
-        {"role": "system",
-         "content": f"{label}{context_slots(last_at)}\n{_pack_line(packs, kind)}"},
     ]
+
+    # 世界书（before_char）：紧跟人设层，命中关键词的设定从这里进上下文
+    lore_pre = [c for c in (lorebook_before_char or []) if str(c).strip()]
+    if lore_pre:
+        msgs.append({"role": "system",
+                     "content": LOREBOOK_HEADER + "\n" + "\n".join(f"- {c}" for c in lore_pre)})
+    # 用户档案：让角色知道「你是谁」
+    persona_line = (user_persona or "").strip()
+    if persona_line:
+        msgs.append({"role": "system", "content": persona_line})
+
+    # 世界书（after_char）：人设块之后、上下文槽之前
+    lore_mid = [c for c in (lorebook_after_char or []) if str(c).strip()]
+    if lore_mid:
+        msgs.append({"role": "system",
+                     "content": LOREBOOK_HEADER + "\n" + "\n".join(f"- {c}" for c in lore_mid)})
+
+    msgs.append(
+        {"role": "system",
+         "content": f"{label}{context_slots(last_at)}\n{_pack_line(packs, kind)}"}
+    )
 
     with _lock:
         ov = _overlays.get(character_id)
@@ -425,6 +450,11 @@ def build_messages(
     dance_extra = f"\n{dance_head}{chr(10).join(names)}" if names else ""
     protocol = str(pack.get("protocol") or SYSTEM_PROTOCOL)
     msgs.append({"role": "system", "content": protocol.strip() + dance_extra})
+    # 世界书（before_hist）：贴近历史注入，排导演手册之后
+    lore_post = [c for c in (lorebook_before_hist or []) if str(c).strip()]
+    if lore_post:
+        msgs.append({"role": "system",
+                     "content": LOREBOOK_HEADER + "\n" + "\n".join(f"- {c}" for c in lore_post)})
     lock = str(pack.get("reply_lock") or "").strip()
     if lock and history and history[-1].get("role") == "user":
         return msgs + history[:-1] + [

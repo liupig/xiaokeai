@@ -64,6 +64,7 @@ export const useSettingsStore = defineStore('settings', {
     live: defaultLive(),
     vision: { provider: 'minicpm' as 'minicpm' | 'openai', base_url: '', api_key: '', model: '' },
     memory: { embedder: 'auto' as 'auto' | 'local' | 'doubao' | 'qwen' | 'openai' | 'gemini' },
+    user_persona: { enabled: false, name: '', description: '' },
     hardware: {
       auto: false, tier: '', ram_gb: 0, vram_gb: 0, cores: 0,
       reason: '', fingerprint: '',
@@ -208,6 +209,12 @@ export const useSettingsStore = defineStore('settings', {
       this.memory = {
         embedder: (emb === 'local' || emb === 'doubao' || emb === 'qwen' || emb === 'openai' || emb === 'gemini' ? emb : 'auto'),
       };
+      const up = (data as { user_persona?: { enabled?: boolean; name?: string; description?: string } }).user_persona;
+      this.user_persona = {
+        enabled: !!up?.enabled,
+        name: String(up?.name || ''),
+        description: String(up?.description || ''),
+      };
       const content = (data as { content?: Record<string, unknown> }).content;
       if (content && typeof content === 'object') {
         this.content = {
@@ -251,6 +258,7 @@ export const useSettingsStore = defineStore('settings', {
         download: this.download, quality: this.quality, modules: this.modules,
         live: this.live,
         memory: this.memory,
+        user_persona: this.user_persona,
       });
       const flags = data as { llm_env?: boolean; llm_local?: boolean; omni_env?: boolean };
       this.llm_env = !!(flags.llm_env || flags.llm_local);

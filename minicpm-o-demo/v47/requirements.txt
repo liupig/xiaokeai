@@ -1,0 +1,18 @@
+# MiniCPM-V 4.7 1B 单独环境。不要装进上一级 .venv：
+# o 4.5 钉死 transformers==4.51，这个模型要 >=5.18。
+transformers>=5.18.0
+accelerate>=1.10.0
+torchvision
+av>=14.0.0
+Pillow>=10.0
+fastapi>=0.115
+uvicorn[standard]>=0.32
+python-multipart>=0.0.9
+mss>=9.0
+bettercam>=1.0.0
+opencv-python-headless>=4.8.0
+rapidocr==3.10.0
+onnxruntime>=1.17.0
+modelscope>=1.20
+huggingface_hub>=0.26
+# torch 由 setup.ps1 按 CUDA 轮子单独装

@@ -163,7 +163,10 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         conf = settings_store.get_all(session)
     set_reply(lang)
     char = session.get(Character, req.character_id)
-    persona = char.persona if char else ""
+    from ..modules.character.card import compose_persona, compose_user_persona, parse_lorebook
+    from ..modules.character import lorebook as lorebook_engine
+    persona = compose_persona(char) if char else ""
+    user_persona = compose_user_persona(conf.get("user_persona"))
 
     history_rows = session.exec(
         select(ChatMessage)
@@ -192,6 +195,24 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     # 固定架子每轮重拼：persona -> 上下文槽+场景包 -> 扮演 overlay -> 导演手册。
     # history_rows 按 id 倒序，第 0 条是上一条消息，用来算「距上次聊天」。
     last_at = history_rows[0].created_at if history_rows else None
+    # 世界书：按注入位置分三组，扫用户输入 + 最近几轮历史，命中的进 system 层
+    lore_pre: List[str] = []
+    lore_mid: List[str] = []
+    lore_post: List[str] = []
+    if char:
+        entries = parse_lorebook(getattr(char, "lorebook", "") or "")
+        if entries:
+            for pos in ("before_char", "after_char", "before_hist"):
+                contents = lorebook_engine.scan(
+                    [e for e in entries if e.position == pos],
+                    req.text or "", history,
+                )
+                if pos == "before_char":
+                    lore_pre = contents
+                elif pos == "after_char":
+                    lore_mid = contents
+                else:
+                    lore_post = contents
     messages = prompt_stack.build_messages(
         persona=persona,
         char_name=(char.name if char else ""),
@@ -202,6 +223,10 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         last_at=last_at,
         character_id=req.character_id,
         boundary=(getattr(char, "boundary", "") or "strict") if char else "strict",
+        lorebook_before_char=lore_pre,
+        lorebook_after_char=lore_mid,
+        lorebook_before_hist=lore_post,
+        user_persona=user_persona,
     )
     # 扮演期间的消息落库标记为 rp：留在聊天历史里，但不进长期记忆抽取
     rp_now = prompt_stack.overlay_active(req.character_id)

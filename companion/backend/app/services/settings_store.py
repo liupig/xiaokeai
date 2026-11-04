@@ -48,6 +48,8 @@ DEFAULTS: Dict[str, Any] = {
     },
     # 陪看的视觉模型。minicpm 用眼睛进程里的本机模型；openai 是任何兼容接口。
     "vision": {"provider": "minicpm", "base_url": "", "api_key": "", "model": ""},
+    # 「我的档案」：让角色知道用户是谁。enabled 关掉就不注入 prompt。
+    "user_persona": {"enabled": False, "name": "", "description": ""},
 }
 
 

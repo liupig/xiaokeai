@@ -1219,6 +1219,23 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
             <n-select :value="tavernCastValue(seat)" :options="tavernCastOptions" filterable
                       @update:value="(value) => setTavernCast(seat, String(value || ''))" />
           </template>
+
+          <h3 class="section-title">{{ t('set.persona.title') }}</h3>
+          <p class="hint">{{ t('set.persona.hint') }}</p>
+          <div class="switch-row">
+            <n-switch :value="settings.user_persona.enabled"
+                      @update:value="(v: boolean) => { settings.user_persona.enabled = v; }" />
+            <span>{{ t('set.persona.enabled') }}</span>
+          </div>
+          <template v-if="settings.user_persona.enabled">
+            <label>{{ t('set.persona.name') }}</label>
+            <n-input v-model:value="settings.user_persona.name"
+                     :placeholder="t('set.persona.namePh')" />
+            <label>{{ t('set.persona.desc') }}</label>
+            <n-input v-model:value="settings.user_persona.description" type="textarea"
+                     :autosize="{ minRows: 3, maxRows: 8 }"
+                     :placeholder="t('set.persona.descPh')" />
+          </template>
           <label>{{ t('set.tts.duplex') }}</label>
           <n-select v-model:value="settings.tts.duplex_cmd" :options="duplexCmdOptions" />
           <label>{{ t('set.tts.remain', { n: Number(settings.tts.duplex_remain_sec).toFixed(1) }) }}</label>
