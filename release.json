@@ -1,0 +1,14 @@
+{
+  "version": "20261028135252",
+  "published_at": "2026-10-28",
+  "notes": {
+    "zh": "新增一起看视频、电影和听音乐；A/B 包需使用相同时间戳。",
+    "en": "Watch videos, movies, and listen to music together. A/B packs must use the same timestamp."
+  },
+  "baidu_password": "xkai",
+  "downloads": {
+    "baidu": "https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai",
+    "huggingface": "https://huggingface.co/datasets/liupigai/xiaokeai/tree/main",
+    "google_drive": "https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link"
+  }
+}

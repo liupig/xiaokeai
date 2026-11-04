@@ -74,21 +74,21 @@ app.include_router(sight_router)
 
 @app.get('/api/releases/latest')
 async def latest_release(current_version: str | None = None):
-    """通过本地服务查询发布信息，避免浏览器跨域限制。"""
+    """并发读取两个仓库的发布信息，采用首个有效响应。"""
     import re
     import httpx
     from fastapi.responses import JSONResponse
+    from .services.releases import fetch_first_release, with_update_status
 
     if current_version is not None and not re.fullmatch(r'[0-9]{14}', current_version):
         raise HTTPException(422, '本地版本号必须是 14 位时间戳')
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.get(
-                'https://dub.sisss.cn/v1/xiaokeai/version',
-                params={'current_version': current_version} if current_version else {},
+            release = await fetch_first_release(client)
+            return JSONResponse(
+                with_update_status(release, current_version),
+                headers={'Cache-Control': 'no-store'},
             )
-            response.raise_for_status()
-            return JSONResponse(response.json(), headers={'Cache-Control': 'no-store'})
     except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(502, '暂时无法连接版本服务器，请稍后重试') from exc
 
