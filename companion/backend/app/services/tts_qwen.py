@@ -429,7 +429,7 @@ def _utterances(text: str) -> list[str]:
     merged: list[str] = []
     buf = ""
     for part in parts:
-        if buf and len(buf) + len(part) > 12:
+        if buf and len(buf) + len(part) > 16:
             merged.append(buf)
             buf = part
         else:
@@ -438,9 +438,9 @@ def _utterances(text: str) -> list[str]:
         merged.append(buf)
     out = []
     for part in merged:
-        while len(part) > 12:
-            out.append(part[:12])
-            part = part[12:]
+        while len(part) > 16:
+            out.append(part[:16])
+            part = part[16:]
         if part:
             out.append(part)
     return out or [raw]
@@ -489,10 +489,7 @@ def _stream_one(
     if instruct.strip() and size != "0.6b":
         kwargs["instruct"] = instruct.strip()
     backends = ("dynamic",)
-    if (
-        os.environ.get("COMPANION_TTS_CUDA_GRAPH") == "1"
-        and str(_state.get("device") or "").startswith("cuda")
-    ):
+    if str(_state.get("device") or "").startswith("cuda"):
         backends = ("faster", "dynamic")
     last_err: Optional[Exception] = None
     import torch

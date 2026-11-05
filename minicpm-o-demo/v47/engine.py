@@ -1178,7 +1178,7 @@ def _clamp(opts: Dict[str, Any]) -> Dict[str, Any]:
         scene = "auto"
     return {
         "monitor": monitor,
-        "capture_fps": max(1, min(int(opts.get("capture_fps", 2)), 6)),
+        "capture_fps": max(1, min(int(opts.get("capture_fps", 1)), 6)),
         "window_seconds": max(2.0, min(float(opts.get("window_seconds", 4)), 6.0)),
         "prompt": str(opts.get("prompt") or ""),
         "scene": scene,

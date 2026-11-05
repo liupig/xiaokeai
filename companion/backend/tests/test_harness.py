@@ -591,6 +591,7 @@ def test_the_wallet_number_is_not_a_sum_of_wishes():
     assert "不要把许愿落下的枚数加总" in line
     assert asks_purse("你知道我现在有多少钱吗？")
     assert asks_purse("我的所有金币是多少？")
+    assert not asks_purse("请结合原问题和所有已翻开的牌，给我完整解读。")
     assert not asks_purse("茅台现在多少钱")
     assert not asks_purse("这次落下多少")
     assert purse_say(4_000) == "你现在有 4 枚金币。"

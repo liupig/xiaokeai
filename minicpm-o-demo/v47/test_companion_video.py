@@ -33,6 +33,50 @@ class VideoIntegrationTests(unittest.TestCase):
         self.assertTrue(result['ok'])
         self.assertEqual(result['input_mode'], 'live_video')
 
+    def test_stale_capture_is_replaced_within_the_same_observation(self):
+        class Capture:
+            error = None
+            thread = SimpleNamespace(is_alive=lambda: True)
+
+            def __init__(self, stale=False):
+                stamp = time.monotonic() - (10 if stale else 0)
+                self.clip = [(stamp + i * .5, Image.new('RGB', (16, 8)), i, '') for i in range(8)]
+                self.closed = False
+
+            def latest(self):
+                return self.clip
+
+            def start(self):
+                return self
+
+            def close(self):
+                self.closed = True
+                return True
+
+        class Engine:
+            SCENE_PROMPTS = {'game': '游戏事实'}
+
+            def load(self):
+                pass
+
+            def describe(self, image, prompt, **kwargs):
+                return '画面：新采集已经恢复'
+
+        old = Capture(stale=True)
+        new = Capture()
+        body = SimpleNamespace(scene='game', before='', prompt='', ask='', crop=[])
+        with patch.object(video, '_source', ('game', 0, ())), \
+                patch.object(video, '_live', old), \
+                patch.object(video, 'LiveVideo', return_value=new) as live_factory, \
+                patch('observations.save_model_frames', return_value=[]), \
+                patch('observations.record'):
+            result = video.observe(Engine(), body)
+        self.assertTrue(old.closed)
+        self.assertEqual(live_factory.call_args.kwargs['fps'], 1)
+        self.assertEqual(live_factory.call_args.kwargs['seconds'], 4)
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['text'], '画面：新采集已经恢复')
+
 
 if __name__ == '__main__':
     unittest.main()

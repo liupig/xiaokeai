@@ -72,11 +72,11 @@ def _observe(engine, body):
             _live = LiveVideo(
                 lambda: engine._Screen(1),
                 lambda image: engine._live_frame(image, 1, 960),
-                fps=2, seconds=4,
+                fps=1, seconds=4,
                 on_raw=lambda image, count: save_raw_frame(image, captured_total=count),
             ).start()
         deadline = time.monotonic() + 12
-        while len(_live.latest()) < 7:
+        while len(_live.latest()) < 4:
             if _live.error:
                 raise _live.error
             if time.monotonic() > deadline:
@@ -85,8 +85,20 @@ def _observe(engine, body):
         clip = _live.latest()
         if time.monotonic() - clip[-1][0] > 2:
             _live.close()
-            _live = None
-            return dict(ok=False, text="", message="录屏已停滞，清空旧帧并重建采集")
+            _live = LiveVideo(
+                lambda: engine._Screen(1),
+                lambda image: engine._live_frame(image, 1, 960),
+                fps=1, seconds=4,
+                on_raw=lambda image, count: save_raw_frame(image, captured_total=count),
+            ).start()
+            deadline = time.monotonic() + 12
+            while len(_live.latest()) < 4:
+                if _live.error:
+                    raise _live.error
+                if time.monotonic() > deadline:
+                    raise RuntimeError("连续视频窗口未就绪")
+                time.sleep(0.05)
+            clip = _live.latest()
         images = [row[1] for row in clip]
         if body.crop and len(body.crop) == 4:
             # Coordinates are desktop pixels; model frames have already been fitted.

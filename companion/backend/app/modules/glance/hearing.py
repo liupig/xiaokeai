@@ -10,6 +10,7 @@ import re
 import threading
 import time
 import wave
+import warnings
 import queue
 from collections import deque
 
@@ -262,7 +263,12 @@ def _record_span(stop: threading.Event, seconds: float) -> bytes | None:
                 if stop.is_set():
                     return None
                 step = min(.5, left)
-                data = recorder.record(numframes=max(1, int(16000 * step)))
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore", message="data discontinuity in recording",
+                        module=r"soundcard(\.|$)",
+                    )
+                    data = recorder.record(numframes=max(1, int(16000 * step)))
                 pieces.append(np.asarray(data, dtype=np.float32))
                 left -= step
     except Exception:

@@ -54,6 +54,30 @@ class LiveVideoTests(unittest.TestCase):
         self.assertIsInstance(live.error, ValueError)
         self.assertTrue(screen.closed)
 
+    def test_close_allows_abandoning_a_stuck_capture(self):
+        class StuckScreen(FakeScreen):
+            def __init__(self):
+                super().__init__()
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            def grab(self):
+                self.started.set()
+                self.release.wait(10)
+                return None
+
+        screen = StuckScreen()
+        live = LiveVideo(lambda: screen, lambda image: image).start()
+        self.assertTrue(screen.started.wait(2))
+        try:
+            self.assertFalse(live.close())
+            self.assertTrue(live.stop.is_set())
+        finally:
+            screen.release.set()
+            live.thread.join(timeout=2)
+        self.assertFalse(live.thread.is_alive())
+        self.assertTrue(screen.closed)
+
 
 if __name__ == "__main__":
     unittest.main()

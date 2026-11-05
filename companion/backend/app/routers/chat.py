@@ -825,7 +825,65 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
 
             source = prompt_stack.guard_refusal(harness_turns())
         else:
-            source = prompt_stack.guard_refusal(llm_service.stream_chat(llm_conf, messages))
+            from ..modules.glance.conversation import fast_request, opening as visual_opening
+            from ..modules.glance.service import parse_glance
+            from ..modules.harness.actions import prepare_visual, visual_request_policy
+
+            direct_ask = fast_request(req.text or "") if mode == "user" and glance_on else ""
+            if direct_ask and visual_request_policy(req.text or "", harness_prior) != "allow":
+                direct_ask = ""
+            if direct_ask:
+                async def direct_visual_turns():
+                    lead = visual_opening(direct_ask, lang=lang)
+                    yield {"type": "text", "delta": lead}
+                    failure = await asyncio.to_thread(
+                        prepare_visual, direct_ask, req.character_id, turn_cancel,
+                    )
+                    if failure:
+                        yield {"type": "text", "delta": failure}
+                        yield {"type": "done", "full_text": lead + failure}
+                        return
+                    _, continuous = parse_glance(direct_ask)
+                    if continuous:
+                        from ..modules.glance.along import register_opening
+
+                        register_opening(lead, req.character_id)
+                        yield {"type": "done", "full_text": lead}
+                        return
+                    from ..modules.glance.service import glance_bundle
+                    from ..modules.glance.along import snapshot as along_snapshot
+                    from ..modules.glance.situation import situation
+
+                    observed = ""
+                    if along_snapshot().get("on"):
+                        for _ in range(60):
+                            if situation.facts or situation.progress:
+                                observed = situation.blocks()
+                                break
+                            await asyncio.sleep(0.5)
+                    if not observed:
+                        found, _ = await asyncio.to_thread(
+                            glance_bundle, None, direct_ask, 30, True,
+                        )
+                        observed = found.split("【眼前】")[-1].strip()
+                    visual_messages = messages + [{
+                        "role": "system",
+                        "content": (
+                            "【眼前】\n" + observed + "\n"
+                            "根据眼前的实际内容回答对方原来的问题，不要编画面，"
+                            "不要重复答应查看，不要输出动作标记。"
+                        ),
+                    }]
+                    async for ev in llm_service.stream_chat(llm_conf, visual_messages):
+                        if ev.get("type") in {"glance", "watch", "lookup", "play"}:
+                            continue
+                        if ev.get("type") == "done":
+                            ev = {**ev, "full_text": lead + str(ev.get("full_text") or "")}
+                        yield ev
+
+                source = prompt_stack.guard_refusal(direct_visual_turns())
+            else:
+                source = prompt_stack.guard_refusal(llm_service.stream_chat(llm_conf, messages))
         from ..modules.draw.service import realize_draws
         annotated = realize_draws(
             duplex_service.annotate_stream(

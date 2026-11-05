@@ -16,6 +16,7 @@ _HOP = {"host", "content-length", "transfer-encoding", "connection", "keep-alive
 app = FastAPI(title="xiaoke.ai", version="0.1.0")
 _client = httpx.AsyncClient(
     base_url=BACKEND,
+    trust_env=False,
     timeout=httpx.Timeout(600.0, connect=15.0),
     limits=httpx.Limits(max_connections=40, max_keepalive_connections=10),
 )

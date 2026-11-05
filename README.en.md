@@ -1,5 +1,6 @@
 # English README
 
-The English README now lives in the same file: [README.md · English](./README.md#english).
+The English README is available at [README.md](./README.md).
 
-中文和英文都在 [README.md](./README.md) 里。
+- [English](./README.md)
+- [简体中文](./README.zh-CN.md)

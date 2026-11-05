@@ -88,7 +88,9 @@ def asks_purse(text: str) -> bool:
     mine = bool(re.search(r"我|咱|余额|钱包", raw) or (
         "金币" in raw and re.search(r"所有|一共|总共|余额|还有|现在", raw)
     ))
-    return mine and bool(re.search(r"多少|几枚|几个|总共|一共|所有|全部", raw))
+    return mine and bool(re.search(r"多少|几枚|几个|总共|一共|所有|全部", raw)) and bool(
+        re.search(r"金币|钱|余额|钱包", raw)
+    )
 
 
 def purse_say(milli: int | None = None) -> str:

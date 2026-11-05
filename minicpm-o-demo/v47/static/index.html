@@ -72,8 +72,8 @@
         <div>
           <label>录屏采样（帧/秒）</label>
           <select id="fps">
-            <option value="1">1 FPS</option>
-            <option value="2" selected>2 FPS</option>
+            <option value="1" selected>1 FPS</option>
+            <option value="2">2 FPS</option>
             <option value="4">4 FPS</option>
             <option value="6">6 FPS</option>
           </select>
@@ -184,7 +184,7 @@ document.getElementById("btnStart").onclick = async () => {
     prompt: document.getElementById("prompt").value,
     scene: document.getElementById("scene").value,
     min_gap: Number(document.getElementById("gap").value || 0),
-    capture_fps: Number(document.getElementById("fps").value || 2),
+    capture_fps: Number(document.getElementById("fps").value || 1),
     window_seconds: Number(document.getElementById("window").value || 4),
     max_new_tokens: Number(document.getElementById("tokens").value || 32),
     max_edge: Number(document.getElementById("edge").value || 960),

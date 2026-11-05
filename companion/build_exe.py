@@ -747,14 +747,19 @@ def smoke_packed_tts_import(dist_dir: Path) -> None:
     code = (
         "import os, sys\n"
         f"sp = r'{b_sp}'\n"
+        f"a_sp = r'{dist_dir / 'runtime' / 'Lib' / 'site-packages'}'\n"
         "sys.path.insert(0, sp)\n"
         "lib = os.path.join(sp, 'torch', 'lib')\n"
         "if os.path.isdir(lib) and hasattr(os, 'add_dll_directory'):\n"
         "    os.add_dll_directory(lib)\n"
+        "from pathlib import Path\n"
         "from librosa.filters import mel\n"
-        "import qwen_tts\n"
+        "import numpy, torch, transformers, qwen_tts\n"
         "from qwen_tts import Qwen3TTSModel\n"
-        "print('TTS_IMPORT_OK')\n"
+        "assert Path(torch.__file__).is_relative_to(Path(sp)), torch.__file__\n"
+        "assert Path(numpy.__file__).is_relative_to(Path(a_sp)), numpy.__file__\n"
+        "assert Path(transformers.__file__).is_relative_to(Path(a_sp)), transformers.__file__\n"
+        "print('TTS_IMPORT_OK', torch.__version__, numpy.__version__, transformers.__version__)\n"
     )
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
@@ -1339,17 +1344,24 @@ def _donor_runtime(explicit: Path | None) -> Path:
 def _smoke_eyes(py: Path, ml_sp: Path) -> None:
     if not (ml_sp / "torch").is_dir():
         raise SystemExit(f"眼睛要共用的 PyTorch 不在 {ml_sp}")
+    runtime = py.parent
     code = (
-        "import torch, transformers, fastapi\n"
+        "from pathlib import Path\n"
+        "import numpy, torch, transformers, fastapi\n"
+        "import companion_video, video_stream, observations\n"
         "from transformers import AutoProcessor\n"
-        "print('EYES_IMPORT_OK', torch.__version__, AutoProcessor.__name__)\n"
+        f"ml_sp = Path(r'{ml_sp}')\n"
+        f"eyes_sp = Path(r'{runtime / 'Lib' / 'site-packages'}')\n"
+        "assert Path(torch.__file__).is_relative_to(ml_sp), torch.__file__\n"
+        "assert Path(numpy.__file__).is_relative_to(eyes_sp), numpy.__file__\n"
+        "assert Path(transformers.__file__).is_relative_to(eyes_sp), transformers.__file__\n"
+        "print('EYES_IMPORT_OK', torch.__version__, numpy.__version__, transformers.__version__)\n"
     )
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONNOUSERSITE"] = "1"
-    env["PYTHONPATH"] = str(ml_sp)
-    runtime = py.parent
+    env["PYTHONPATH"] = os.pathsep.join([str(ml_sp), str(runtime.parent)])
     parts = [str(runtime), str(runtime / "Library" / "bin"), str(ml_sp / "torch" / "lib")]
     env["PATH"] = os.pathsep.join(parts + [env.get("PATH", "")])
     r = subprocess.run([str(py), "-c", code], env=env, capture_output=True)
@@ -1368,7 +1380,10 @@ def step_copy_eyes(dist_dir: Path, donor_runtime: Path | None) -> None:
         raise SystemExit(f"没有 MiniCPM 权重：{EYES_MODEL}")
     home = dist_dir / "eyes"
     home.mkdir(parents=True, exist_ok=True)
-    for name in ("app.py", "engine.py", "download.py", "requirements.txt", "README.md"):
+    for name in (
+        "app.py", "engine.py", "companion_video.py", "video_stream.py", "observations.py",
+        "download.py", "requirements.txt", "README.md",
+    ):
         src = EYES_SRC / name
         if src.is_file():
             shutil.copy2(src, home / name)

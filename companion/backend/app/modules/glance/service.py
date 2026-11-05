@@ -12,7 +12,7 @@ _inflight_lock = threading.Lock()
 
 
 def _borrow() -> httpx.Client:
-    client = httpx.Client()
+    client = httpx.Client(trust_env=False)
     with _inflight_lock:
         _inflight.append(client)
     return client
@@ -39,7 +39,7 @@ def abort_eyes_calls() -> None:
             pass
     def stop_video():
         try:
-            with httpx.Client(timeout=3) as client:
+            with httpx.Client(timeout=3, trust_env=False) as client:
                 client.post(f"{eyes_url()}/api/video/stop")
         except Exception:
             pass
@@ -224,9 +224,13 @@ def beside_cue(seen: str, prior: list | None = None, trail: list[str] | None = N
     return "\n".join(lines)
 
 
-def glance_bundle(data: dict | None = None, ask: str = "", timeout: float = 30) -> tuple[str, str]:
+def glance_bundle(
+    data: dict | None = None, ask: str = "", timeout: float = 30,
+    continuous_capture: bool = False,
+) -> tuple[str, str]:
     """【眼前】正文，以及这一眼在调试记录里的编号。"""
     question, along = parse_glance(ask)
+    along = along or continuous_capture
     if data is None:
         from .sense import collect
 

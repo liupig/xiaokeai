@@ -893,6 +893,11 @@ export const useChatStore = defineStore('chat', {
 
       const controller = new AbortController();
       streamAbort = controller;
+      const streamTimeout = window.setTimeout(() => {
+        if (streamAbort !== controller) return;
+        this.lastError = '回复等待超时，请重试。';
+        controller.abort();
+      }, 60_000);
       void (async () => {
         try {
           let quiet = '';
@@ -912,6 +917,7 @@ export const useChatStore = defineStore('chat', {
         } catch (e) {
           if (!controller.signal.aborted) this.lastError = String(e);
         }
+        window.clearTimeout(streamTimeout);
         if (apiKeyMissing && !assistant.content && !controller.signal.aborted) {
           const { useAssetsStore } = await import('./assets');
           const names = useAssetsStore().motions.map((m) => m.name);

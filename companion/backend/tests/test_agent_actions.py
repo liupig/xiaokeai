@@ -277,6 +277,17 @@ def test_route_blocks_wrong_visual_choice_for_gold_price(chat_route):
     assert any(event.get("full_text", "").endswith("查到的数字是500。") for event in events)
 
 
+def test_tarot_full_reading_prompt_reaches_model(chat_route, monkeypatch):
+    from app.services import coins
+
+    monkeypatch.setattr(coins, "purse_say", lambda: "你现在有 3794 枚金币。")
+    send, state = chat_route
+    prompt = "请结合原问题和所有已翻开的牌，给我完整解读。"
+    events = send(prompt, [{"type": "text", "delta": "这是整组牌的完整解读。"}])
+    assert state["calls"] == [prompt]
+    assert not any("3794" in event.get("full_text", "") for event in events)
+
+
 def test_route_clarifies_unknown_object_without_capture(chat_route):
     send, state = chat_route
     events = send("你看一下", [{"type": "glance", "value": "当前屏幕"}])
@@ -369,3 +380,28 @@ def test_rejected_watch_command_cannot_claim_success(chat_route, monkeypatch):
     spoken = "".join(e.get("delta", "") for e in events if e["type"] == "text")
     assert "错误地说已经调整" not in spoken
     assert any("陪看要求未采用" in text for text in state["calls"])
+
+
+def test_character_model_bypass_still_handles_explicit_visual_request(chat_route, monkeypatch):
+    send, state = chat_route
+    from app.modules.harness import service as harness_service
+    from app.services import llm as llm_service
+    from app.services import settings_store
+
+    previous = settings_store.get_all
+    monkeypatch.setattr(settings_store, "get_all", lambda session: {
+        **previous(session),
+        "modules": {**previous(session)["modules"], "glance": True},
+    })
+    monkeypatch.setattr(harness_service, "turn_uses_harness", lambda **kwargs: False)
+
+    async def ordinary_model(_conf, messages):
+        assert any("你正在玩英雄联盟" in str(item.get("content") or "") for item in messages)
+        yield {"type": "text", "delta": "你在玩英雄联盟。"}
+        yield {"type": "done", "full_text": "你在玩英雄联盟。"}
+
+    monkeypatch.setattr(llm_service, "stream_chat", ordinary_model)
+    events = send("看看我在干嘛？", [])
+    assert state["actions"] == [("vision", "在干嘛")]
+    assert state["captures"]
+    assert any(event.get("full_text") == "好，我看一眼。你在玩英雄联盟。" for event in events)

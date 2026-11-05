@@ -16,7 +16,7 @@ def test_a_long_chinese_line_stays_inside_the_clean_window():
     parts = _utterances(line)
     assert parts
     assert "".join(parts) == line
-    assert all(len(part) <= 12 for part in parts)
+    assert all(len(part) <= 16 for part in parts)
     assert all(_token_cap(part) <= 36 for part in parts)
 
 

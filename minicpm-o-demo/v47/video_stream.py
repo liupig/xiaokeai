@@ -5,7 +5,7 @@ import time
 
 
 class LiveVideo:
-    def __init__(self, screen_factory, transform, fps=2, seconds=4, on_frame=None, on_raw=None):
+    def __init__(self, screen_factory, transform, fps=1, seconds=4, on_frame=None, on_raw=None):
         self.fps = fps
         self.seconds = seconds
         self.screen_factory = screen_factory
@@ -64,10 +64,10 @@ class LiveVideo:
 
     def close(self):
         self.stop.set()
-        if self.thread:
+        if self.thread and self.thread is not threading.current_thread():
             self.thread.join(timeout=3)
-            if self.thread.is_alive():
-                raise RuntimeError("录屏线程未能停止")
+            return not self.thread.is_alive()
+        return True
 
 
 def run(engine, opts):

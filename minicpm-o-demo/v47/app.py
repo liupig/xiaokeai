@@ -20,7 +20,7 @@ app = FastAPI(title="MiniCPM-V 4.7 1B Screen")
 
 class StartBody(BaseModel):
     scene: str = "auto"
-    capture_fps: int = 2
+    capture_fps: int = 1
     window_seconds: float = 4
     monitor: int = 1
     prompt: str = ""

@@ -38,7 +38,7 @@ def probe() -> bool:
         return _probe_ok
     ok = False
     try:
-        resp = httpx.get(f"{eyes_url()}/api/status", timeout=1.5)
+        resp = httpx.get(f"{eyes_url()}/api/status", timeout=1.5, trust_env=False)
         ok = resp.status_code == 200
     except Exception:
         ok = False

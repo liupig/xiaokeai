@@ -207,6 +207,9 @@ companion/package-lock.json
 *.7z
 *.gguf
 
+# 本地 TTS 基准测试、模型和输出。整目录不入库。
+/tts/
+
 # 本地试验目录（MiniCPM-o 4.5 与 MiniCPM-V 4.7 录屏）。整目录不入库。
 /minicpm-o-demo/*
 !/minicpm-o-demo/v47/
