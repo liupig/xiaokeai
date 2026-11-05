@@ -1,14 +1,14 @@
 {
-  "version": "20261028135252",
-  "published_at": "2026-10-28",
+  "version": "20261105173339",
+  "published_at": "2026-11-05",
   "notes": {
-    "zh": "新增一起看视频、电影和听音乐；A/B 包需使用相同时间戳。",
-    "en": "Watch videos, movies, and listen to music together. A/B packs must use the same timestamp."
+    "zh": "新增魅影酒馆、直播互动、连续视频陪看、SillyTavern 角色卡和自然语言开游戏；A/B 包需使用相同时间戳。",
+    "en": "Adds Phantom Tavern, live interaction, continuous video companionship, SillyTavern cards, and natural-language game launching. A/B packs must use the same timestamp."
   },
   "baidu_password": "xkai",
   "downloads": {
     "baidu": "https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai",
-    "huggingface": "https://huggingface.co/datasets/liupigai/xiaokeai/tree/main",
+    "huggingface": "https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261105173339",
     "google_drive": "https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link"
   }
 }

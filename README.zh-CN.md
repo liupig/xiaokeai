@@ -45,14 +45,16 @@
 
 ## 下载 Windows 体验包
 
-当前预打包版本为 **2026-10-28**，自带 Chromium 和 Python 运行时，目标电脑无需另装 Chrome 或 Python。源码可能包含此体验包之后新增的功能。旧包和变更内容见[历史版本](./HISTORY.zh-CN.md)。
+当前预打包版本为 **2026-11-05**，自带 Chromium 和 Python 运行时，目标电脑无需另装 Chrome 或 Python。源码可能包含此体验包之后新增的功能。旧包和变更内容见[历史版本](./HISTORY.zh-CN.md)。
 
-**请下载时间戳完全相同的 A、B 两个包。** 旧版无时间戳的 `xiaoke-ai-B` 不能搭配此版本。百度网盘的 A、B 位于同一分享文件夹，提取码：`xkai`。
+**请下载时间戳均为 `20261105173339` 的 A、B 两个包。** 旧版无时间戳的 `xiaoke-ai-B` 不能搭配此版本。百度网盘的 A、B 位于同一分享文件夹，提取码：`xkai`。
 
 | 包 | 内容 | Hugging Face | Google Drive | 百度网盘 |
 |---|---|---|---|---|
-| **A** · `xiaoke-ai-agent-A-20261028135252.7z` | 应用程序与运行时 | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-A-20261028135252.7z) | [下载](https://drive.google.com/file/d/14drCVOg5XkpM2WLABRfX7YZZWE-jTgC0/view?usp=sharing) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
-| **B** · `xiaoke-ai-agent-B-20261028135252.7z` | 角色、动作、音乐、语音和本地视觉模型 | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-B-20261028135252.7z) | [下载](https://drive.google.com/file/d/1uA5Z9FyOcEthARaUMkdu0JcEt0B-yggk/view?usp=sharing) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+| **A** · `xiaoke-ai-agent-A-20261105173339.7z` | 应用程序与运行时 | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-A-20261105173339.7z) | [镜像目录](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+| **B** · `xiaoke-ai-agent-B-20261105173339.7z` | 角色、动作、音乐、语音和本地视觉模型 | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-B-20261105173339.7z) | [镜像目录](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+
+A 也可从 [GitHub Releases](https://github.com/liupig/xiaokeai/releases/tag/a-20261105) 下载，发布页包含中英文说明和完整社区入口。
 
 1. 使用 [7-Zip](https://www.7-zip.org/) 将 A、B 解压到同一层目录，不要互相嵌套。
 2. 双击 A 目录中的 `xiaoke-ai.exe`。
@@ -61,9 +63,9 @@
 
 ```text
 某盘:\xiaoke\
-  xiaoke-ai-agent-A-20261028135252\
+  xiaoke-ai-agent-A-20261105173339\
     xiaoke-ai.exe
-  xiaoke-ai-agent-B-20261028135252\
+  xiaoke-ai-agent-B-20261105173339\
     xiaoke-content.json
 ```
 
@@ -210,17 +212,27 @@ npm run dev
 
 ## 社区与贡献
 
+无论你是 AI 伴侣玩家、开发者、角色卡作者、MMD/VRM 创作者、主播，还是单纯想来看看，都欢迎加入。可以聊角色、晒舞台、提建议，也可以一起写代码。
+
+- **QQ 群：** `1124054481` · [群二维码](./companion/frontend/public/community/qq-group.jpg)
+- **微信：** `xiaokeai3d` · [微信二维码](./companion/frontend/public/community/wechat-qr.png)
 - **Discord：** [加入社区](https://discord.gg/xxvXxHP8T)
-- **QQ 群：** `1124054481`
+- **X：** [@iliuPIG](https://x.com/iliuPIG)
+- **YouTube：** [@liupig](https://www.youtube.com/@liupig)
+- **GitHub：** [liupig/xiaokeai](https://github.com/liupig/xiaokeai)
 - **参与贡献：** 欢迎 fork、自部署、提交 Issue 和 Pull Request。
 
-## 协议与致谢
+## 致谢
 
-源码和项目原创塔罗／情境美术采用 [Apache License 2.0](./LICENSE)。xiaoke.ai / 小可爱名称与标识不随代码转让；第三方模型、动作、镜头、音乐和音色遵循原作者条款。再分发或商用前请阅读 [NOTICE](./NOTICE)。
+**[查看完整致谢名单](./ACKNOWLEDGEMENTS.zh-CN.md)**
 
 感谢[模之屋](https://www.aplaybox.com/)社区及各位资产作者，感谢 [Reze MiPo](https://github.com/AmyangXYZ/reze-mipo) 提供的动捕思路，以及 Three.js、VRM、MMD、MediaPipe、Vue、FastAPI、Electron、mem0、Qdrant、Qwen、SenseVoice 等开源项目及其团队。
 
-角色卡兼容基于 [SillyTavern（酒馆）](https://github.com/SillyTavern/SillyTavern)建立的开放生态和社区 [Character Card V2 规范](https://github.com/malfoyslastname/character-card-spec-v2)。xiaoke.ai 做的是兼容导入，并将世界书（Lorebook）接入自己的分层提示词和 3D 舞台；角色卡格式与世界书（Lorebook）概念并非本项目原创。角色卡版权归原作者，兼容支持也不代表与 SillyTavern 官方存在隶属关系。
+角色卡兼容基于 [SillyTavern（酒馆）](https://github.com/SillyTavern/SillyTavern)建立的开放生态和社区 [Character Card V2 规范](https://github.com/malfoyslastname/character-card-spec-v2)。完整致谢文档还记录了小冰、豆包、One-Euro Filter 作者、韦特塔罗传统、直播互动参考项目、模型与语音服务商，以及所有为 xiaoke.ai 提供基础的社区和作者。
+
+## 协议
+
+源码和项目原创塔罗／情境美术采用 [Apache License 2.0](./LICENSE)。xiaoke.ai / 小可爱名称与标识不随代码转让；第三方模型、动作、镜头、音乐、音色、角色卡和其他资产遵循原作者条款。再分发或商用前请阅读 [NOTICE](./NOTICE)。
 
 云端 LLM、ASR、TTS 服务商会按其隐私政策处理发送给他们的文字或音频。塔罗仅用于心理视角和娱乐，不构成专业建议。
 

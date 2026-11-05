@@ -45,14 +45,16 @@ Characters shown in screenshots are demo assets created by [aplaybox](https://ww
 
 ## Download Windows
 
-The current prebuilt pack is **2026-10-28**. It includes Chromium and a Python runtime, so neither Chrome nor a system Python installation is required. Source code may contain features added after this packaged release. See [Release History](./HISTORY.md) for previous packages and changes.
+The current prebuilt pack is **2026-11-05**. It includes Chromium and a Python runtime, so neither Chrome nor a system Python installation is required. Source code may contain features added after this packaged release. See [Release History](./HISTORY.md) for previous packages and changes.
 
-**Download both A and B with the identical timestamp.** The older unversioned `xiaoke-ai-B` is not compatible with this release. Baidu Netdisk uses one shared folder for both files; password: `xkai`.
+**Download both A and B with timestamp `20261105173339`.** The older unversioned `xiaoke-ai-B` is not compatible with this release. Baidu Netdisk uses one shared folder for both files; password: `xkai`.
 
 | Pack | Purpose | Hugging Face | Google Drive | Baidu Netdisk |
 |---|---|---|---|---|
-| **A** · `xiaoke-ai-agent-A-20261028135252.7z` | Application and runtime | [Download](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-A-20261028135252.7z) | [Download](https://drive.google.com/file/d/14drCVOg5XkpM2WLABRfX7YZZWE-jTgC0/view?usp=sharing) | [Shared folder](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
-| **B** · `xiaoke-ai-agent-B-20261028135252.7z` | Characters, motions, music, speech, and local vision models | [Download](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-B-20261028135252.7z) | [Download](https://drive.google.com/file/d/1uA5Z9FyOcEthARaUMkdu0JcEt0B-yggk/view?usp=sharing) | [Shared folder](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+| **A** · `xiaoke-ai-agent-A-20261105173339.7z` | Application and runtime | [Download](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-A-20261105173339.7z) | [Mirror folder](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [Shared folder](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+| **B** · `xiaoke-ai-agent-B-20261105173339.7z` | Characters, motions, music, speech, and local vision models | [Download](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-B-20261105173339.7z) | [Mirror folder](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [Shared folder](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+
+A is also available from [GitHub Releases](https://github.com/liupig/xiaokeai/releases/tag/a-20261105), with bilingual release notes and community links.
 
 1. Extract both archives with [7-Zip](https://www.7-zip.org/), side by side—not nested inside each other.
 2. Open `xiaoke-ai.exe` in the A folder.
@@ -61,9 +63,9 @@ The current prebuilt pack is **2026-10-28**. It includes Chromium and a Python r
 
 ```text
 D:\xiaoke\
-  xiaoke-ai-agent-A-20261028135252\
+  xiaoke-ai-agent-A-20261105173339\
     xiaoke-ai.exe
-  xiaoke-ai-agent-B-20261028135252\
+  xiaoke-ai-agent-B-20261105173339\
     xiaoke-content.json
 ```
 
@@ -210,17 +212,27 @@ The repository contains source code, scene backgrounds, stage textures, and orig
 
 ## Community
 
+Players, developers, character-card authors, MMD/VRM creators, streamers, and curious newcomers are all welcome. Share characters and stages, compare notes, suggest features, or build with us.
+
+- **QQ group:** `1124054481` · [QR code](./companion/frontend/public/community/qq-group.jpg)
+- **WeChat:** `xiaokeai3d` · [QR code](./companion/frontend/public/community/wechat-qr.png)
 - **Discord:** [Join the community](https://discord.gg/xxvXxHP8T)
-- **QQ group:** `1124054481`
+- **X:** [@iliuPIG](https://x.com/iliuPIG)
+- **YouTube:** [@liupig](https://www.youtube.com/@liupig)
+- **GitHub:** [liupig/xiaokeai](https://github.com/liupig/xiaokeai)
 - **Contributing:** Forks, self-hosting, issues, and pull requests are welcome.
 
-## License and Credits
+## Acknowledgements
 
-Source code and project-generated tarot/scene art are licensed under [Apache License 2.0](./LICENSE). The xiaoke.ai / 小可爱 names and marks are not transferred; third-party models, motions, cameras, music, and voices remain under their authors' terms. See [NOTICE](./NOTICE) before redistributing or using assets commercially.
+**[Read the full acknowledgements](./ACKNOWLEDGEMENTS.md)**
 
-Thanks to the [aplaybox](https://www.aplaybox.com/) community and its asset authors, [Reze MiPo](https://github.com/AmyangXYZ/reze-mipo) for the motion-capture approach, and the teams behind Three.js, VRM, MMD, MediaPipe, Vue, FastAPI, Electron, mem0, Qdrant, Qwen, SenseVoice, and the other open-source projects that make xiaoke.ai possible.
+Thanks to the [aplaybox](https://www.aplaybox.com/) community and every asset author, [Reze MiPo](https://github.com/AmyangXYZ/reze-mipo) for the motion-capture approach, and the teams behind Three.js, VRM, MMD, MediaPipe, Vue, FastAPI, Electron, mem0, Qdrant, Qwen, SenseVoice, and the other open-source projects that make xiaoke.ai possible.
 
-Character-card compatibility builds on the open ecosystem established by [SillyTavern](https://github.com/SillyTavern/SillyTavern) and the community [Character Card V2 specification](https://github.com/malfoyslastname/character-card-spec-v2). xiaoke.ai imports compatible cards and adapts Lorebooks to its own layered prompt stack and 3D stage; it does not claim the card formats or Lorebook concept as original work. Card authors retain their copyrights, and compatibility does not imply affiliation with SillyTavern.
+Character-card compatibility builds on the open ecosystem established by [SillyTavern](https://github.com/SillyTavern/SillyTavern) and the community [Character Card V2 specification](https://github.com/malfoyslastname/character-card-spec-v2). The full document also acknowledges Xiaoice, Doubao, the One-Euro Filter authors, the Rider–Waite tradition, live-interaction references, model and speech providers, and the many communities whose work made this project possible.
+
+## License
+
+Source code and project-generated tarot/scene art are licensed under [Apache License 2.0](./LICENSE). The xiaoke.ai / 小可爱 names and marks are not transferred; third-party models, motions, cameras, music, voices, character cards, and other assets remain under their authors' terms. See [NOTICE](./NOTICE) before redistributing or using assets commercially.
 
 Cloud LLM, ASR, and TTS providers process the text or audio sent to them under their own privacy policies. Tarot is for psychological reflection and entertainment, not professional advice.
 

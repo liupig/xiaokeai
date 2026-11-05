@@ -4,6 +4,21 @@
 
 这里记录 Windows 预打包体验版。源码会在两次打包之间持续开发，因此仓库可能包含最新版体验包尚未包含的功能。版本按时间从新到旧排列。
 
+## 2026-11-05
+
+**程序包：** `xiaoke-ai-agent-A-20261105173339.7z` + `xiaoke-ai-agent-B-20261105173339.7z`
+
+[GitHub 版本页](https://github.com/liupig/xiaokeai/releases/tag/a-20261105) · [Hugging Face 目录](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261105173339)
+
+**请下载时间戳均为 `20261105173339` 的 A、B 两包。** 解压到同一层目录，双击 A 目录中的 `xiaoke-ai.exe`。
+
+- 新增魅影酒馆：四人诈牌对局、AI 对手、四套牌面、电影化裁决和不阻塞牌局的语音演出。
+- 新增抖音和 B 站弹幕、关注与礼物，以及本地彩排、故障注入、播放回执和礼物补播。真实平台仍需自行实测。
+- 本地 MiniCPM-V 视觉升级为带真实时间戳的连续视频理解，支持场景策略、字幕时间轴、游戏客户端状态和本地 OCR。
+- 新增 SillyTavern v1/v2/v3、AICC 角色卡导入和 v2 PNG 导出，支持世界书、多开场白、作者元数据和独立用户档案。
+- 新增自然语言打开 WeGame、Steam、Epic 已安装游戏，检查启动进程，不自动安装缺失游戏。
+- 新增 MiMo-V2.5-TTS 9 个音色，改进断句、统一 dsh 角色会话，支持品牌主题、GitHub/Gitee 更新检查，并补齐视觉运行时与打包整合。
+
 ## 2026-10-28
 
 **程序包：** `xiaoke-ai-agent-A-20261028135252.7z` + `xiaoke-ai-agent-B-20261028135252.7z`  

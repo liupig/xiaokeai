@@ -4,6 +4,21 @@
 
 This page records the prebuilt Windows experience packs. Source development continues between packs, so the repository may contain features that are not in the latest download. Newest releases appear first.
 
+## 2026-11-05
+
+**Packages:** `xiaoke-ai-agent-A-20261105173339.7z` + `xiaoke-ai-agent-B-20261105173339.7z`
+
+[GitHub release](https://github.com/liupig/xiaokeai/releases/tag/a-20261105) · [Hugging Face directory](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261105173339)
+
+**Download both packages with timestamp `20261105173339`.** Extract them side by side and run `xiaoke-ai.exe` from A.
+
+- Added Phantom Tavern: four-seat bluffing cards, AI opponents, four art styles, cinematic judgments, and non-blocking voiced play.
+- Added Douyin and Bilibili chat, follows, and gifts, plus a local rehearsal lab, fault injection, playback receipts, and gift-response recovery. Real-platform testing is still required.
+- Upgraded the local MiniCPM-V eye to continuous video with real timestamps, scene policies, subtitle timelines, game client state, and local OCR.
+- Added SillyTavern v1/v2/v3 and AICC card import, v2 PNG export, Lorebooks, alternate greetings, creator metadata, and an optional user persona.
+- Added natural-language launching for installed WeGame, Steam, and Epic games with process verification and no automatic installation.
+- Added nine MiMo-V2.5-TTS voices, improved speech splitting, unified dsh character sessions, configurable branding, GitHub/Gitee update checks, and completed vision-runtime packaging.
+
 ## 2026-10-28
 
 **Packages:** `xiaoke-ai-agent-A-20261028135252.7z` + `xiaoke-ai-agent-B-20261028135252.7z`  

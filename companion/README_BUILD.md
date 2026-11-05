@@ -8,12 +8,12 @@
 
 产物不进仓库，默认输出到与 `games` 同级。盘不够时先设 `XIAOKE_OUT`（例如 `H:\xiaoke-ai-packs`）。
 
-已经打好的体验包用法见仓库根目录 [README · 体验包](../README.zh-CN.md#下载-windows-体验包)。2026-10-28 的 A、B 在 Hugging Face 仓库根目录和 Google Drive；以后的新包用 `scripts/upload_hf_pack.py` 上传，脚本会先建时间戳文件夹再放文件。Token 写在 `scripts/.env` 或 `companion/.env` 的 `HF_TOKEN`，不要提交。
+已经打好的体验包用法见仓库根目录 [README · 体验包](../README.zh-CN.md#下载-windows-体验包)。2026-11-05 的 A、B 位于 Hugging Face 的 `20261105173339/` 目录；新包用 `scripts/upload_hf_pack.py` 上传，脚本会先建时间戳文件夹再放文件。Token 写在 `scripts/.env` 或 `companion/.env` 的 `HF_TOKEN`，不要提交。
 
-| 包 | [Hugging Face](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main) | [Google Drive](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [百度网盘](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) 提取码 `xkai` |
+| 包 | [Hugging Face](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261105173339) | [Google Drive](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [百度网盘](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) 提取码 `xkai` |
 |---|---|---|---|
-| A | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-A-20261028135252.7z) | [下载](https://drive.google.com/file/d/14drCVOg5XkpM2WLABRfX7YZZWE-jTgC0/view?usp=sharing) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
-| B | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/xiaoke-ai-agent-B-20261028135252.7z) | [下载](https://drive.google.com/file/d/1uA5Z9FyOcEthARaUMkdu0JcEt0B-yggk/view?usp=sharing) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+| A | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-A-20261105173339.7z) | [镜像目录](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+| B | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-B-20261105173339.7z) | [镜像目录](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
 
 ## 1. 准备
 
