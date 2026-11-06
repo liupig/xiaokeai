@@ -857,6 +857,8 @@
   "set.dl.hint": "How to get it: log in at aplaybox.com, open devtools with F12, Network, any api.aplaybox.com request, the token header. Meeting a download rule will like, save, or follow with your account.",
   "set.q.physics": "Physics (hair and skirt; turn off on a low-end machine)",
   "set.q.physicsHint": "PMX models only. The switch takes effect at once and is remembered.",
+  "set.q.live2d": "Enable Live2D (independent 2D renderer)",
+  "set.q.live2dHint": "Off by default. Import a ZIP containing .model3.json after enabling. PMX / VRM / GLB are unaffected. Live2D uses its own motions; VMD and 3D cameras are unavailable.",
   "set.q.dpr": "Render scale cap (devicePixelRatio)",
   "set.q.light": "Light (nudge if the model is too bright or dark; 1.0 is standard)",
   "set.q.bgm": "Dance music volume",

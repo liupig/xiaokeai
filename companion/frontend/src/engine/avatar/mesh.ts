@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import type { Avatar, Axis, BoneKey, BoneMap, MorphMap } from '../types';
 import { makeBaseTracker, measureArm } from './common';
+import { MeshActionController } from './meshActions';
 
 /** 通用网格适配器：GLB（ARKit）和 MMD（PMX）共用，传入各自的骨骼/形态键映射表 */
 export function makeMeshAvatar(
   root: THREE.Object3D,
   BONES: BoneMap,
-  MORPHS: MorphMap
+  MORPHS: MorphMap,
+  animations: THREE.AnimationClip[] = [],
 ): Avatar {
   const base = makeBaseTracker();
   const morphMeshes: THREE.Mesh[] = [];
@@ -39,12 +41,16 @@ export function makeMeshAvatar(
       }
     }
   }
+  const avatarBone = (key: BoneKey) => {
+    if (!boneCache.has(key)) boneCache.set(key, findBone(BONES[key]));
+    return boneCache.get(key)!;
+  };
+  const actions = new MeshActionController(root, animations, avatarBone, base, armL, armR);
   return {
     isVRM: false,
-    bone: (key) => {
-      if (!boneCache.has(key)) boneCache.set(key, findBone(BONES[key]));
-      return boneCache.get(key)!;
-    },
+    bone: avatarBone,
+    get actionActive() { return actions.active; },
+    playAction: (name) => actions.play(name),
     beginFrame: () => {
       for (const { mesh, idx } of usedIndices) mesh.morphTargetInfluences![idx] = 0;
     },
@@ -71,7 +77,7 @@ export function makeMeshAvatar(
         if (idx !== undefined) mesh.morphTargetInfluences![idx] = v;
       }
     },
-    update: () => {},
+    update: (dt) => actions.update(dt),
     base,
     armL,
     armR,

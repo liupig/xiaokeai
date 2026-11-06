@@ -155,10 +155,14 @@ def extract_archive(archive: Path, dest: Path) -> None:
 def classify_extracted(root: Path) -> Dict[str, object]:
     """识别解压目录内容。
 
-    返回 {model: pmx路径|None, motions: [主舞vmd...], expression_vmds: [...],
+    返回 {model: pmx/model3.json路径|None, motions: [主舞vmd...], expression_vmds: [...],
           camera_vmds: [...], audio: [wav/mp3...]}
     """
     pmx_files = sorted(root.rglob("*.pmx"), key=lambda p: p.stat().st_size, reverse=True)
+    live2d_files = sorted(
+        (p for p in root.rglob("*.model3.json") if p.is_file()),
+        key=lambda p: (len(p.parts), str(p)),
+    )
     vmds = list(root.rglob("*.vmd"))
     audio = [p for ext in ("*.wav", "*.mp3", "*.ogg") for p in root.rglob(ext)]
 
@@ -177,7 +181,7 @@ def classify_extracted(root: Path) -> Dict[str, object]:
             motions.append(v)
 
     return {
-        "model": pmx_files[0] if pmx_files else None,
+        "model": pmx_files[0] if pmx_files else (live2d_files[0] if live2d_files else None),
         "motions": sorted(motions, key=lambda p: p.stat().st_size, reverse=True),
         "camera_vmds": cameras,
         "expression_vmds": expressions,

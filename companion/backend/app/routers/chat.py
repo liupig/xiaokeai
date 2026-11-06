@@ -33,6 +33,7 @@ class ChatRequest(BaseModel):
     character_id: int
     text: str
     morphs: List[str] = []
+    live2d: Dict[str, Any] = {}
     mode: str = "user"
     scene_id: str = ""
     scene_text: str = ""
@@ -86,7 +87,7 @@ async def _speak_first(source, lead: str):
 
 def _plain(text: str) -> str:
     text = re.sub(r"\[(dance|draw|lookup|glance|watch):[^\[\]]{0,160}\]", "", text or "")
-    text = re.sub(r"\[(emo|act|cam|expr|intent|stand):[^\[\]]{1,80}\]", "", text)
+    text = re.sub(r"\[(emo|act|cam|expr|intent|motion|outfit|param|preset|stand):[^\[\]]{1,80}\]", "", text)
     return text.strip()
 
 
@@ -228,6 +229,19 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         lorebook_before_hist=lore_post,
         user_persona=user_persona,
     )
+    if req.live2d:
+        capability_text = json.dumps(req.live2d, ensure_ascii=False)
+        messages.append({
+            "role": "system",
+            "content": (
+                "当前 Live2D 模型能力清单（JSON）：" + capability_text + "\n"
+                "只能调用清单里明确存在的资源，禁止臆造动作、表情、参数或预设。"
+                "需要时使用：[motion:组名:索引]（索引从0开始）、[expr:表情名]、"
+                "[outfit:表情名:on/off]、[param:参数ID=数值]（必须在min/max范围内）、"
+                "[preset:已保存预设名]。摘眼镜统一写[outfit:glasses:off]，不要猜当前是哪一种眼镜。"
+                "这些标签不会念出来，正文保持自然口语。"
+            ),
+        })
     # 扮演期间的消息落库标记为 rp：留在聊天历史里，但不进长期记忆抽取
     rp_now = prompt_stack.overlay_active(req.character_id)
 
@@ -417,6 +431,11 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 harness=harness_on,
                 semantic=use_harness,
             )
+        if req.live2d and mode == "user":
+            from ..services.direct_commands import direct_outfit_event
+            direct = direct_outfit_event(req.text or "")
+            if direct:
+                yield f"data: {json.dumps(direct, ensure_ascii=False)}\n\n"
         if tarot_ev:
             yield f"data: {json.dumps(tarot_ev, ensure_ascii=False)}\n\n"
         if tarot_silent or touch_off:

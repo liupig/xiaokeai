@@ -857,6 +857,8 @@
   "set.dl.hint": "获取方法：浏览器登录 aplaybox.com → F12 打开开发者工具 → 网络面板 → 任意 api.aplaybox.com 请求 → 请求头中的 token 字段。自动满足下载规则会用你的账号点赞/收藏/关注作品作者。",
   "set.q.physics": "物理模拟（头发/裙摆摆动，低配机可关闭）",
   "set.q.physicsHint": "仅对 PMX 模型有效。开关立刻生效并记住。",
+  "set.q.live2d": "启用 Live2D（独立 2D 渲染模块）",
+  "set.q.live2dHint": "默认关闭。开启后可导入含 .model3.json 的 ZIP 模型包；不影响 PMX / VRM / GLB。Live2D 使用模型自带动作，不支持 VMD 和 3D 运镜。",
   "set.q.dpr": "渲染分辨率上限（devicePixelRatio）",
   "set.q.light": "灯光亮度（觉得模型偏亮/偏暗时微调，1.0 为标准）",
   "set.q.bgm": "舞蹈 BGM 音量",

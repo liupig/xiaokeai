@@ -857,6 +857,8 @@
   "set.dl.hint": "取り方：aplaybox.com にログイン → F12 → ネットワーク → api.aplaybox.com のリクエスト → ヘッダの token。ダウンロード条件を満たすとき、あなたのアカウントでいいね、保存、作者のフォローをする。",
   "set.q.physics": "物理（髪と裾。低スペックでは切ってよい）",
   "set.q.physicsHint": "PMX だけ。スイッチはすぐ効き、覚える。",
+  "set.q.live2d": "Live2D を有効化（独立した 2D 描画）",
+  "set.q.live2dHint": "初期値はオフ。有効後に .model3.json を含む ZIP を導入できます。PMX / VRM / GLB には影響しません。Live2D はモデル自身の動作を使い、VMD と 3D カメラには対応しません。",
   "set.q.dpr": "描画倍率の上限（devicePixelRatio）",
   "set.q.light": "明かり（明るすぎ／暗すぎなら。1.0 が標準）",
   "set.q.bgm": "ダンス BGM の音量",

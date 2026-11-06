@@ -857,6 +857,8 @@
   "set.dl.hint": "얻는 법: aplaybox.com 에 로그인하고, F12 로 개발자 도구, Network, api.aplaybox.com 요청, token 헤더. 다운로드 조건을 만나면 그 계정으로 좋아요, 저장, 팔로우를 한다.",
   "set.q.physics": "물리 (머리와 치마. 사양이 낮으면 끈다)",
   "set.q.physicsHint": "PMX 모델만. 스위치는 바로 적용되고 기억된다.",
+  "set.q.live2d": "Live2D 사용 (독립 2D 렌더러)",
+  "set.q.live2dHint": "기본값은 꺼짐입니다. 켠 뒤 .model3.json이 있는 ZIP을 가져올 수 있습니다. PMX / VRM / GLB에는 영향이 없습니다. Live2D는 자체 모션을 사용하며 VMD와 3D 장면 전환은 지원하지 않습니다.",
   "set.q.dpr": "렌더 배율 상한 (devicePixelRatio)",
   "set.q.light": "빛 (모델이 너무 밝거나 어두우면 조금 민다. 1.0 이 표준)",
   "set.q.bgm": "춤 음악 음량",

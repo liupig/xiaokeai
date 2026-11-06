@@ -27,7 +27,7 @@ export interface ArmRig {
   up: number;   // 挥手抬起时叠加的角度（带符号）
 }
 
-/** 统一的角色抽象：PMX / VRM / GLB 三种模型共用 */
+/** 统一的角色抽象：PMX / VRM / GLB / Live2D 共用 */
 export interface Avatar {
   isVRM: boolean;
   bone(key: BoneKey): THREE.Object3D | null;
@@ -39,6 +39,8 @@ export interface Avatar {
   /** 按名字直接驱动任意形态键 */
   setMorph(name: string, v: number): void;
   update(dt: number): void;
+  playAction?(name: string): boolean;
+  readonly actionActive?: boolean;
   /** 骨骼初始欧拉角追踪，动画在其基础上叠加 */
   base(obj: THREE.Object3D): THREE.Euler;
   armL: ArmRig;

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { NButton, NInput, NTabPane, NTabs } from 'naive-ui';
 import { CAM_SHOTS } from '../../engine/camera';
 import { stage, type StandSlot } from '../../engine/stage';
 import type { ActionKey, CamShotId, EmotionKey } from '../../engine/types';
+import Live2DPanel from '../live2d/Live2DPanel.vue';
 import { applyEmotion, parseEmotionMap } from '../performance/emotionMap';
 import { isFramingCam } from '../performance/camLexicon';
 import { useAssetsStore } from '../../stores/assets';
@@ -58,6 +59,11 @@ const filteredMorphs = computed(() =>
     : morphNames.value
 );
 const supportsVmd = computed(() => characters.modelInfo?.supportsVmd ?? false);
+const isLive2D = computed(() => characters.modelInfo?.format === 'live2d');
+const activeTab = ref('motions');
+watch(isLive2D, (enabled) => {
+  activeTab.value = enabled ? 'live2d' : 'motions';
+});
 
 const groupedMotions = computed(() => {
   const q = motionSearch.value.trim();
@@ -136,13 +142,13 @@ function stopMotion() {
         <n-button size="tiny" quaternary @click="emit('update:show', false)">{{ t('common.close') }} ›</n-button>
       </div>
       <div class="rows">
-        <div class="row">
+        <div v-if="!isLive2D" class="row">
           <span class="row-label">{{ t('quick.shot') }}</span>
           <n-button v-for="c in sizeShots" :key="c.id" size="small" quaternary
                     :type="currentShot === c.id && !currentCamera ? 'primary' : 'default'"
                     @click="setCam(c.id)">{{ t('cam.' + c.id) }}</n-button>
         </div>
-        <div class="row">
+        <div v-if="!isLive2D" class="row">
           <span class="row-label">{{ t('quick.move') }}</span>
           <n-button v-for="c in moveShots" :key="c.id" size="small" quaternary
                     :type="currentShot === c.id && !currentCamera ? 'primary' : 'default'"
@@ -155,7 +161,7 @@ function stopMotion() {
                     :quaternary="currentEmotion !== e.key"
                     @click="setEmotion(e.key)">{{ e.label }}</n-button>
         </div>
-        <div class="row">
+        <div v-if="!isLive2D" class="row">
           <span class="row-label">{{ t('quick.stand') }}</span>
           <n-button v-for="s in stands" :key="s.key" size="small"
                     :type="standSlot === s.key ? 'primary' : 'default'"
@@ -169,7 +175,10 @@ function stopMotion() {
         </div>
       </div>
 
-      <n-tabs type="segment" size="small" class="tabs" default-value="motions">
+      <n-tabs v-model:value="activeTab" type="segment" size="small" class="tabs">
+        <n-tab-pane v-if="isLive2D" name="live2d" tab="Live2D 高级互动">
+          <Live2DPanel />
+        </n-tab-pane>
         <n-tab-pane name="motions" :tab="`${t('quick.motions')} (${assets.motions.length})`" :disabled="!supportsVmd">
           <div v-if="!supportsVmd" class="empty">{{ t('quick.noVmd') }}</div>
           <template v-else>
@@ -194,7 +203,7 @@ function stopMotion() {
             </div>
           </template>
         </n-tab-pane>
-        <n-tab-pane name="cameras" :tab="`${t('quick.cameras')} (${libraryCams.length})`">
+        <n-tab-pane name="cameras" :tab="`${t('quick.cameras')} (${libraryCams.length})`" :disabled="isLive2D">
           <div class="morph-tools">
             <span class="hint-inline">内置运镜点上面「镜头」；这里是镜头 VMD</span>
             <n-button size="small" type="warning" secondary @click="stopCamera">复位</n-button>

@@ -17,6 +17,7 @@ disable-model-invocation: true
 5. 景别和动作是一套。聊天默认 `[cam:half]`。亲密用 `[cam:close]`，只配点头、看向对方、摇头。思考或害羞用 `[cam:bust]`。鞠躬用 `[cam:threeQ]`。坐下、走路、换站位才用 `[cam:full]`。镜头不要每句都换。对方没说要跳，就不要写 `[dance:]`。
 6. 有情绪起伏时加意图：`[intent:greet]` `[intent:heart]` `[intent:cute]` `[intent:talk]` `[intent:tease]` `[intent:nod]` `[intent:look]` `[intent:shy]` `[intent:think]`。打招呼挥手配半身就够。
 7. 对方说靠左、靠右、回中间时，先给全身，再给 `[stand:left]` `[stand:center]` `[stand:right]`。
+8. 如果【现场】给了 Live2D 能力清单，可以直接联动清单里的资源：`[motion:动作组:索引]`、`[outfit:表情名:on/off]`、`[param:参数ID=数值]`、`[preset:预设名]`。摘眼镜写 `[outfit:glasses:off]`，会摘掉当前任意类型眼镜。只能用清单中已有的资源，不能臆造；动作和装扮要跟着对方的实际要求走，不要每句都换。对方要求改变外观、动作或参数时，必须输出对应标签，不能只写旁白代替执行。
 
 ## 规矩
 

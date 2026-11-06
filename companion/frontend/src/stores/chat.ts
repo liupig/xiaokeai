@@ -7,6 +7,7 @@ import { orchestrator } from '../features/performance/orchestrator';
 import { shots } from '../features/performance/shotConductor';
 import { speechPlayer } from '../features/voice/tts';
 import { stage } from '../engine/stage';
+import { live2dStage } from '../engine/live2d';
 import { useCharacterStore } from './character';
 import { useSettingsStore } from './settings';
 import { humanSilenceSec } from '../features/voice/duplex';
@@ -912,7 +913,8 @@ export const useChatStore = defineStore('chat', {
             orchestrator.allowLocalSpeech();
             emitLocal(quiet, onEvent);
           } else {
-            await api.streamChat(chars.currentId, input, onEvent, controller.signal, morphs, 'user', liveScenePack());
+            const capabilities = chars.modelInfo?.format === 'live2d' ? live2dStage.capabilities : {};
+            await api.streamChat(chars.currentId, input, onEvent, controller.signal, morphs, 'user', liveScenePack(), capabilities);
           }
         } catch (e) {
           if (!controller.signal.aborted) this.lastError = String(e);

@@ -7,9 +7,11 @@
 import { shallowRef } from 'vue';
 import { api } from '../../api/client';
 import { stage } from '../../engine/stage';
+import { live2dStage } from '../../engine/live2d';
 import type { StandSlot } from '../../engine/stage';
 import type { CamShotId } from '../../engine/types';
 import { useAssetsStore } from '../../stores/assets';
+import { useCharacterStore } from '../../stores/character';
 import { playAssetMotion, stripCatPrefix } from '../assets/motionMeta';
 import { INTENT_LABEL, MOVES, SIZES, STANDS } from '../review/camReview';
 import { buildCamCards } from './camLexicon';
@@ -334,6 +336,16 @@ export class Repertoire {
     liveRecent.value = [shown, ...rest].slice(0, 6);
     if (!beat.dance && !stage.danceLive) stage.silenceBgm();
 
+    if (useCharacterStore().modelInfo?.format === 'live2d') {
+      if (doStand) live2dStage.goToStand(beat.stand);
+      if (cam) this.playCam(beat, parts.idleMove);
+      if (!motion || beat.actionKind === 'none') return;
+      await this.wait(cam ? 280 : 0, seq);
+      if (seq !== this.playSeq) return;
+      this.playLive2DMotion(beat, parts.onMotionEnded);
+      return;
+    }
+
     if (doStand && !stage.danceLive && stage.standSlot !== beat.stand) {
       stage.goToStand(beat.stand);
       await this.wait(1100, seq);
@@ -437,6 +449,18 @@ export class Repertoire {
       camMove: shot,
       vmdName: undefined,
     };
+  }
+
+  private playLive2DMotion(beat: ApprovedBeat, onEnded?: () => void) {
+    if (beat.actionKind === 'builtin' && beat.builtin) {
+      stage.triggerAction(beat.builtin);
+      onEnded?.();
+      return;
+    }
+    const card = beat.assetName ? this.cards.find((c) => c.name === beat.assetName) : undefined;
+    const intent = beat.intents[0] ?? card?.tags[0] ?? 'talk';
+    if (!live2dStage.playAction(intent)) stage.triggerAction('nod');
+    onEnded?.();
   }
 
   private playMotion(beat: ApprovedBeat, once?: boolean, onEnded?: () => void, holdLast?: boolean) {

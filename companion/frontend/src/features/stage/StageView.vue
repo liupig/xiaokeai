@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { NSpin } from 'naive-ui';
 import { stage } from '../../engine/stage';
+import Live2DLayer from '../../engine/live2d/Live2DLayer.vue';
 import { installMocap } from '../mocap';
 import { useCharacterStore } from '../../stores/character';
 
@@ -21,6 +22,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="container" class="stage"></div>
+  <Live2DLayer />
   <div v-if="characters.modelLoading" class="loading glass">
     <n-spin size="small" />
     <span>模型加载中…</span>
