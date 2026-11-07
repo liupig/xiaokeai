@@ -20,7 +20,7 @@ def test_live2d_capability_tags_are_events_not_speech():
     assert parser.flush() == []
 
 
-def test_invalid_live2d_values_remain_inert_text():
+def test_invalid_live2d_values_are_safe_events():
     parser = TagStreamParser()
     events = parser.feed("[motion:][param:ParamAngleX=abc]")
 
@@ -35,5 +35,11 @@ def test_remove_glasses_command_is_deterministic():
     assert direct_outfit_event("不要带眼镜了") == {"type": "outfit", "value": "glasses:off"}
     assert direct_outfit_event("别带眼镜") == {"type": "outfit", "value": "glasses:off"}
     assert direct_outfit_event("摘掉圆眼镜") == {"type": "outfit", "value": "glasses:off"}
-    assert direct_outfit_event("戴上圆眼镜") is None
+    assert direct_outfit_event("眼镜好看吗") is None
+
+
+def test_wear_glasses_command_is_deterministic():
+    assert direct_outfit_event("戴上圆眼镜") == {"type": "outfit", "value": "round_glasses:on"}
+    assert direct_outfit_event("戴上方眼镜") == {"type": "outfit", "value": "square_glasses:on"}
+    assert direct_outfit_event("戴上眼镜") == {"type": "outfit", "value": "glasses:on"}
     assert direct_outfit_event("眼镜好看吗") is None

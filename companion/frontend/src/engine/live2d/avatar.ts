@@ -366,16 +366,11 @@ export class Live2DAvatar implements Avatar {
 
   applyParameters() {
     const combined = new Map([...this.values, ...this.manual, ...this.persistent]);
-    if (this.gazeEnabled) {
-      combined.set('ParamEyeBallX', this.gazeCurrent.x);
-      combined.set('ParamEyeBallY', this.gazeCurrent.y);
-      if (!this.actionActive) {
-        combined.set('ParamAngleX', (combined.get('ParamAngleX') ?? 0) + this.gazeCurrent.x * 8);
-        combined.set('ParamAngleY', (combined.get('ParamAngleY') ?? 0) - this.gazeCurrent.y * 5);
-      }
-    } else {
-      combined.set('ParamEyeBallX', this.gazeCurrent.x);
-      combined.set('ParamEyeBallY', this.gazeCurrent.y);
+    combined.set('ParamEyeBallX', this.gazeCurrent.x);
+    combined.set('ParamEyeBallY', this.gazeCurrent.y);
+    if (this.gazeEnabled && !this.actionActive) {
+      combined.set('ParamAngleX', (combined.get('ParamAngleX') ?? 0) + this.gazeCurrent.x * 8);
+      combined.set('ParamAngleY', (combined.get('ParamAngleY') ?? 0) - this.gazeCurrent.y * 5);
     }
     for (const [name, value] of combined) {
       const index = this.parameterIds.indexOf(name);

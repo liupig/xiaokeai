@@ -18,6 +18,7 @@ const EMOTION_EXPRESSIONS: Record<Exclude<EmotionKey, 'neutral'>, string[]> = {
   sad: ['sad', 'cry', 'gloomy'],
   relaxed: ['relaxed', 'calm', 'sleepy'],
 };
+const EMOTION_NAMES = new Set(Object.values(EMOTION_EXPRESSIONS).flat());
 
 export class Live2DStage {
   avatar: Live2DAvatar | null = null;
@@ -34,6 +35,8 @@ export class Live2DStage {
   private cameraTarget: { zoom: number; x: number; y: number } | null = null;
   private emotionExpression = '';
   private emotionSeq = 0;
+  private resizeWidth = 0;
+  private resizeHeight = 0;
   private readonly tick = (ticker: Ticker) => {
     this.model?.update(ticker.deltaMS);
     if (this.cameraTarget) {
@@ -53,13 +56,16 @@ export class Live2DStage {
 
   init(host: HTMLElement) {
     this.host = host;
-    if (this.app?.canvas.isConnected) {
-      host.appendChild(this.app.canvas);
-      return;
-    }
     this.resizeObserver?.disconnect();
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
+    if (this.app) host.appendChild(this.app.canvas);
+  }
+
+  detach() {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    this.host = null;
   }
 
   private async ensureApp(): Promise<Application> {
@@ -119,6 +125,8 @@ export class Live2DStage {
     model.internalModel.on('beforeModelUpdate', this.applyParameters);
     app.canvas.style.pointerEvents = 'auto';
     this.preferences = loadLive2DPreferences(url);
+    this.preferences.expressions = this.preferences.expressions.filter((name) =>
+      !EMOTION_NAMES.has(name.toLowerCase()));
     this.avatar.setGazeEnabled(this.preferences.gaze);
     for (const [id, value] of Object.entries(this.preferences.parameters)) {
       this.avatar.setParameter(id, Number(value));
@@ -162,7 +170,11 @@ export class Live2DStage {
     if (!this.host || !this.app) return;
     const width = Math.max(1, this.host.clientWidth);
     const height = Math.max(1, this.host.clientHeight);
-    this.app.renderer.resize(width, height);
+    if (width !== this.resizeWidth || height !== this.resizeHeight) {
+      this.app.renderer.resize(width, height);
+      this.resizeWidth = width;
+      this.resizeHeight = height;
+    }
     if (!this.model) return;
     const internal = this.model.internalModel;
     const scale = Math.min(
@@ -365,7 +377,10 @@ export class Live2DStage {
     const parameters = Object.fromEntries(this.parameterMeta().map((item) => [item.id, item.value]));
     const presets = {
       ...this.preferences.presets,
-      [key]: { parameters, expressions: this.activeExpressions },
+      [key]: {
+        parameters,
+        expressions: this.activeExpressions.filter((item) => item !== this.emotionExpression),
+      },
     };
     this.preferences = saveLive2DPreferences(this.modelUrl, { presets });
     return true;
@@ -417,15 +432,24 @@ export class Live2DStage {
     const seq = ++this.emotionSeq;
     this.emotionExpression = next;
     void (async () => {
-      if (previous) await this.setExpressionEnabled(previous, false);
-      if (seq === this.emotionSeq && next) await this.setExpressionEnabled(next, true);
+      if (previous) await this.setExpressionEnabled(previous, false, false);
+      if (seq === this.emotionSeq && next) await this.setExpressionEnabled(next, true, false);
     })().catch(() => {});
   }
 
-  async setExpressionEnabled(name: string, enabled: boolean): Promise<void> {
+  async setExpressionEnabled(name: string, enabled: boolean, persist = true): Promise<void> {
     if (!this.avatar) return;
-    if (name.toLowerCase() === 'glasses' && !enabled) {
-      await this.avatar.clearExpressionCategory(/glasses|sunglasses/i);
+    if (name.toLowerCase() === 'glasses') {
+      if (!enabled) {
+        await this.avatar.clearExpressionCategory(/glasses|sunglasses/i);
+      } else {
+        const glasses = this.expressionNames.filter((item) => /glasses|sunglasses/i.test(item));
+        const selected = glasses.find((item) => this.avatar?.activeExpressions.includes(item))
+          ?? glasses.find((item) => !/sunglasses/i.test(item)) ?? glasses[0];
+        if (!selected) return;
+        name = selected;
+        await this.avatar.setExpressionEnabled(name, true);
+      }
     } else {
       await this.avatar.setExpressionEnabled(name, enabled);
     }
@@ -438,10 +462,9 @@ export class Live2DStage {
         }
       }
     }
-    await this.avatar.setExpressionEnabled(name, enabled);
-    if (this.modelUrl) {
+    if (persist && this.modelUrl) {
       this.preferences = saveLive2DPreferences(this.modelUrl, {
-        expressions: this.avatar.activeExpressions,
+        expressions: this.avatar.activeExpressions.filter((item) => item !== this.emotionExpression),
         suppressedParameters: this.avatar.suppressedParameters,
       });
     }

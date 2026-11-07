@@ -4,6 +4,7 @@ import {
   NButton, NEmpty, NInput, NSlider, NSwitch, NTabPane, NTabs,
 } from 'naive-ui';
 import { live2dStage } from '../../engine/live2d';
+import { t } from '../../i18n';
 import { useCharacterStore } from '../../stores/character';
 
 const characters = useCharacterStore();
@@ -131,25 +132,25 @@ function resetParameters() {
 <template>
   <div class="live2d-panel">
     <n-tabs type="segment" size="small" animated>
-      <n-tab-pane name="interaction" tab="互动">
+      <n-tab-pane name="interaction" :tab="t('live2d.interaction')">
         <div class="section">
           <div class="switch-row">
-            <span>眼睛和头部跟随鼠标</span>
+            <span>{{ t('live2d.gaze') }}</span>
             <n-switch :value="gaze" @update:value="setGaze" />
           </div>
-          <p class="hint">离开舞台后自然回中。单击人物播放触摸动作，双击接原有触碰反馈。</p>
+          <p class="hint">{{ t('live2d.gazeHint') }}</p>
         </div>
         <div class="section">
-          <div class="section-head"><span>模型大小</span><span>{{ Math.round(zoom * 100) }}%</span></div>
+          <div class="section-head"><span>{{ t('live2d.size') }}</span><span>{{ Math.round(zoom * 100) }}%</span></div>
           <n-slider :value="zoom" :min="0.1" :max="3" :step="0.01" @update:value="setZoom" />
-          <p class="hint">拖动人物调整位置，滚轮缩放。</p>
-          <n-button size="small" secondary @click="live2dStage.resetView(); zoom = 0.3">恢复位置与大小</n-button>
+          <p class="hint">{{ t('live2d.sizeHint') }}</p>
+          <n-button size="small" secondary @click="live2dStage.resetView(); zoom = 0.3">{{ t('live2d.resetView') }}</n-button>
         </div>
         <div class="section">
-          <div class="section-head"><span>原生动作</span>
-            <n-button size="tiny" quaternary @click="stopMotion">停止</n-button>
+          <div class="section-head"><span>{{ t('live2d.nativeMotions') }}</span>
+            <n-button size="tiny" quaternary @click="stopMotion">{{ t('live2d.stop') }}</n-button>
           </div>
-          <n-empty v-if="!motionGroups.length" description="模型没有声明动作" size="small" />
+          <n-empty v-if="!motionGroups.length" :description="t('live2d.noMotions')" size="small" />
           <div v-for="group in motionGroups" :key="group.group" class="motion-group">
             <div class="group-name">{{ group.group }} · {{ group.count }}</div>
             <div class="button-grid">
@@ -163,22 +164,22 @@ function resetParameters() {
           </div>
         </div>
         <div class="section">
-          <div class="section-head"><span>组合预设</span></div>
+          <div class="section-head"><span>{{ t('live2d.presets') }}</span></div>
           <div class="preset-save">
-            <n-input v-model:value="presetName" size="small" placeholder="保存当前装扮和参数为预设" maxlength="32" />
-            <n-button size="small" :disabled="!presetName.trim()" @click="savePreset">保存</n-button>
+            <n-input v-model:value="presetName" size="small" :placeholder="t('live2d.presetPlaceholder')" maxlength="32" />
+            <n-button size="small" :disabled="!presetName.trim()" @click="savePreset">{{ t('live2d.save') }}</n-button>
           </div>
-          <p class="hint">预设按模型保存，也会进入该模型的 LLM 可调用能力清单。</p>
+          <p class="hint">{{ t('live2d.presetHint') }}</p>
           <div v-for="name in presetNames" :key="name" class="preset-row">
             <n-button size="tiny" secondary @click="applyPreset(name)">{{ name }}</n-button>
-            <n-button size="tiny" quaternary @click="deletePreset(name)">删除</n-button>
+            <n-button size="tiny" quaternary @click="deletePreset(name)">{{ t('live2d.delete') }}</n-button>
           </div>
         </div>
       </n-tab-pane>
 
-      <n-tab-pane name="outfits" tab="换装">
-        <p class="hint">可多件组合，眼镜类互斥；选择会按模型保存。</p>
-        <n-empty v-if="!outfitExpressions.length" description="模型没有可切换的装扮" size="small" />
+      <n-tab-pane name="outfits" :tab="t('live2d.outfits')">
+        <p class="hint">{{ t('live2d.outfitHint') }}</p>
+        <n-empty v-if="!outfitExpressions.length" :description="t('live2d.noOutfits')" size="small" />
         <div class="button-grid expressions">
           <n-button v-for="name in outfitExpressions" :key="name" size="small"
                     :type="activeExpressions.includes(name) ? 'primary' : 'default'"
@@ -187,7 +188,7 @@ function resetParameters() {
             {{ label(name) }}
           </n-button>
         </div>
-        <div class="section-head emotion-title"><span>表情与特效</span></div>
+        <div class="section-head emotion-title"><span>{{ t('live2d.emotionEffects') }}</span></div>
         <div class="button-grid expressions">
           <n-button v-for="name in emotionExpressions" :key="name" size="small"
                     :type="activeExpressions.includes(name) ? 'primary' : 'default'"
@@ -198,19 +199,19 @@ function resetParameters() {
         </div>
       </n-tab-pane>
 
-      <n-tab-pane name="parameters" tab="捏脸">
+      <n-tab-pane name="parameters" :tab="t('live2d.parameters')">
         <div class="tools">
-          <n-input v-model:value="parameterSearch" size="small" placeholder="搜索参数" clearable />
+          <n-input v-model:value="parameterSearch" size="small" :placeholder="t('live2d.searchParameters')" clearable />
           <n-button size="small" quaternary @click="showAllParameters = !showAllParameters">
-            {{ showAllParameters ? '基础参数' : '全部参数' }}
+            {{ showAllParameters ? t('live2d.baseParameters') : t('live2d.allParameters') }}
           </n-button>
-          <n-button size="small" quaternary @click="resetParameters">全部复位</n-button>
+          <n-button size="small" quaternary @click="resetParameters">{{ t('live2d.resetAll') }}</n-button>
         </div>
-        <p class="hint">修改实时生效并自动保存。动作播放期间，模型原生动画可能暂时覆盖部分参数。</p>
+        <p class="hint">{{ t('live2d.parameterHint') }}</p>
         <div v-for="parameter in filteredParameters" :key="parameter.id" class="parameter">
           <div class="parameter-head">
             <span :title="parameter.id">{{ parameter.name }}</span>
-            <button class="reset" @click="resetParameter(parameter.id)">复位</button>
+            <button class="reset" @click="resetParameter(parameter.id)">{{ t('live2d.reset') }}</button>
           </div>
           <div class="parameter-editor">
             <n-slider :value="parameterValues[parameter.id] ?? parameter.defaultValue"
@@ -220,7 +221,7 @@ function resetParameters() {
             <span class="value">{{ (parameterValues[parameter.id] ?? parameter.defaultValue).toFixed(2) }}</span>
           </div>
         </div>
-        <n-empty v-if="!filteredParameters.length" description="没有匹配的参数" size="small" />
+        <n-empty v-if="!filteredParameters.length" :description="t('live2d.noMatching')" size="small" />
       </n-tab-pane>
     </n-tabs>
     <div v-if="error" class="error">{{ error }}</div>

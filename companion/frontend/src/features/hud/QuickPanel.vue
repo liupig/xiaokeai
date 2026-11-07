@@ -63,7 +63,7 @@ const isLive2D = computed(() => characters.modelInfo?.format === 'live2d');
 const activeTab = ref('motions');
 watch(isLive2D, (enabled) => {
   activeTab.value = enabled ? 'live2d' : 'motions';
-});
+}, { immediate: true });
 
 const groupedMotions = computed(() => {
   const q = motionSearch.value.trim();

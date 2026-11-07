@@ -162,7 +162,6 @@ export function installTouch() {
     if (!down) return;
     down = false;
     if (moved || e.button !== 0) return;
-    if (useCharacterStore().modelInfo?.format === 'live2d') live2dStage.playTouchAt(x, y);
     noteBodyClick(x, y);
   };
 

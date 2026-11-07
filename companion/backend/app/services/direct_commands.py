@@ -9,9 +9,27 @@ _REMOVE_GLASSES = re.compile(
     r"|(remove|take off).*glasses",
     re.IGNORECASE,
 )
+_WEAR_GLASSES = re.compile(
+    r"(戴上|带上|佩戴|wear|put on).*眼镜|(wear|put on).*glasses",
+    re.IGNORECASE,
+)
+_GLASSES_NAMES = {
+    "圆": "round_glasses",
+    "round": "round_glasses",
+    "方": "square_glasses",
+    "square": "square_glasses",
+    "墨镜": "sunglasses",
+    "sunglasses": "sunglasses",
+    "椭圆": "oval_glasses",
+    "oval": "oval_glasses",
+}
 
 
 def direct_outfit_event(text: str) -> Optional[Dict[str, str]]:
     if _REMOVE_GLASSES.search(text or ""):
         return {"type": "outfit", "value": "glasses:off"}
+    if _WEAR_GLASSES.search(text or ""):
+        lowered = text.lower()
+        name = next((value for key, value in _GLASSES_NAMES.items() if key in lowered), "glasses")
+        return {"type": "outfit", "value": f"{name}:on"}
     return None

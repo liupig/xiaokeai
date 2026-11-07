@@ -9,7 +9,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  live2dStage.dispose();
+  live2dStage.detach();
 });
 </script>
 
