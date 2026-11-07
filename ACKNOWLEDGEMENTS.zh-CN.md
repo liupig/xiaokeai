@@ -42,6 +42,8 @@ xiaoke.ai 支持导入 SillyTavern v1/v2/v3 和 AICC 角色卡、导出 v2 卡�
 - **[Poimandres](https://github.com/pmndrs) / [three-stdlib](https://github.com/pmndrs/three-stdlib)** — 从新版 Three.js 拆出的 `MMDLoader`、`MMDAnimationHelper`、`MMDPhysics`。
 - **[ammo.js](https://github.com/kripken/ammo.js)** — Bullet Physics 的 WebAssembly 端口，用于 MMD 头发、裙摆和飘带。
 - **[Google MediaPipe](https://ai.google.dev/edge/mediapipe)** — Holistic 全身、双手和面部关键点。
+- **[Untitled Story](https://github.com/Untitled-Story/untitled-pixi-live2d-engine) / untitled-pixi-live2d-engine、PixiJS** — 独立 Live2D 渲染与 Cubism 模型加载。
+- **[Live2D](https://www.live2d.com/) / Cubism Core for Web** — Live2D 模型运行时；遵循 Live2D Proprietary Software License，文件保留原始许可声明。
 - **[Evan You](https://github.com/yyx990803) / Vue、Vite、Pinia** — 前端基础框架。
 - **[TuSimple / Naive UI](https://github.com/tusen-ai/naive-ui)** — 设置、资产和角色面板。
 - **[Sebastián Ramírez](https://github.com/tiangolo) / FastAPI、SQLModel** — 后端与 SQLite。
