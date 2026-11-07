@@ -71,8 +71,7 @@ def import_archive(session: Session, archive: Path, source: str = "local",
 
     model_file = info["model"]
     if model_file is not None:
-        # 贴图经常在压缩包根目录或 PMX 的上一级，只拷模型所在子文件夹会丢贴图。
-        # 整包解压目录搬进 models/<作品名>/，再按相对路径登记 PMX。
+        # 贴图和 Live2D 资源使用相对路径，整包保留再登记模型主文件。
         dir_name = _safe_name(base_label)
         dest_dir = MODELS_DIR / dir_name
         idx = 1
@@ -80,8 +79,8 @@ def import_archive(session: Session, archive: Path, source: str = "local",
             idx += 1
             dest_dir = MODELS_DIR / f"{dir_name}_{idx}"
         shutil.copytree(work, dest_dir)
-        pmx_in_dest = dest_dir / model_file.relative_to(work)
-        a = catalog.register_model(session, pmx_in_dest, source=source,
+        model_in_dest = dest_dir / model_file.relative_to(work)
+        a = catalog.register_model(session, model_in_dest, source=source,
                                    source_url=source_url, label=base_label)
         if a:
             created.append(a)

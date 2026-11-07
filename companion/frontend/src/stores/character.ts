@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { api, type CharacterItem } from '../api/client';
 import { stage, type ModelInfo } from '../engine/stage';
+import { live2dStage } from '../engine/live2d';
 import { caster } from '../features/performance/caster';
 import { repertoire } from '../features/performance/repertoire';
 import { shots } from '../features/performance/shotConductor';
@@ -98,7 +99,19 @@ export const useCharacterStore = defineStore('character', {
       this.modelLoading = true;
       this.modelError = '';
       try {
-        const info = await stage.loadModel(api.assetUrl(model));
+        let info: ModelInfo;
+        if (model.fmt === 'model3') {
+          const { useSettingsStore } = await import('./settings');
+          if (!useSettingsStore().quality.live2d_enabled) {
+            throw new Error('请先在设置 → 画质中开启 Live2D');
+          }
+          info = await live2dStage.loadModel(api.assetUrl(model));
+          if (gen !== switchGen || !live2dStage.avatar) return;
+          stage.adoptExternalAvatar(live2dStage.avatar, live2dStage.avatar.root, info);
+        } else {
+          live2dStage.unloadModel();
+          info = await stage.loadModel(api.assetUrl(model));
+        }
         if (gen !== switchGen) return;
         this.modelInfo = info;
         caster.indexFrom(assets.motions, info.morphNames);
@@ -117,6 +130,12 @@ export const useCharacterStore = defineStore('character', {
       } finally {
         if (gen === switchGen) this.modelLoading = false;
       }
+    },
+    disableLive2D() {
+      live2dStage.unloadModel();
+      stage.clearModel();
+      this.modelInfo = null;
+      this.modelError = 'Live2D 已关闭，请选择 PMX / VRM / GLB 模型';
     },
     async save(char: CharacterItem) {
       const saved = await api.updateCharacter(char);

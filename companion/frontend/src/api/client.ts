@@ -79,6 +79,10 @@ export type ChatEvent =
   | { type: 'cam'; value: string }
   | { type: 'expr'; value: string }
   | { type: 'intent'; value: string }
+  | { type: 'motion'; value: string }
+  | { type: 'outfit'; value: string }
+  | { type: 'param'; value: string }
+  | { type: 'preset'; value: string }
   | { type: 'stand'; value: string }
   | { type: 'error'; code: string; message: string }
   | { type: 'done'; full_text: string }
@@ -1164,9 +1168,10 @@ export const api = {
                    onEvent: (ev: ChatEvent) => void, signal?: AbortSignal,
                    morphs: string[] = [],
                    mode: 'user' | 'continue' | 'proactive' | 'goodbye' | 'welcome' | 'codewatch' | 'touch' | 'along' = 'user',
-                   extra: ChatExtra = {}) {
+                   extra: ChatExtra = {},
+                   live2d: Record<string, unknown> = {}) {
     const body = {
-      character_id: characterId, text, morphs, mode,
+      character_id: characterId, text, morphs, live2d, mode,
       scene_id: extra.scene_id || '',
       scene_text: extra.scene_text || '',
       scene_title: extra.scene_title || '',

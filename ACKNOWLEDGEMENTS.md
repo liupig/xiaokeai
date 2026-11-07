@@ -42,6 +42,8 @@ xiaoke.ai imports SillyTavern v1/v2/v3 and AICC cards, exports v2 cards, preserv
 - **[Poimandres](https://github.com/pmndrs) / [three-stdlib](https://github.com/pmndrs/three-stdlib)** — `MMDLoader`, `MMDAnimationHelper`, and `MMDPhysics` split from newer Three.js.
 - **[ammo.js](https://github.com/kripken/ammo.js)** — Bullet Physics WebAssembly for MMD hair, skirts, and ribbons.
 - **[Google MediaPipe](https://ai.google.dev/edge/mediapipe)** — Holistic body, hand, and face landmarks.
+- **[Untitled Story](https://github.com/Untitled-Story/untitled-pixi-live2d-engine) / untitled-pixi-live2d-engine and PixiJS** — Independent Live2D rendering and Cubism model loading.
+- **[Live2D](https://www.live2d.com/) / Cubism Core for Web** — Live2D model runtime under the Live2D Proprietary Software License; the original license header is retained.
 - **[Evan You](https://github.com/yyx990803) / Vue, Vite, Pinia** — frontend foundation.
 - **[TuSimple / Naive UI](https://github.com/tusen-ai/naive-ui)** — settings, assets, and character panels.
 - **[Sebastián Ramírez](https://github.com/tiangolo) / FastAPI, SQLModel** — backend and SQLite.

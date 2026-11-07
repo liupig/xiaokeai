@@ -5,6 +5,7 @@
 import type { AssetItem, ChatEvent } from '../../api/client';
 import { isCamShot } from '../../engine/camera';
 import { stage, type StandSlot } from '../../engine/stage';
+import { live2dStage } from '../../engine/live2d';
 import type { ActionKey, CamShotId, EmotionKey } from '../../engine/types';
 import { useAssetsStore } from '../../stores/assets';
 import { useCharacterStore } from '../../stores/character';
@@ -162,6 +163,40 @@ export class Orchestrator {
       case 'intent':
         caster.applyIntent(ev.value);
         break;
+      case 'motion': {
+        if (useCharacterStore().modelInfo?.format !== 'live2d') break;
+        const cut = ev.value.lastIndexOf(':');
+        const group = ev.value.slice(0, cut).trim();
+        const index = Number(ev.value.slice(cut + 1));
+        if (group && Number.isInteger(index) && index >= 0) live2dStage.playMotion(group, index);
+        break;
+      }
+      case 'outfit': {
+        if (useCharacterStore().modelInfo?.format !== 'live2d') break;
+        const cut = ev.value.lastIndexOf(':');
+        const name = ev.value.slice(0, cut).trim();
+        const state = ev.value.slice(cut + 1).trim().toLowerCase();
+        if (name && (state === 'on' || state === 'off')) {
+          void live2dStage.setExpressionEnabled(name, state === 'on').catch(() => {});
+        }
+        break;
+      }
+      case 'param': {
+        if (useCharacterStore().modelInfo?.format !== 'live2d') break;
+        const cut = ev.value.indexOf('=');
+        const id = ev.value.slice(0, cut).trim();
+        const value = Number(ev.value.slice(cut + 1));
+        const meta = live2dStage.parameterMeta().find((item) => item.id === id);
+        if (meta && Number.isFinite(value) && value >= meta.min && value <= meta.max) {
+          live2dStage.setParameter(id, value);
+        }
+        break;
+      }
+      case 'preset':
+        if (useCharacterStore().modelInfo?.format === 'live2d') {
+          void live2dStage.applyPreset(ev.value.trim()).catch(() => {});
+        }
+        break;
       case 'act': {
         if (this.continueMode && caster.holdingDance) break;
         if (ev.value === 'wave') {
@@ -232,6 +267,7 @@ export class Orchestrator {
         caster.finalize(ev.full_text || '');
         break;
       case 'picture':
+        if (useCharacterStore().modelInfo?.format === 'live2d') live2dStage.playAction('heart');
         if (!ev.url) {
           void import('../draw/card').then((m) => m.showDrawnCard('', ''));
           break;
@@ -239,6 +275,7 @@ export class Orchestrator {
         void import('../tarot/session').then((m) => m.showDrawnPicture(ev.url, ev.name || ''));
         break;
       case 'drawing':
+        if (useCharacterStore().modelInfo?.format === 'live2d') live2dStage.playAction('cute');
         void import('../draw/card').then((m) => m.showDrawing(ev.name || ''));
         break;
       case 'tarot':

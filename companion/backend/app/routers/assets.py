@@ -90,7 +90,7 @@ def delete_asset(asset_id: int, remove_files: bool = False,
         raise HTTPException(404, "资产不存在")
     if remove_files:
         target = ASSETS_DIR / asset.path
-        if asset.kind == "model" and asset.fmt == "pmx":
+        if asset.kind == "model" and asset.fmt in ("pmx", "model3"):
             shutil.rmtree(target.parent, ignore_errors=True)
         else:
             target.unlink(missing_ok=True)
