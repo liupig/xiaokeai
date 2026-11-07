@@ -12,7 +12,7 @@ import httpx
 from .narration import STAGE_RE, map_stage_inner
 
 TAG_RE = re.compile(
-    r"\[(emo|act|dance|cam|expr|intent|stand|draw|lookup|glance|play|watch):([^\[\]]{0,160})\]"
+    r"\[(emo|act|dance|cam|expr|intent|motion|outfit|param|preset|stand|draw|lookup|glance|play|watch):([^\[\]]{0,160})\]"
 )
 
 SYSTEM_PROTOCOL = """
@@ -31,6 +31,7 @@ SYSTEM_PROTOCOL = """
      · 全身 [cam:full]：坐下、走路、跳舞、换站位 [stand:…]
      · 远景 [cam:long]：舞台、完整舞蹈
    - 意图：有情绪起伏时加上。打招呼挥手用 [intent:greet] 配半身即可，不必拉全身。
+   - Live2D 资源（仅当系统提供能力清单时使用）：[motion:动作组:索引] [outfit:表情名:on/off] [param:参数ID=数值] [preset:预设名]；摘眼镜统一用 [outfit:glasses:off]。
    - 站位：用户说靠左/靠右/回中间时用 [stand:left] [stand:center] [stand:right]
      （站台左右位置，不是景别）。给站位前切全身。
    - 跳舞：仅当用户明确要求时输出 [dance:]。点了舞名就写那个文件名。

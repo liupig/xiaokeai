@@ -271,7 +271,9 @@ LOCAL_ASSETS_DIR = ROOT_DIR / "assets"
 
 def content_found() -> dict[str, bool]:
     return {
-        "models": MODELS_DIR.is_dir() and any(MODELS_DIR.rglob("*.pmx")),
+        "models": MODELS_DIR.is_dir() and (
+            any(MODELS_DIR.rglob("*.pmx")) or any(MODELS_DIR.rglob("*.model3.json"))
+        ),
         "motions": MOTIONS_DIR.is_dir() and any(MOTIONS_DIR.rglob("*.vmd")),
         "cameras": CAMERAS_DIR.is_dir() and any(CAMERAS_DIR.rglob("*.vmd")),
         "music": MUSIC_DIR.is_dir() and any(p.is_file() for p in MUSIC_DIR.rglob("*") if p.suffix.lower() in {".mp3", ".wav", ".m4a", ".ogg", ".flac"}),

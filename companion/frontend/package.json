@@ -17,8 +17,10 @@
     "mediabunny": "^1.55.4",
     "naive-ui": "^2.38.2",
     "pinia": "^2.1.7",
+    "pixi.js": "^8.22.0",
     "three": "^0.185.1",
     "three-stdlib": "^2.36.1",
+    "untitled-pixi-live2d-engine": "^1.4.0",
     "vue": "^3.4.21",
     "vue-i18n": "^9.14.5"
   },

@@ -231,6 +231,12 @@ export interface ModelInfo {
   supportsVmd: boolean;
 }
 
+export interface ExternalStageController {
+  playShot(id: CamShotId): void;
+  goToStand(slot: StandSlot): void;
+  setEmotion?(emotion: EmotionKey, intensity: number): void;
+}
+
 /** 舞台插件：动捕 / 塔罗等通过 use() 接入，舞台本身不依赖具体实现。 */
 export interface StagePlugin {
   id?: string;
@@ -955,13 +961,32 @@ export class Stage {
         disposeGpu(gltf.scene);
         return Promise.reject(new Error('已被更新的加载取代'));
       }
-      this.avatar = makeMeshAvatar(gltf.scene, GLB_BONES, GLB_MORPHS);
+      this.avatar = makeMeshAvatar(gltf.scene, GLB_BONES, GLB_MORPHS, gltf.animations);
       root = gltf.scene;
     }
     // 非 MMD 模型的灯光基准
     this.lightBase = { key: 1.8, rim: 1.0, amb: 0.9 };
     this.applyLights();
     return this.finishSetup(root, url, ext, false);
+  }
+
+  private externalController: ExternalStageController | null = null;
+
+  setExternalController(controller: ExternalStageController | null) {
+    this.externalController = controller;
+  }
+
+  adoptExternalAvatar(avatar: Avatar, root: THREE.Object3D, info: ModelInfo): ModelInfo {
+    this.unloadModel();
+    this.avatar = avatar;
+    this.modelRoot = root;
+    this.modelKind = info.format;
+    this.onModelReady?.(info);
+    return info;
+  }
+
+  clearModel() {
+    this.unloadModel();
   }
 
   private async setupMMD(mmd: THREE.SkinnedMesh, url: string): Promise<ModelInfo> {
@@ -1302,10 +1327,15 @@ export class Stage {
 
   setEmotion(e: EmotionKey, intensity = 0.85) {
     this.director.setMood(e, intensity);
+    if (this.modelKind === 'live2d') this.externalController?.setEmotion?.(e, intensity);
   }
 
   triggerAction(a: ActionKey) {
     this.idle.trigger(a);
+  }
+
+  playAction(name: string): boolean {
+    return this.avatar?.playAction?.(name) ?? false;
   }
 
   setMorph(name: string, on: boolean | number) {
@@ -1590,6 +1620,10 @@ export class Stage {
 
   /** 走到站台直径 1/4（左）/ 1/2（中）/ 3/4（右），并用走路动作走过去 */
   goToStand(slot: StandSlot) {
+    if (this.modelKind === 'live2d' && this.externalController) {
+      this.externalController.goToStand(slot);
+      return;
+    }
     if (!this.stand.goTo(slot)) return;
     void this.startWalkLocomotion();
   }
@@ -1648,11 +1682,19 @@ export class Stage {
 
   playShot(id: CamShotId, instant = false, duration?: number) {
     if (this.petMode) return;
+    if (this.modelKind === 'live2d' && this.externalController) {
+      this.externalController.playShot(id);
+      return;
+    }
     this.camRig.playShot(this.clampCamSize(id), instant, duration);
   }
 
   playIdleCut(size: CamShotId, move: IdleMoveKind, duration?: number) {
     if (this.petMode) return;
+    if (this.modelKind === 'live2d' && this.externalController) {
+      this.externalController.playShot(size);
+      return;
+    }
     this.camRig.playIdleCut(this.clampCamSize(size), move, duration);
   }
 
@@ -1925,11 +1967,12 @@ export class Stage {
       this.expr.mouthValue = this.lipsync.value(t, dt);
 
       if (!this.applyPluginPose()) {
+        const actionActive = this.motion.active || !!av.actionActive;
         this.expr.update(av, dt);
-        if (!this.motion.active) this.idle.update(av, dt, t);
+        if (!actionActive) this.idle.update(av, dt, t);
         this.motion.update(dt);
         // 表演导演：在闲置姿态之上叠加视线/微表演层（VMD 播放时自动让位）
-        this.director.update(av, dt, this.motion.active);
+        this.director.update(av, dt, actionActive);
       }
 
       // 物理：累积真实时间，攒够一个物理步长才推进一次（高刷屏防加速）

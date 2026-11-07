@@ -1,4 +1,5 @@
 import { stage } from '../../engine/stage';
+import { live2dStage } from '../../engine/live2d';
 import type { TouchZone } from '../../engine/types';
 import { replyLang } from '../../i18n';
 import { useCharacterStore } from '../../stores/character';
@@ -71,7 +72,9 @@ export function onBodyTap(clientX: number, clientY: number) {
   const settings = useSettingsStore();
   if (settings.modules.touch === false) return;
   if (blocked()) return;
-  const zone = stage.probeTouch(clientX, clientY);
+  const zone = useCharacterStore().modelInfo?.format === 'live2d'
+    ? live2dStage.probeTouch(clientX, clientY)
+    : stage.probeTouch(clientX, clientY);
   if (!zone) return;
   const now = Date.now();
   if (now - lastTap < 160) return;
@@ -144,7 +147,8 @@ export function installTouch() {
   const onDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
     if (document.documentElement.classList.contains('is-pet')) return;
-    if (e.target !== stage.canvas) return;
+    const live2d = e.target instanceof HTMLCanvasElement && e.target.dataset.renderer === 'live2d';
+    if (e.target !== stage.canvas && !live2d) return;
     down = true;
     moved = false;
     x = e.clientX;

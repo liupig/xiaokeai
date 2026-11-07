@@ -784,6 +784,17 @@ function onPhysics(v: boolean) {
   void settings.save().catch(() => {});
 }
 
+async function onLive2D(v: boolean) {
+  settings.quality.live2d_enabled = !!v;
+  if (!v && characters.modelInfo?.format === 'live2d') {
+    characters.disableLive2D();
+  }
+  await settings.save();
+  if (v && !characters.modelInfo && characters.currentId) {
+    await characters.switchTo(characters.currentId);
+  }
+}
+
 async function saveEmbedder(v: string) {
   const prev = settings.memory.embedder;
   settings.memory.embedder = (v === 'local' || v === 'doubao' || v === 'qwen' || v === 'openai' || v === 'gemini' ? v : 'auto');
@@ -1293,6 +1304,12 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
                       @update:value="onPhysics" />
           </div>
           <p class="hint">{{ t('set.q.physicsHint') }}</p>
+          <div class="switch-row">
+            <span>{{ t('set.q.live2d') }}</span>
+            <n-switch v-model:value="settings.quality.live2d_enabled"
+                      @update:value="onLive2D" />
+          </div>
+          <p class="hint">{{ t('set.q.live2dHint') }}</p>
           <label>{{ t('set.q.dpr') }}</label>
           <n-slider v-model:value="settings.quality.pixel_ratio_cap"
                     :min="1" :max="3" :step="0.5" />

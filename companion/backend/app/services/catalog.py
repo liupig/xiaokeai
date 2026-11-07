@@ -234,7 +234,11 @@ MODEL_LABELS = {
     "qingxiao": "清宵（国风御姐）",
 }
 
-MODEL_EXTS = {".pmx", ".vrm", ".glb"}
+MODEL_EXTS = {".pmx", ".vrm", ".glb", ".model3.json"}
+
+
+def is_live2d_model(file: Path) -> bool:
+    return file.name.lower().endswith(".model3.json")
 
 
 def _rel(p: Path) -> str:
@@ -287,10 +291,12 @@ def _get_by_name(session: Session, kind: str, name: str) -> Optional[Asset]:
 
 def register_model(session: Session, file: Path, source: str = "local",
                    source_url: str = "", label: str = "") -> Optional[Asset]:
-    """登记一个模型主文件。PMX 以目录名为资产名，VRM/GLB 以文件名。"""
-    if file.suffix.lower() not in MODEL_EXTS:
+    """登记一个模型主文件。PMX / Live2D 以目录名为资产名，VRM/GLB 以文件名。"""
+    live2d = is_live2d_model(file)
+    ext = ".model3.json" if live2d else file.suffix.lower()
+    if ext not in MODEL_EXTS:
         return None
-    if file.suffix.lower() == ".pmx":
+    if ext in (".pmx", ".model3.json"):
         name = file.parent.name if file.parent != MODELS_DIR else file.stem
     else:
         name = file.stem
@@ -300,7 +306,7 @@ def register_model(session: Session, file: Path, source: str = "local",
     asset = Asset(
         kind="model", name=name,
         label=label or MODEL_LABELS.get(name, name),
-        path=_rel(file), fmt=file.suffix.lower().lstrip("."),
+        path=_rel(file), fmt="model3" if live2d else ext.lstrip("."),
         size=file.stat().st_size, source=source, source_url=source_url,
     )
     session.add(asset)
@@ -403,12 +409,17 @@ def ensure_builtin_cameras(session: Session) -> List[Asset]:
 def scan_all(session: Session) -> List[Asset]:
     """全量扫描 assets/ 目录，登记新资产（不删除数据库中已有记录）。"""
     created: List[Asset] = []
-    # 模型：一级目录里找 pmx；根目录里的 vrm/glb
+    # 模型：一级目录里找 pmx / model3.json；根目录里的 vrm/glb
     for sub in MODELS_DIR.iterdir():
         if sub.is_dir():
             pmx_files = sorted(sub.rglob("*.pmx"), key=lambda p: p.stat().st_size, reverse=True)
-            if pmx_files:
-                a = register_model(session, pmx_files[0])
+            live2d_files = sorted(
+                (p for p in sub.rglob("*.model3.json") if p.is_file()),
+                key=lambda p: (len(p.parts), str(p)),
+            )
+            model_file = pmx_files[0] if pmx_files else (live2d_files[0] if live2d_files else None)
+            if model_file:
+                a = register_model(session, model_file)
                 if a and a.id is None:
                     created.append(a)
         elif sub.suffix.lower() in MODEL_EXTS:

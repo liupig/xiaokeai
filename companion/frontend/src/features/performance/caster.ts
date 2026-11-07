@@ -242,6 +242,12 @@ export class PerformanceCaster {
     }
     const kinds = exprKindsFor(stage.director.moodKey, stage.director.moodIntensity, [intent]);
     this.applyExprKinds(kinds, stage.director.moodIntensity || 0.7);
+    const format = useCharacterStore().modelInfo?.format;
+    const nativeIntent = !['nod', 'shake', 'dance', 'walk', 'sit', 'idle'].includes(intent);
+    if ((format === 'live2d' || format === 'glb') && nativeIntent && stage.playAction(intent)) {
+      this.motionThisTurn = true;
+      return true;
+    }
     return this.playIntent(intent);
   }
 

@@ -29,7 +29,8 @@ DEFAULTS: Dict[str, Any] = {
                 "background_color": "#141420", "background_image": "", "light_level": 1.0,
                 # 圆形舞台底座：显隐 / 台面颜色 / 发光环颜色 / 风格 / 台面贴图 / 不透明度
                 "stage_show": True, "stage_color": "#232342", "stage_glow": "#5b5bd6",
-                "stage_style": "classic", "stage_texture": "", "stage_opacity": 1.0},
+                "stage_style": "classic", "stage_texture": "", "stage_opacity": 1.0,
+                "live2d_enabled": False},
     "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "tavern": True, "codewatch": True, "touch": True, "harness": True, "glance": False, "live_douyin": False, "live": False, "play": True, "sight": True},
     "live": {"douyin": {"room": "", "push_secret": ""}},
     "locale": {"ui": "zh-CN", "reply": "zh-CN", "reply_mode": "fixed"},

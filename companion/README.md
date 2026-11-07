@@ -6,7 +6,7 @@
 
 ## 功能一览
 
-- **3D 舞台**：支持 PMX（MMD）/ VRM / GLB 三种模型格式，热切换；MMD 模型带 ammo.js 布料物理（头发/裙摆/飘带）。
+- **2D / 3D 舞台**：支持 PMX（MMD）/ VRM / GLB 三种 3D 模型格式，热切换；MMD 模型带 ammo.js 布料物理（头发/裙摆/飘带）。设置 → 画质可开启独立 Live2D 模块，导入含 `.model3.json` 的 ZIP 模型包；关闭时不加载 Live2D 引擎，不影响原 3D 路径。Live2D 高级互动包含平滑视线、部位触碰、原生动作中心、组合换装、捏脸参数编辑，以及按模型保存的装扮、参数和视图。
 - **实时动捕**：右上角摄像机按钮开直播；旁边的影片按钮可选本地视频文件做可重复测试（预览可拖进度 / 循环，不镜像）。MediaPipe Holistic 在 Worker 中检测全身 / 双手 / 面部，实时驱动当前角色（PMX 骨骼最完整，VRM/GLB 走人体骨骼映射）。算法参考 [Reze MiPo](https://github.com/AmyangXYZ/reze-mipo)。
 - **资产中心**：本地导入 zip/rar/单文件（自动解压、乱码文件名修复、PMX/VMD/音频自动分类入库）；对接模之屋（aplaybox）在线搜索与下载。
 - **角色卡**：模型 + 人设（System Prompt）+ 音色 + 情绪映射（每种情绪叠加模型自带形态键）+ 闲置动作。
@@ -115,7 +115,7 @@ foreach ($port in 8600, 5175) {
 
 ### 本地导入
 
-资产中心 → 本地导入，拖入 zip / rar / pmx / vrm / glb / vmd 文件即可，自动分类入库。
+资产中心 → 本地导入，拖入 zip / rar / pmx / vrm / glb / vmd 文件即可，自动分类入库。Live2D 请先在设置 → 画质开启，再导入包含 `.model3.json`、`.moc3`、贴图及动作资源的完整 ZIP；不要只拖 `.model3.json`。Live2D 使用模型自带动作与物理，不支持 VMD、3D 运镜和全身骨骼动捕。
 
 ### 情绪标签协议
 
@@ -125,7 +125,11 @@ LLM 输出内嵌标签驱动表演（后端剥离，不会念出来）：
 |---|---|
 | `[emo:happy/angry/sad/relaxed/neutral]` | 切换表情（可叠加角色卡自定义形态键） |
 | `[act:nod/shake]` | 点头 / 摇头 |
-| `[intent:greet]` | 打招呼（用过审动作，不再走内置挥手） |
+| `[intent:greet]` | 打招呼（PMX 用过审 VMD；Live2D 用原生动作组；GLB 用内嵌动画或程序化骨骼动作） |
+| `[motion:组名:索引]` | 播放模型声明的 Live2D 动作，索引从 0 开始 |
+| `[outfit:表情名:on/off]` | 切换模型声明的装扮 / 表情，支持组合 |
+| `[param:参数ID=数值]` | 调整模型声明范围内的 Live2D 参数 |
+| `[preset:预设名]` | 调用用户已保存的组合预设 |
 | `[dance:文件名.vmd]` | 播放舞蹈（仅 MMD/PMX 模型支持 VMD） |
 
 ## 常见问题
@@ -138,7 +142,7 @@ LLM 输出内嵌标签驱动表演（后端剥离，不会念出来）：
 
 ## 技术栈
 
-前端 Vue 3 / TypeScript / Vite / Pinia / Naive UI / Three.js 0.185 / three-vrm 3.5 / three-stdlib（MMDLoader + MMDPhysics + ammo.js）/ MediaPipe Holistic（摄像头动捕）/ mediabunny（证物短片）；后端 FastAPI / SQLModel(SQLite) / mem0 + Qdrant / sherpa-onnx SenseVoice / Qwen3-TTS / edge-tts。
+前端 Vue 3 / TypeScript / Vite / Pinia / Naive UI / Three.js 0.185 / three-vrm 3.5 / three-stdlib（MMDLoader + MMDPhysics + ammo.js）/ PixiJS + Cubism Core（独立 Live2D 模块）/ MediaPipe Holistic（摄像头动捕）/ mediabunny（证物短片）；后端 FastAPI / SQLModel(SQLite) / mem0 + Qdrant / sherpa-onnx SenseVoice / Qwen3-TTS / edge-tts。
 
 仓库根目录 [README](../README.md) 有完整技术说明和致谢名单。
 

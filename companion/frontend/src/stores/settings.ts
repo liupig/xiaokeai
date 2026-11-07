@@ -58,7 +58,7 @@ export const useSettingsStore = defineStore('settings', {
       physics: false, pixel_ratio_cap: 2, camera_follow: false, bgm_volume: 0.5,
       background_color: '#141420', background_image: '', light_level: 1,
       stage_show: true, stage_color: '#232342', stage_glow: '#5b5bd6', stage_style: 'classic',
-      stage_texture: '', stage_opacity: 1,
+      stage_texture: '', stage_opacity: 1, live2d_enabled: false,
     },
     modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, tavern: true, codewatch: true, touch: true, harness: true, glance: false, live_douyin: false, live: false, play: true },
     live: defaultLive(),
