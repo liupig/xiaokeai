@@ -89,7 +89,7 @@ SCENE_DANCE = (
     "心里那点事：{conflict}"
 )
 
-_DANCE_ASK = re.compile(r"跳.{0,6}舞|来一段|来一支|再跳|换一支|跳一个|dance", re.I)
+_DANCE_ASK = re.compile(r"跳.{0,6}舞|来一段|来一支|来一首|再跳|换一支|换一首|跳一个|dance", re.I)
 
 
 def _scene_text(key: str, fallback: str) -> str:

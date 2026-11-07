@@ -556,6 +556,9 @@ export async function doClarifier() {
 
 export async function playDismiss() {
   setVoicePlay(false);
+  const { useChatStore } = await import('../../stores/chat');
+  useChatStore().cancelTarotNext();
+  await useChatStore().cancelStream();
   tarotUi.busy = true;
   tarotUi.phase = 'leaving';
   tarotUi.caption = '';
@@ -784,6 +787,7 @@ export async function afterTarotSpeak(
   mode = 'user',
   role: SpeakRole | string = 'chat',
 ) {
+  if (tarotUi.phase === 'off' || tarotUi.phase === 'leaving') return 'idle';
   const snap = await syncTarotSession(characterId);
   if (!snap?.active) return 'idle';
   // 综合（自动续一拍或用户说「串起来」）讲完就收线，不再自动续第二拍。

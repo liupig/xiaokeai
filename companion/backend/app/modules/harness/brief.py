@@ -9,9 +9,9 @@ from typing import Any, Dict, List, Sequence
 
 # 模型只看最近十轮（对方一句、她一句算一轮）。更早的留在宿主记录里，不进这条会话。
 RECENT_ROUNDS = 10
-_DANCE_ASK = re.compile(r"跳.{0,6}舞|舞蹈|来一支|再来一支|换一支|再跳一次|再跳一下")
+_DANCE_ASK = re.compile(r"跳.{0,6}舞|舞蹈|来一支|来一首|再来一支|再来一首|换一支|换一首|再跳一次|再跳一下")
 _DANCE_AGAIN = re.compile(r"再跳一次|再跳一下|再来一次|再来一支")
-_DANCE_SWITCH = re.compile(r"换一个|换一支|换个舞")
+_DANCE_SWITCH = re.compile(r"换一个|换一支|换一首|换个舞|再来一首")
 
 
 def wants_harness(
@@ -72,6 +72,8 @@ def _prior_danced(prior: Sequence[Dict[str, str]] | None) -> bool:
         if (message.get("role") or "") != "assistant":
             continue
         text = message.get("content") or ""
+        if re.search(r"塔罗|许愿|魅影酒馆|牌局", text):
+            return False
         return "[dance:" in text or "舞" in text
     return False
 
@@ -84,9 +86,7 @@ def dance_opening(user_text: str, prior: Sequence[Dict[str, str]] | None = None)
     again = bool(_DANCE_AGAIN.search(raw))
     switch = bool(_DANCE_SWITCH.search(raw))
     asked = bool(_DANCE_ASK.search(raw))
-    if again and "再来一次" in raw and not _prior_danced(prior) and not asked:
-        again = False
-    if switch and not asked and not _prior_danced(prior):
+    if (again or switch) and not _prior_danced(prior):
         return ""
     if not asked and not again and not switch:
         return ""

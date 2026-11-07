@@ -9,6 +9,7 @@ from sqlmodel import Session
 
 from ...db import get_session
 from ...locale_pack import reply_of, set_reply
+from ...models import ChatMessage
 from ...services import settings_store
 from ..flags import enabled
 from . import deck, plays, service
@@ -20,6 +21,36 @@ def _guard(session: Session) -> None:
     if not enabled(session, "tarot"):
         raise HTTPException(404, "tarot module off")
     set_reply(reply_of(settings_store.get_all(session)))
+
+
+def _result_text(snap: Dict[str, Any]) -> str:
+    cards = snap.get("cards") or []
+    revealed = [cards[index] for index in (snap.get("revealed") or []) if 0 <= index < len(cards)]
+    if not revealed:
+        return ""
+    title = str(snap.get("title") or "塔罗")
+    question = str(snap.get("question") or "").strip()
+    names = "、".join(
+        f"{card.get('position', '')}·{card.get('name', '')}{'（逆位）' if card.get('reversed') else ''}"
+        for card in revealed
+    )
+    finished = bool(snap.get("all_revealed")) or snap.get("phase") == "linger"
+    return (
+        f"【塔罗结果】刚才玩了「{title}」。"
+        + (f"问题是：{question[:160]}。" if question else "")
+        + f"翻开的牌：{names}。{'已完成整局解读' if finished else '提前收牌，未做完整解读'}。"
+    )
+
+
+def _record_result(character_id: int, session: Session, snap: Dict[str, Any]) -> None:
+    text = _result_text(snap)
+    if not text:
+        return
+    session.add(ChatMessage(
+        character_id=character_id, role="assistant",
+        content=text, full_content=text, kind="game",
+    ))
+    session.commit()
 
 
 class DrawIn(BaseModel):
@@ -173,9 +204,12 @@ def draw(body: DrawIn, session: Session = Depends(get_session)) -> Dict[str, Any
 @router.post("/intent")
 def intent(body: IntentIn, session: Session = Depends(get_session)) -> Dict[str, Any]:
     _guard(session)
+    before = service.snapshot(body.character_id)
     action = service.apply_user_text(body.character_id, "user", body.text or "")
     if action == "draw":
         service.set_question(body.character_id, body.question or "")
+    if action == "dismiss":
+        _record_result(body.character_id, session, before)
     snap = service.snapshot(body.character_id)
     if action == "dismiss":
         snap = service._empty_session()
@@ -192,7 +226,10 @@ def focus(body: FocusIn, session: Session = Depends(get_session)) -> Dict[str, A
 @router.post("/dismiss")
 def dismiss(body: DismissIn, session: Session = Depends(get_session)) -> Dict[str, Any]:
     _guard(session)
+    before = service.snapshot(body.character_id)
     was = service.active(body.character_id)
+    if was:
+        _record_result(body.character_id, session, before)
     service.clear(body.character_id, exited=was)
     snap = service._empty_session()
     snap["exited"] = was

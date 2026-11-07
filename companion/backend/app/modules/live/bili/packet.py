@@ -27,7 +27,18 @@ def unpack_packets(buf: bytes) -> tuple[list[tuple[int, bytes]], bytes]:
     while len(view) >= _HEADER:
         length, header, proto, op, _seq = struct.unpack(">IHHII", view[:_HEADER])
         if header != _HEADER or length < _HEADER or length > _MAX:
-            return packets, b""
+            recovered = False
+            for offset in range(1, len(view) - _HEADER + 1):
+                next_length, next_header, _proto, _op, _seq = struct.unpack(
+                    ">IHHII", view[offset:offset + _HEADER]
+                )
+                if next_header == _HEADER and _HEADER <= next_length <= _MAX:
+                    view = view[offset:]
+                    recovered = True
+                    break
+            if not recovered:
+                return packets, b""
+            continue
         if len(view) < length:
             break
         body = view[_HEADER:length]

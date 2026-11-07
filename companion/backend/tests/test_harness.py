@@ -188,8 +188,11 @@ def test_a_later_turn_still_hears_the_last_wish():
 def test_dance_opening_speaks_before_the_skill():
     assert dance_opening("跳个舞吧") == "好，我跳一支。"
     assert dance_opening("换一个") == ""
+    assert dance_opening("再跳一次", []) == ""
+    assert dance_opening("再来一首", []) == ""
     prior = [{"role": "assistant", "content": "好呀[dance:soft-dance.vmd]"}]
     assert dance_opening("换一个", prior) == "好，换一支。"
+    assert dance_opening("再来一首", prior) == "好，换一支。"
     assert dance_opening("再跳一次", prior) == "好，再来一次。"
     text = turn_text(brief="", user_text="跳个舞吧", prior=None)
     assert "【这句】" in text
@@ -444,6 +447,8 @@ def test_glance_note_puts_the_observation_in_front_of_her():
     from app.modules.glance.service import glance_from_user
     assert glance_from_user("你看看我在干嘛？") == "在干嘛"
     assert glance_from_user("看看我在干嘛？") == "在干嘛"
+    assert glance_from_user("看看屏幕我在干嘛？") == "在干嘛"
+    assert glance_from_user("你在干嘛呢？") == ""
     assert glance_from_user("你才是笨蛋") == ""
     from app.modules.glance.along import quiet_line, same_scene, wants_start, wants_stop
     assert wants_start("你陪我看")

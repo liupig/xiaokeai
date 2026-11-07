@@ -229,7 +229,7 @@ export class CameraRig {
     if (!clip || seq !== this.vmdSeq) return false;
     this.controls.enabled = false;
     this.vmdHelper = new MMDAnimationHelper({ afterglow: 0, sync: false });
-    this.vmdHelper.add(this.camera, { animation: clip.clone() });
+    this.vmdHelper.add(this.camera, { animation: clip });
     this.vmdPlaying = true;
     this.vmdCacheKey = `${url}#${scale}`;
     this.vmdRemain = opts?.once === false ? 0 : Math.max(clip.duration, 0.3);
