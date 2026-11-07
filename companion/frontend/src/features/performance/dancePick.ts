@@ -11,8 +11,8 @@ const RECENT_CAP = 8;
 const RECENT_WEIGHT = [0.06, 0.16, 0.32, 0.5, 0.68, 0.82, 0.92];
 
 const REPEAT_RE = /再跳一次|再跳一遍|再来一次|再来一遍|再跳这|这支再|刚才那|同样的|一样的|\bagain\b|one more time|same one/i;
-const SWITCH_RE = /换一|换支|另一|别的舞|不一样|不要这|跳个别|下一支|再跳一个|再来一个|再来一支|再跳支|\banother\b|\bdifferent\b/i;
-const OPEN_RE = /跳.{0,6}舞|来一段|来一支|跳呀|跳起来|跳一个|dance/i;
+const SWITCH_RE = /换一|换支|另一|别的舞|不一样|不要这|跳个别|下一支|再跳一个|再来一个|再来一支|再来一首|再唱一首|再跳支|\banother\b|\bdifferent\b/i;
+const OPEN_RE = /跳.{0,6}舞|来一段|来一支|来一首|跳呀|跳起来|跳一个|dance/i;
 const YES_RE = /^(好的|好呀|好啊|好吧|可以|行呀|行吧|来吧|跳吧|就这个|要这个|就它|嗯好|对)[呀啊吧呢哦哇～!！。.\s]*$/;
 
 let recent: string[] = loadRecent();

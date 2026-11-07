@@ -574,7 +574,7 @@ export class SpeechInput {
       this.localBusy = false;
       const next = this.queued;
       this.queued = null;
-      if (next?.length && this.onResult) {
+      if (next?.length) {
         void this.recognize(next);
         return;
       }

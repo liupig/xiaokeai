@@ -20,6 +20,12 @@ def test_public_facts_never_authorize_vision(text):
     assert glance_from_user(text) == ""
 
 
+@pytest.mark.parametrize("text", ["你在干嘛呢", "你在干什么呢？", "你现在在干嘛", "我在干嘛"])
+def test_status_chat_never_authorizes_vision(text):
+    assert actions.visual_request_policy(text) == "chat"
+    assert glance_from_user(text) == ""
+
+
 @pytest.mark.parametrize("text", ["看看这个网页上的金价", "图里的天气图标在哪", "帮我看看屏幕上的报错", "这局你帮我盯一下"])
 def test_explicit_screen_targets_allow_visual_action(text):
     assert actions.visual_request_allowed(text)
@@ -405,3 +411,29 @@ def test_character_model_bypass_still_handles_explicit_visual_request(chat_route
     assert state["actions"] == [("vision", "在干嘛")]
     assert state["captures"]
     assert any(event.get("full_text") == "好，我看一眼。你在玩英雄联盟。" for event in events)
+
+
+def test_character_model_status_chat_does_not_capture(chat_route, monkeypatch):
+    send, state = chat_route
+    from app.modules.harness import service as harness_service
+    from app.services import llm as llm_service
+    from app.services import settings_store
+
+    previous = settings_store.get_all
+    monkeypatch.setattr(settings_store, "get_all", lambda session: {
+        **previous(session),
+        "modules": {**previous(session)["modules"], "glance": True},
+    })
+    monkeypatch.setattr(harness_service, "turn_uses_harness", lambda **kwargs: False)
+
+    async def ordinary_model(_conf, _messages):
+        yield {"type": "glance", "value": "在干嘛"}
+        yield {"type": "text", "delta": "我在陪你聊天呢。"}
+        yield {"type": "done", "full_text": "我在陪你聊天呢。"}
+
+    monkeypatch.setattr(llm_service, "stream_chat", ordinary_model)
+    events = send("你在干嘛呢？", [])
+
+    assert state["actions"] == []
+    assert state["captures"] == []
+    assert any(event.get("full_text") == "我在陪你聊天呢。" for event in events)

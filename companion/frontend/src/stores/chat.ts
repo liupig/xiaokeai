@@ -868,7 +868,18 @@ export const useChatStore = defineStore('chat', {
 
       let apiKeyMissing = false;
       const bag = { speech: false };
+      const controller = new AbortController();
+      let streamTimeout = 0;
+      const armStreamTimeout = () => {
+        window.clearTimeout(streamTimeout);
+        streamTimeout = window.setTimeout(() => {
+          if (streamAbort !== controller) return;
+          this.lastError = '回复等待超时，请重试。';
+          controller.abort();
+        }, 60_000);
+      };
       const onEvent = (ev: any) => {
+        armStreamTimeout();
         if (ingestTarotEvent(ev)) return;
         if (ev.type === 'error') {
           if (ev.code === 'no_api_key') apiKeyMissing = true;
@@ -892,13 +903,8 @@ export const useChatStore = defineStore('chat', {
         .filter((n) => !BASE_MORPHS.has(n))
         .slice(0, 50);
 
-      const controller = new AbortController();
       streamAbort = controller;
-      const streamTimeout = window.setTimeout(() => {
-        if (streamAbort !== controller) return;
-        this.lastError = '回复等待超时，请重试。';
-        controller.abort();
-      }, 60_000);
+      armStreamTimeout();
       void (async () => {
         try {
           let quiet = '';

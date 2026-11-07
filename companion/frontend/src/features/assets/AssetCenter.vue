@@ -56,6 +56,7 @@ function catName(cat: MotionCat) {
   return t(`cat.${cat}`);
 }
 
+const filteredModels = computed(() => filterAssets(assets.models));
 const filteredCameras = computed(() => filterAssets(assets.cameras));
 const filteredMotions = computed(() => {
   let list = filterAssets(assets.motions);

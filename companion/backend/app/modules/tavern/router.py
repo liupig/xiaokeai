@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from ...db import get_session
-from ...models import Character
+from ...models import Character, ChatMessage
 from ...services import settings_store
 from ..flags import enabled
 from ...services import coins, ledger
@@ -78,9 +78,16 @@ def _coins(points: int) -> int:
     return 0
 
 
-def _present(table: Table, cid: int) -> dict:
+def _present(table: Table, cid: int, session: Session) -> dict:
     habits.observe(cid, table.night, table.note)
     if table.phase == "over" and not table.paid:
+        text = _result_text(table)
+        if text:
+            session.add(ChatMessage(
+                character_id=cid, role="assistant",
+                content=text, full_content=text, kind="game",
+            ))
+            session.commit()
         board.apply(cid, table.places)
         you = next((row for row in table.places if row.get("id") == "you"), None)
         table.coin_delta = _coins(int(you["points"]) if you else 0)
@@ -109,7 +116,7 @@ def _after(cid: int, session: Session, token: tuple) -> dict:
         table = _TABLES.get(cid)
         if table is None:
             return {"phase": "idle", "board": board.load(cid)}
-        return _present(table, cid)
+        return _present(table, cid, session)
 
 
 def _run(cid: int, session: Session, fn) -> dict:
@@ -130,7 +137,7 @@ def state(character_id: int = 0, session: Session = Depends(get_session)) -> Dic
         table = _TABLES.get(character_id)
         if table is None:
             return {"phase": "idle", "board": board.load(character_id)}
-        return _present(table, character_id)
+        return _present(table, character_id, session)
 
 
 @router.post("/start")
@@ -193,11 +200,32 @@ def next_round(body: IdIn, session: Session = Depends(get_session)) -> Dict[str,
     return _run(body.character_id, session, lambda table: table.open_next())
 
 
+def _result_text(table: Table) -> str:
+    if table.phase != "over":
+        return ""
+    names = {"you": "KE", "her": table.her_name, "ai": "AI", "qin": "XiaO"}
+    places = "、".join(
+        f"{names.get(str(row.get('id') or ''), str(row.get('id') or ''))} {int(row.get('points') or 0):+d}分"
+        for row in table.places
+    )
+    winner = names.get(table.winner, table.winner or "未分胜负")
+    return f"【酒馆结果】刚才的魅影酒馆结束，胜者：{winner}。{('名次：' + places + '。') if places else ''}"
+
+
 @router.post("/end")
 def end_night(body: IdIn, session: Session = Depends(get_session)) -> Dict[str, Any]:
-    """结束这一局，回到选人和选牌。不记这一局的胜负。"""
+    """结束这一局并留下简短结果，回到选人和选牌。"""
     _guard(session)
     with _LOCK:
+        table = _TABLES.get(body.character_id)
+        if table is not None:
+            text = _result_text(table)
+            if text:
+                session.add(ChatMessage(
+                    character_id=body.character_id, role="assistant",
+                    content=text, full_content=text, kind="game",
+                ))
+                session.commit()
         _TABLES.pop(body.character_id, None)
         return {"phase": "idle", "board": board.load(body.character_id)}
 
@@ -243,7 +271,7 @@ def step(body: IdIn, session: Session = Depends(get_session)) -> Dict[str, Any]:
     with _LOCK:
         table = _table(body.character_id)
         if (id(table), table.seq) != token:
-            return _present(table, body.character_id)
+            return _present(table, body.character_id, session)
         try:
             table.step(decision)
         except RuleError as exc:

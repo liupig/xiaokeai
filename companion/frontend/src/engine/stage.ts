@@ -1620,6 +1620,7 @@ export class Stage {
 
   /** 走到站台直径 1/4（左）/ 1/2（中）/ 3/4（右），并用走路动作走过去 */
   goToStand(slot: StandSlot) {
+    if (this.camRig.vmdPlaying) return;
     if (this.modelKind === 'live2d' && this.externalController) {
       this.externalController.goToStand(slot);
       return;
@@ -1700,6 +1701,7 @@ export class Stage {
 
   playCameraVmd(url: string, opts?: { once?: boolean }) {
     if (this.petMode || this.camSizeLock?.length) return Promise.resolve();
+    this.stand.placeXY(this.stand.x, this.stand.y);
     return this.camRig.playVmd(url, opts);
   }
 

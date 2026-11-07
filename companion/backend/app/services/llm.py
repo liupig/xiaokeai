@@ -14,6 +14,16 @@ from .narration import STAGE_RE, map_stage_inner
 TAG_RE = re.compile(
     r"\[(emo|act|dance|cam|expr|intent|motion|outfit|param|preset|stand|draw|lookup|glance|play|watch):([^\[\]]{0,160})\]"
 )
+TAG_NAMES = {"emo", "act", "dance", "cam", "expr", "intent", "motion", "outfit", "param", "preset", "stand", "draw", "lookup", "glance", "play", "watch"}
+
+
+def _could_be_tag(text: str) -> bool:
+    if not text.startswith("[") or "]" in text:
+        return False
+    name, separator, _value = text[1:].partition(":")
+    if separator:
+        return name in TAG_NAMES
+    return any(candidate.startswith(name) for candidate in TAG_NAMES)
 
 SYSTEM_PROTOCOL = """
 你在扮演一个 3D 虚拟陪玩角色。文字会转成语音，表情和动作由工作室导演根据你的意图自动选角。
@@ -101,8 +111,8 @@ class TagStreamParser:
                 if head:
                     events.append({"type": "text", "delta": head})
                 self.buf = self.buf[last_open:]
-                # [draw:…] 可以到一百六十字，未闭合时先按住，别拆成念出来的字
-                hold = 220 if self.buf.startswith("[") else 100
+                # 只有像协议开口的未闭合片段才按住，普通代码/引用里的 [ 直接放行。
+                hold = 220 if _could_be_tag(self.buf) else (0 if self.buf.startswith("[") else 100)
                 if len(self.buf) > hold:
                     events.append({"type": "text", "delta": self.buf})
                     self.buf = ""

@@ -67,7 +67,9 @@ def glance_from_user(text: str) -> str:
         word in compact for word in ("看看", "看一下", "帮我看", "找")
     ):
         return "找 " + raw
-    if any(word in compact for word in ("在干嘛", "在干吗", "在干什么", "在做什么", "干啥", "干什么", "看看我", "看一下我", "看我在", "帮我看")):
+    asks_status = any(word in compact for word in ("在干嘛", "在干吗", "在干什么", "在做什么", "干啥", "干什么"))
+    explicit_look = any(word in compact for word in ("看看", "看一下", "看一眼", "看我在", "帮我看", "瞅瞅", "瞧瞧"))
+    if asks_status and explicit_look:
         return "在干嘛"
     return ""
 

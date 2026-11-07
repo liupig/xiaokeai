@@ -74,7 +74,7 @@ export class Orchestrator {
     this.clearFillerDelay();
   }
 
-  /** 每轮对话开始前调用：停语音，进入思考，并立刻按用户话选角 */
+  /** 每轮对话开始前调用：停语音并布置舞台，选舞交给 LLM 标签。 */
   beginTurn(userText = '', prevAssistant = '') {
     this.splitter.reset();
     this.turnText = '';
@@ -94,10 +94,6 @@ export class Orchestrator {
     speechPlayer.streamOpen = true;
     stage.director.notifyThinking();
     caster.beginTurn(userText, { keepDance: danceNow });
-    if (danceNow) {
-      if (this.playDance('')) caster.markDance();
-      else caster.releaseDance();
-    }
   }
 
   /** 超时续聊 / 欢迎 / 告别：不开新一轮选角，正在跳的舞也不要被思考/句拍动作掐掉 */
@@ -332,11 +328,7 @@ export class Orchestrator {
     const freshTag = !!(tagged && danceWeight(tagged.name) >= 0.5
       && norm(tagged.name) !== norm(this.lastDanceName));
     if (this.danceThisTurn && intent !== 'named') {
-      if (freshTag && norm(tagged!.name) !== norm(this.danceThisTurn)) {
-        motion = tagged;
-      } else {
-        return true;
-      }
+      return true;
     } else if (named) {
       motion = named;
     } else if (intent === 'repeat') {

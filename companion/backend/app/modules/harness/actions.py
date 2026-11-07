@@ -18,6 +18,9 @@ def visual_request_policy(user_text: str, prior=None, *, screen_context: bool = 
     different from checking today's gold price online.
     """
     raw = user_text or ""
+    compact = re.sub(r"\s+", "", raw)
+    if re.fullmatch(r"(?:你|我)?(?:现在|正在)?(?:在干嘛|在干吗|在干什么|在做什么)[呢吗啊呀？?。！!]*", compact):
+        return "chat"
     if _SCREEN.search(raw):
         return "allow"
     if _WEB_FACT.search(raw):
