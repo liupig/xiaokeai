@@ -13,10 +13,10 @@ import {
 } from './preferences';
 
 const EMOTION_EXPRESSIONS: Record<Exclude<EmotionKey, 'neutral'>, string[]> = {
-  happy: ['happy', 'smile', 'excited', 'blush', 'playful'],
-  angry: ['angry', 'angry_face'],
-  sad: ['sad', 'cry', 'gloomy'],
-  relaxed: ['relaxed', 'calm', 'sleepy'],
+  happy: ['happy', 'smile', 'excited', 'blush', 'playful', '爱心眼', '脸红'],
+  angry: ['angry', 'angry_face', '黑脸', '屑屑眼'],
+  sad: ['sad', 'cry', 'gloomy', '流泪'],
+  relaxed: ['relaxed', 'calm', 'sleepy', '放松'],
 };
 const EMOTION_NAMES = new Set(Object.values(EMOTION_EXPRESSIONS).flat());
 
@@ -104,7 +104,7 @@ export class Live2DStage {
   }
 
   async loadModel(url: string): Promise<ModelInfo> {
-    this.unloadModel();
+    await this.unloadModel();
     const seq = this.loadSeq;
     const app = await this.ensureApp();
     const { Live2DModel } = await loadLive2DRuntime();
@@ -114,7 +114,7 @@ export class Live2DStage {
       autoFocus: false,
     });
     if (seq !== this.loadSeq) {
-      model.destroy();
+      await this.releaseModel(model);
       throw new Error('已被更新的加载取代');
     }
     this.model = model;
@@ -138,6 +138,7 @@ export class Live2DStage {
         console.warn('[live2d] 跳过无法恢复的装扮', name, err);
       }
     }
+    if (seq !== this.loadSeq) throw new Error('已被更新的加载取代');
     for (const id of this.preferences.suppressedParameters) {
       this.avatar.setParameterSuppressed(id, true);
     }
@@ -151,6 +152,7 @@ export class Live2DStage {
         }
       } catch { /* 没有显示名时使用参数 ID */ }
     }
+    if (seq !== this.loadSeq) throw new Error('已被更新的加载取代');
     const idle = this.avatar.motionGroups.find((item) => /^(idling|idle)$/i.test(item.group));
     if (idle) void model.motion(idle.group, 0, 1).catch(() => {});
     this.resize();
@@ -280,8 +282,12 @@ export class Live2DStage {
     this.saveView();
   }
 
-  playShot(_id: CamShotId) {
-    this.cameraTarget = null;
+  playShot(id: CamShotId) {
+    const ratio: Partial<Record<CamShotId, number>> = {
+      close: 1.16, bust: 1.08, half: 1, threeQ: 0.94, full: 0.88, long: 0.8,
+    };
+    const zoom = 0.3 * (ratio[id] ?? 1);
+    this.cameraTarget = { zoom, x: this.preferences.offsetX, y: this.preferences.offsetY };
   }
 
   goToStand(slot: StandSlot) {
@@ -483,27 +489,41 @@ export class Live2DStage {
       .filter(Boolean);
   }
 
-  unloadModel() {
+  private async releaseModel(model: Live2DModel) {
+    const settings = model.internalModel.settings;
+    const textures = (settings.json as { FileReferences?: { Textures?: string[] } })
+      .FileReferences?.Textures ?? [];
+    const urls = textures.map((file) => settings.resolveURL(file));
+    model.destroy({ children: true });
+    if (!urls.length) return;
+    const { Assets } = await import('pixi.js');
+    await Promise.all(urls.map(async (url) => {
+      try { await Assets.unload(url); } catch { /* 已经释放的缓存无需重复处理 */ }
+    }));
+  }
+
+  async unloadModel() {
     ++this.loadSeq;
     ++this.emotionSeq;
     this.emotionExpression = '';
-    if (this.model) {
-      this.model.internalModel.off('beforeModelUpdate', this.applyParameters);
-      this.model.removeFromParent();
-      this.model.destroy();
-      this.model = null;
-    }
-    if (this.app) this.app.canvas.style.pointerEvents = 'none';
+    const model = this.model;
+    this.model = null;
     this.avatar?.reset();
     this.avatar = null;
+    if (model) {
+      model.internalModel.off('beforeModelUpdate', this.applyParameters);
+      model.removeFromParent();
+    }
+    if (this.app) this.app.canvas.style.pointerEvents = 'none';
     stage.setExternalController(null);
     this.modelUrl = '';
     this.dragging = null;
+    if (model) await this.releaseModel(model);
     this.app?.render();
   }
 
   dispose() {
-    this.unloadModel();
+    void this.unloadModel();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     if (this.app) {

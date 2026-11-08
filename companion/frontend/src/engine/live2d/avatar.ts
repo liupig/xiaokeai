@@ -42,17 +42,19 @@ const BONE_PARAMS: Partial<Record<BoneKey, { x?: string; y?: string; z?: string 
 };
 
 const ACTION_GROUPS: Record<string, string[]> = {
-  greet: ['Greet', 'Wave', 'Hello', 'TapBody', 'Touch'],
-  think: ['Think', 'Thinking'],
-  talk: ['Talk', 'Speaking'],
-  bow: ['Bow'],
-  clap: ['Clap', 'Applause'],
-  heart: ['Heart', 'Cute'],
-  shy: ['Shy'],
-  comfort: ['Comfort'],
-  tease: ['Tease'],
-  look: ['Look'],
-  stretch: ['Stretch'],
+  greet: ['Greet', 'Wave', 'Hello', 'TapBody', 'Touch', '挥手', '打招呼', '竖手指打开', '默认手切举手'],
+  think: ['Think', 'Thinking', '思考'],
+  talk: ['Talk', 'Speaking', '说话', '抚胸手打开', '默认手切举手'],
+  bow: ['Bow', '鞠躬'],
+  clap: ['Clap', 'Applause', '鼓掌'],
+  heart: ['Heart', 'Cute', '比心', '爱心', '抚胸手打开'],
+  shy: ['Shy', '害羞', '脸红', '抚胸手打开'],
+  comfort: ['Comfort', '安慰', '抱抱', '抚胸手打开'],
+  tease: ['Tease', '调皮', '逗弄', '狗尾巴草打开'],
+  cute: ['Cute', '可爱', '卖萌', '竖手指打开'],
+  look: ['Look', '看向'],
+  stretch: ['Stretch', '伸懒腰'],
+  idle: ['Idle', 'Idling', '待机'],
 };
 const SOCIAL_ACTIONS = new Set(['greet', 'heart', 'cute', 'comfort', 'tease', 'shy']);
 
@@ -69,6 +71,7 @@ export class Live2DAvatar implements Avatar {
   private readonly expressionFiles = new Map<string, string>();
   private readonly expressionDefinitions = new Map<string, ExpressionDefinition>();
   private readonly enabledExpressions = new Set<string>();
+  private readonly expressionSeqs = new Map<string, number>();
   private readonly values = new Map<string, number>();
   private readonly manual = new Map<string, number>();
   private readonly persistent = new Map<string, number>();
@@ -79,6 +82,9 @@ export class Live2DAvatar implements Avatar {
   private actionSeq = 0;
   private nativeAction = false;
   private nativeFinish: (() => void) | null = null;
+  private nativeTimer: ReturnType<typeof setTimeout> | null = null;
+  private autoActionNextAt = 0;
+  private lastAutoGroup = '';
   private gazeEnabled = true;
   private gazeTarget = { x: 0, y: 0 };
   private gazeCurrent = { x: 0, y: 0 };
@@ -150,17 +156,30 @@ export class Live2DAvatar implements Avatar {
     }
   }
 
+  private playAutoNative(group: string, index: number): boolean {
+    const now = Date.now();
+    if (now < this.autoActionNextAt) return true;
+    this.lastAutoGroup = group;
+    this.autoActionNextAt = now + 10000 + Math.random() * 5000;
+    return this.playNativeMotion(group, index);
+  }
+
   playAction(name: string): boolean {
     const motions = this.motionDefinitions;
     const aliases = ACTION_GROUPS[name] ?? [];
-    const group = Object.keys(motions).find((key) =>
+    const groups = Object.keys(motions).filter((key) =>
       aliases.some((alias) => alias.toLowerCase() === key.toLowerCase()));
-    if (group) return this.playNativeMotion(group, 0);
+    if (groups.length) {
+      const fresh = groups.filter((group) => group !== this.lastAutoGroup);
+      const candidates = fresh.length ? fresh : groups;
+      const group = candidates[Math.floor(Math.random() * candidates.length)];
+      return this.playAutoNative(group, 0);
+    }
     if (SOCIAL_ACTIONS.has(name)) {
       const fallback = Object.keys(motions).find((key) => /^(touch|tapbody|touchbody|action)$/i.test(key));
       if (fallback) {
         const index = Math.floor(Math.random() * motions[fallback].length);
-        return this.playNativeMotion(fallback, index);
+        return this.playAutoNative(fallback, index);
       }
     }
     const seq = ++this.actionSeq;
@@ -173,7 +192,8 @@ export class Live2DAvatar implements Avatar {
 
   playNativeMotion(group: string, index: number): boolean {
     const motions = this.motionDefinitions;
-    if (!motions[group]?.[index]) return false;
+    const definition = motions[group]?.[index] as { File?: string } | undefined;
+    if (!definition) return false;
     this.nativeFinish?.();
     const seq = ++this.actionSeq;
     const snapshot = this.parameterIds.map((_, parameterIndex) =>
@@ -182,18 +202,38 @@ export class Live2DAvatar implements Avatar {
     const finish = () => {
       if (finished || seq !== this.actionSeq) return;
       finished = true;
+      if (this.nativeTimer) clearTimeout(this.nativeTimer);
+      this.nativeTimer = null;
       this.nativeFinish = null;
+      this.model.stopMotions();
       snapshot.forEach((value, parameterIndex) =>
         this.core.setParameterValueByIndex(parameterIndex, value));
       this.actionActive = false;
       const idle = Object.keys(motions).find((key) => /^(idling|idle)$/i.test(key));
       if (idle) void this.model.motion(idle, 0, 1).catch(() => {});
     };
+    const finishAfter = (ms: number) => {
+      if (seq === this.actionSeq) this.nativeTimer = setTimeout(finish, ms);
+    };
     this.nativeFinish = finish;
     this.actionName = group;
     this.actionTime = 0;
     this.actionActive = true;
     this.nativeAction = true;
+    if (definition.File) {
+      const url = this.model.internalModel.settings.resolveURL(definition.File);
+      void fetch(url).then((response) => {
+        if (!response.ok) throw new Error('motion metadata unavailable');
+        return response.json() as Promise<{ Meta?: { Duration?: number } }>;
+      }).then((data) => {
+        const seconds = Number(data.Meta?.Duration);
+        finishAfter(Number.isFinite(seconds) && seconds > 0
+          ? Math.min(15000, Math.max(300, seconds * 1000 + 100))
+          : 2500);
+      }).catch(() => finishAfter(2500));
+    } else {
+      finishAfter(2500);
+    }
     void this.model.motion(group, index, 2, {
       onFinish: finish,
       onError: finish,
@@ -209,7 +249,10 @@ export class Live2DAvatar implements Avatar {
     const groups = this.motionGroups;
     const touch = groups.find((item) => item.group.toLowerCase() === 'touch');
     const group = touch ?? groups.find((item) => item.group.toLowerCase() === 'action');
-    if (!group) return this.playAction('greet');
+    if (!group) {
+      const reactions = ['comfort', 'shy', 'tease'];
+      return this.playAction(reactions[Math.floor(Math.random() * reactions.length)]);
+    }
     return this.playNativeMotion(group.group, Math.floor(Math.random() * group.count));
   }
 
@@ -264,17 +307,23 @@ export class Live2DAvatar implements Avatar {
 
   async setExpressionEnabled(name: string, enabled: boolean): Promise<void> {
     if (!this.expressionFiles.has(name)) return;
+    const seq = (this.expressionSeqs.get(name) ?? 0) + 1;
+    this.expressionSeqs.set(name, seq);
     if (!this.expressionDefinitions.has(name)) {
       const response = await fetch(this.expressionFiles.get(name)!);
       if (!response.ok) throw new Error(`表情资源加载失败：${name}`);
-      this.expressionDefinitions.set(name, await response.json() as ExpressionDefinition);
+      const definition = await response.json() as ExpressionDefinition;
+      if (this.expressionSeqs.get(name) !== seq) return;
+      this.expressionDefinitions.set(name, definition);
     }
+    if (this.expressionSeqs.get(name) !== seq) return;
     for (const parameter of this.expressionDefinitions.get(name)?.Parameters ?? []) {
       const index = this.parameterIds.indexOf(parameter.Id);
       if (index < 0) continue;
       if (enabled) this.suppressed.delete(parameter.Id);
       else this.suppressed.add(parameter.Id);
-      this.core.setParameterValueByIndex(index, enabled ? parameter.Value : 0);
+      const value = enabled ? parameter.Value : this.core.getParameterDefaultValue(index);
+      this.core.setParameterValueByIndex(index, value);
     }
     if (enabled) this.enabledExpressions.add(name);
     else this.enabledExpressions.delete(name);
@@ -296,8 +345,10 @@ export class Live2DAvatar implements Avatar {
     for (const name of this.enabledExpressions) {
       const definition = this.expressionDefinitions.get(name);
       for (const parameter of definition?.Parameters ?? []) {
-        if ((parameter.Blend || 'Add') !== 'Add' || !this.parameterIds.includes(parameter.Id)) continue;
-        this.persistent.set(parameter.Id, (this.persistent.get(parameter.Id) ?? 0) + parameter.Value);
+        const index = this.parameterIds.indexOf(parameter.Id);
+        if ((parameter.Blend || 'Add') !== 'Add' || index < 0) continue;
+        const base = this.persistent.get(parameter.Id) ?? this.core.getParameterDefaultValue(index);
+        this.persistent.set(parameter.Id, base + parameter.Value);
       }
     }
   }
@@ -377,16 +428,28 @@ export class Live2DAvatar implements Avatar {
       if (index >= 0) this.core.setParameterValueByIndex(index, value);
     }
     for (const name of this.suppressed) {
+      if (this.persistent.has(name)) continue;
       const index = this.parameterIds.indexOf(name);
-      if (index >= 0) this.core.setParameterValueByIndex(index, 0);
+      if (index >= 0) this.core.setParameterValueByIndex(index, this.core.getParameterDefaultValue(index));
     }
   }
 
   reset() {
     ++this.actionSeq;
+    if (this.nativeTimer) clearTimeout(this.nativeTimer);
+    this.nativeTimer = null;
+    this.nativeFinish = null;
+    this.model.stopMotions();
+    this.model.internalModel.motionManager.expressionManager?.resetExpression();
+    this.expressionSeqs.clear();
+    for (let index = 0; index < this.parameterIds.length; index++) {
+      this.core.setParameterValueByIndex(index, this.core.getParameterDefaultValue(index));
+    }
     this.actionActive = false;
     this.nativeAction = false;
     this.actionName = '';
+    this.autoActionNextAt = 0;
+    this.lastAutoGroup = '';
     this.enabledExpressions.clear();
     this.gazeTarget = { x: 0, y: 0 };
     this.gazeCurrent = { x: 0, y: 0 };

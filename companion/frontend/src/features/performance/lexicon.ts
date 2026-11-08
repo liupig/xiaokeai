@@ -81,15 +81,15 @@ export const EMOTIONS: EmotionCard[] = [
 
 export const EXPRESSIONS: ExprCard[] = [
   { kind: 'smile', meaning: '微笑、嘴角上扬', when: '开心、打招呼、感谢、肯定', moods: ['happy', 'relaxed'], exclusive: ['angry', 'tear'], speakOk: true, nameRe: /にっこり|にこり|笑い|微笑|笑/ },
-  { kind: 'sparkle', meaning: '星星眼、亮晶晶', when: '哈哈、太好了、惊喜的开心', moods: ['happy'], exclusive: ['angry', 'sadEye', 'tear'], speakOk: true, nameRe: /星目|キラ|sparkle|星/ },
+  { kind: 'sparkle', meaning: '星星眼、亮晶晶', when: '哈哈、太好了、惊喜的开心', moods: ['happy'], exclusive: ['angry', 'sadEye', 'tear'], speakOk: true, nameRe: /星目|キラ|sparkle|星星眼|星/ },
   { kind: 'wink', meaning: '眨单眼、俏皮', when: '调侃、卖萌、坏笑', moods: ['happy'], exclusive: ['angry', 'tear'], speakOk: true, nameRe: /ウィンク|wink|眨/ },
-  { kind: 'blush', meaning: '脸红、害羞', when: '被夸、喜欢、讨厌啦', moods: ['happy', 'relaxed'], exclusive: ['angry'], speakOk: true, nameRe: /照れ|頬|赤面|てれ|blush/ },
-  { kind: 'heartEye', meaning: '爱心眼', when: '比心、爱你、心动', moods: ['happy'], exclusive: ['angry', 'sadEye'], speakOk: true, nameRe: /ハート|爱心目|heart/i },
+  { kind: 'blush', meaning: '脸红、害羞', when: '被夸、喜欢、讨厌啦', moods: ['happy', 'relaxed'], exclusive: ['angry'], speakOk: true, nameRe: /照れ|頬|赤面|てれ|blush|脸红|害羞/ },
+  { kind: 'heartEye', meaning: '爱心眼', when: '比心、爱你、心动', moods: ['happy'], exclusive: ['angry', 'sadEye'], speakOk: true, nameRe: /ハート|爱心目|爱心眼|heart/i },
   { kind: 'sadEye', meaning: '柔和的难过眼神', when: '安慰、唉、心疼', moods: ['sad'], exclusive: ['sparkle', 'wink', 'angry'], speakOk: true, nameRe: /悲しい|困る|うるうる|じと|悲伤/ },
   { kind: 'tear', meaning: '含泪', when: '很伤心、快哭了', moods: ['sad'], exclusive: ['smile', 'sparkle', 'wink', 'angry'], speakOk: true, nameRe: /涙|泪|なみだ|cry/ },
-  { kind: 'angry', meaning: '皱眉、嗔怒', when: '哼、讨厌、生气', moods: ['angry'], exclusive: ['smile', 'sparkle', 'wink', 'blush'], speakOk: true, nameRe: /怒り|キリッ|むっ|怒/ },
-  { kind: 'relax', meaning: '软软的放松脸', when: '闲聊、听着、否定但不凶', moods: ['relaxed', 'neutral'], exclusive: ['angry', 'tear'], speakOk: true, nameRe: /なごみ|ほほえ|リラックス|穏やか/ },
-  { kind: 'surprise', meaning: '惊讶、眼睛睁大', when: '真的吗、诶、问句', moods: ['happy', 'relaxed', 'neutral'], exclusive: ['angry'], speakOk: true, nameRe: /びっくり|驚|あせ|汗/ },
+  { kind: 'angry', meaning: '皱眉、嗔怒', when: '哼、讨厌、生气', moods: ['angry'], exclusive: ['smile', 'sparkle', 'wink', 'blush'], speakOk: true, nameRe: /怒り|キリッ|むっ|怒|黑脸|屑屑眼|生气/ },
+  { kind: 'relax', meaning: '软软的放松脸', when: '闲聊、听着、否定但不凶', moods: ['relaxed', 'neutral'], exclusive: ['angry', 'tear'], speakOk: true, nameRe: /なごみ|ほほえ|リラックス|穏やか|放松/ },
+  { kind: 'surprise', meaning: '惊讶、眼睛睁大', when: '真的吗、诶、问句', moods: ['happy', 'relaxed', 'neutral'], exclusive: ['angry'], speakOk: true, nameRe: /びっくり|驚|あせ|汗|圈圈眼/ },
 ];
 
 const SKIP_MORPH = /^(あ|い|う|え|お|ん|ワ|まばたき|瞬き|瞳[LR]|目[0-9])/i;
