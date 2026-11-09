@@ -373,8 +373,10 @@ def main() -> int:
     os.environ["MEM0_TELEMETRY"] = "False"
     os.environ["PYTHONWARNINGS"] = "ignore:Failed to find:UserWarning"
     online = (root / "xiaoke-online.json").is_file()
-    content = (os.environ.get("COMPANION_CONTENT") or "").strip()
-    if not content:
+    if online:
+        os.environ.pop("COMPANION_CONTENT", None)
+    content = "" if online else (os.environ.get("COMPANION_CONTENT") or "").strip()
+    if not content and not online:
         marker = root / "content.path"
         if marker.is_file():
             try:

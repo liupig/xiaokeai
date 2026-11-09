@@ -2,7 +2,7 @@
 """把一对 A/B 体验包传到 Hugging Face 数据集。
 
 2026-10-28 那一对已经在仓库根目录，不要再用这个脚本重传。
-以后每一次都先建时间戳文件夹，再把文件放进去，例如：
+A/B 默认先建时间戳文件夹，再把文件放进去，例如：
 
   20261029120000/xiaoke-ai-agent-A-20261029120000.7z
   20261029120000/xiaoke-ai-agent-B-20261029120000.7z
@@ -15,6 +15,10 @@ Token 读 HF_TOKEN，顺序是环境变量、companion/scripts/.env、companion/
   backend\\.venv\\Scripts\\python.exe scripts\\upload_hf_pack.py ^
     E:\\BingCode\\bingGames\\xiaoke-ai-agent-A-20261029120000.7z ^
     E:\\BingCode\\bingGames\\xiaoke-ai-agent-B-20261029120000.7z
+
+Online 固定放到 online/ 目录：
+  backend\\.venv\\Scripts\\python.exe scripts\\upload_hf_pack.py --folder online ^
+    E:\\BingCode\\bingGames\\xiaoke-ai-online-20261109120000.7z
 """
 from __future__ import annotations
 
@@ -51,9 +55,10 @@ def stamp_of(path: Path) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="上传体验包到 Hugging Face，每个时间戳一个文件夹")
+    parser = argparse.ArgumentParser(description="上传体验包到 Hugging Face，默认每个时间戳一个文件夹")
     parser.add_argument("files", nargs="+", type=Path, help="要上传的 7z，同一时间戳放进同一个文件夹")
     parser.add_argument("--repo", default=DEFAULT_REPO, help=f"数据集仓库，默认 {DEFAULT_REPO}")
+    parser.add_argument("--folder", default="", help="固定远端目录，例如 online；不传则按时间戳建目录")
     args = parser.parse_args()
 
     load_env_files()
@@ -73,8 +78,11 @@ def main() -> None:
     api = HfApi(token=token)
     api.create_repo(repo_id=args.repo, repo_type="dataset", private=False, exist_ok=True)
 
+    folder = args.folder.strip().strip("/")
+    if folder and (folder.startswith(".") or ".." in Path(folder).parts):
+        raise SystemExit("远端目录不合法")
     for path in files:
-        stamp = stamp_of(path)
+        stamp = folder or stamp_of(path)
         path_in_repo = f"{stamp}/{path.name}"
         remote = api.get_paths_info(args.repo, [path_in_repo], repo_type="dataset")
         if remote and getattr(remote[0], "size", None) == path.stat().st_size:

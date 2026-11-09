@@ -129,6 +129,9 @@ def _sibling_content(app_root: Path) -> Path | None:
 
 
 def resolve_content_root(app_root: Path) -> Path | None:
+    # 纯在线包始终使用自己的轻量资产，外部环境或旧配置也不能挂回离线资源。
+    if (app_root / ONLINE_MARKER).is_file():
+        return app_root.resolve()
     env = (os.environ.get("COMPANION_CONTENT") or "").strip()
     if env:
         cand = Path(env)
@@ -141,9 +144,6 @@ def resolve_content_root(app_root: Path) -> Path | None:
     file_path = _read_content_file(app_root)
     if file_path:
         return file_path
-    # 在线包自带动作资产，旁边若还有 B 也不要自动挂上，否则会去加载离线语音和 PyTorch。
-    if (app_root / ONLINE_MARKER).is_file():
-        return app_root.resolve()
     sibling = _sibling_content(app_root)
     if sibling is not None:
         try:

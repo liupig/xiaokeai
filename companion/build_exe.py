@@ -258,6 +258,39 @@ def step_copy_runtime(dist_dir: Path, py: Path) -> None:
         raise SystemExit("runtime/python.exe 缺失")
 
 
+def step_copy_online_runtime(dist_dir: Path, py: Path) -> None:
+    """在线包从标准库和在线依赖新建运行时，不继承开发环境或旧发行包。"""
+    print("\n[3/8] 新建纯在线 Python 运行时")
+    runtime = dist_dir / "runtime"
+    if runtime.exists():
+        shutil.rmtree(runtime)
+    runtime.mkdir(parents=True)
+    src = base_prefix(py)
+    print(f"  base_prefix = {src}（只拷标准库，不拷 site-packages）")
+    for item in src.iterdir():
+        if item.is_file() and item.suffix.lower() in {".exe", ".dll", ".zip", ".pth"}:
+            shutil.copy2(item, runtime / item.name)
+    for name in ("DLLs", "Lib", "libs"):
+        if (src / name).is_dir():
+            robocopy(src / name, runtime / name, extra_xd=["site-packages"])
+    conda_bin = src / "Library" / "bin"
+    if conda_bin.is_dir():
+        robocopy(conda_bin, runtime / "Library" / "bin")
+    if not (runtime / "python.exe").is_file():
+        raise SystemExit("在线包 runtime/python.exe 缺失")
+    requirements = BACKEND / "requirements-online.txt"
+    if not requirements.is_file():
+        raise SystemExit(f"缺少在线依赖清单：{requirements}")
+    site_packages = runtime / "Lib" / "site-packages"
+    site_packages.mkdir(parents=True, exist_ok=True)
+    run([
+        str(py), "-m", "pip", "install",
+        "--disable-pip-version-check", "--no-compile", "--upgrade",
+        "--target", str(site_packages), "-r", str(requirements),
+    ])
+    slim_online_runtime(dist_dir)
+
+
 def step_encrypt_app(dist_dir: Path, py: Path) -> None:
     print("\n[4/8] 加密后端源码（编译为 .pyc，删除 .py）")
     dest = dist_dir / "app"
@@ -616,7 +649,7 @@ ONLINE_DROP_NAMES = {
     "fastembed", "onnxruntime", "onnxruntime_gpu",
     "scipy", "scipy.libs", "numba", "llvmlite", "librosa", "soundfile",
     "audioread", "pooch", "soxr", "resampy", "lazy_loader",
-    "sentence_transformers", "einops",
+    "sentence_transformers", "einops", "rapidocr", "modelscope",
 }
 ONLINE_DROP_PREFIXES = (
     "torch-", "torchaudio-", "torchvision-", "triton-", "nvidia",
@@ -627,6 +660,7 @@ ONLINE_DROP_PREFIXES = (
     "scipy-", "numba-", "llvmlite-", "librosa-", "soundfile-",
     "audioread-", "pooch-", "soxr-", "resampy-", "lazy_loader-",
     "sentence_transformers-", "sentence-transformers-", "einops-",
+    "rapidocr-", "modelscope-",
 )
 
 
@@ -806,15 +840,22 @@ def smoke_online_deps(dist_dir: Path) -> None:
         raise SystemExit("在线包没有 runtime/python.exe")
     code = (
         "import importlib.util\n"
-        "banned = ('torch', 'qwen_tts', 'sherpa_onnx', 'fastembed', 'transformers')\n"
+        "banned = (\n"
+        "    'torch', 'torchaudio', 'torchvision', 'qwen_tts', 'qwen3_tts_streaming',\n"
+        "    'sherpa_onnx', 'fastembed', 'onnxruntime', 'transformers', 'tokenizers',\n"
+        "    'accelerate', 'scipy', 'librosa', 'soundfile', 'sentence_transformers',\n"
+        "    'rapidocr', 'cv2', 'modelscope',\n"
+        ")\n"
         "for name in banned:\n"
         "    if importlib.util.find_spec(name) is not None:\n"
-        "        raise SystemExit('offline package still present: ' + name)\n"
-        "import edge_tts, dashscope, fastapi, mem0, numpy\n"
+        "        raise SystemExit('offline/vision package still present: ' + name)\n"
+        "import edge_tts, dashscope, fastapi, mem0, numpy, httpx, websockets, PIL, jieba\n"
         "print('ONLINE_DEPS_OK')\n"
     )
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
+    env["PYTHONNOUSERSITE"] = "1"
+    env.pop("PYTHONPATH", None)
     print("  在线依赖冒烟…")
     r = subprocess.run([str(py), "-c", code], env=env, capture_output=True, text=True)
     out = (r.stdout or "") + "\n" + (r.stderr or "")
@@ -960,16 +1001,21 @@ def step_copy_payload_full(dist_dir: Path) -> None:
 
 
 def step_copy_online_assets(dist_dir: Path) -> None:
-    """在线包自带角色、动作、镜头、歌曲。不带 SenseVoice / Qwen / MiniLM。"""
-    print("\n[5b/8] 在线包：拷动作资产（不含离线语音 / 向量 / PyTorch）")
+    """在线包自带角色、动作、镜头、歌曲，不带任何推理权重或视觉服务。"""
+    print("\n[5b/8] 在线包：拷动作资产（不含离线语音 / 向量 / 视觉）")
     copy_content_assets(dist_dir)
+    for relative in ("data/speech", "data/embed", "eyes", "models"):
+        path = dist_dir / relative
+        if path.exists():
+            shutil.rmtree(path)
     marker = {
         "name": "xiaoke-ai-online",
         "kind": "online",
-        "version": 1,
-        "asr": "volc",
-        "tts": "volc",
-        "embedder": "auto",
+        "version": 2,
+        "asr": "browser",
+        "tts": "edge",
+        "embedder": "doubao",
+        "vision": False,
     }
     (dist_dir / "xiaoke-online.json").write_text(
         json.dumps(marker, ensure_ascii=False, indent=2) + "\n",
@@ -1006,7 +1052,7 @@ def seed_online_settings(db: Path) -> None:
         conn.commit()
     finally:
         conn.close()
-    print("  ok 默认引擎：识别/合成=火山，向量=自动（跟对话那把 Key）")
+    print("  ok 默认引擎：识别=浏览器免费 ASR，合成=edge-tts，向量=豆包 embedding")
 
 
 def smoke_online_app(dist_dir: Path) -> None:
@@ -1018,10 +1064,20 @@ def smoke_online_app(dist_dir: Path) -> None:
         "import os, sys\n"
         "sys.path.insert(0, os.environ['COMPANION_ROOT'])\n"
         "import app.main\n"
+        "from sqlmodel import SQLModel, Session, create_engine\n"
+        "from app.models import ChatMessage\n"
+        "engine = create_engine('sqlite:///:memory:')\n"
+        "SQLModel.metadata.create_all(engine)\n"
+        "with Session(engine) as session:\n"
+        "    row = ChatMessage(character_id=1, role='user', content='pack smoke')\n"
+        "    session.add(row)\n"
+        "    session.commit()\n"
+        "    assert row.id is not None\n"
         "print('ONLINE_APP_OK')\n"
     )
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
+    env["PYTHONNOUSERSITE"] = "1"
     env["COMPANION_ROOT"] = str(dist_dir)
     env["NO_PROXY"] = "*"
     print("  在线包后端导入冒烟…")
@@ -1166,16 +1222,20 @@ def write_readme_online(dist_dir: Path) -> None:
 
 这个包自带角色、动作、镜头和歌曲，双击就能开。
 语音识别、语音合成、记忆向量都走云端，没有 SenseVoice、Qwen TTS、
-MiniLM，也没有 PyTorch。不需要 NVIDIA 显卡，也不用再选资源包 B。
+MiniLM、视觉服务、OCR，也没有 PyTorch。不需要 NVIDIA 显卡，也不用再选资源包 B。
 
 双击 xiaoke-ai.exe 打开自带 Chromium 窗口：
 
   前端  http://127.0.0.1:5211
   后端  http://127.0.0.1:5201
 
-第一次用：设置 → AI 对话，填入火山方舟的 base_url / api_key / model。
-默认识别是豆包语音 2.0，合成是 seed-tts 2.0，记忆向量自动用豆包 embedding，
-三样和对话共用这一把 Key。
+第一次用只需：设置 → AI 对话，填入火山方舟的 base_url / api_key / model。
+对话和记忆向量使用方舟 Key；向量优先用 doubao-embedding-vision-251215。
+默认识别是免费的浏览器 Web Speech，合成是免费的 edge-tts，不需要语音 Key。
+豆包和小米语音都是可选项，不是必填项：
+  豆包 ASR 可用方舟音频理解兜底；豆包 TTS 要 VOLC_SPEECH_API_KEY。
+  小米 LLM/TTS 用 XIAOMI_KEY，模型 mimo-v2.6-flash，TTS 引擎选 mimo。
+.env.example 是空模板；发行包不含开发机的 Key。
 
 改用阿里百炼时：对话地址改成百炼，识别改「阿里」，合成改 CosyVoice。
 改用 OpenAI 或 Gemini 时，识别、合成、向量也改成同一家。
@@ -1312,8 +1372,7 @@ def build_online(py: Path, skip_7z: bool) -> Path:
     print(f"在线包输出: {dist_dir}")
     step_frontend(py, stamp)
     step_electron(dist_dir)
-    step_copy_runtime(dist_dir, py)
-    slim_online_runtime(dist_dir)
+    step_copy_online_runtime(dist_dir, py)
     step_encrypt_app(dist_dir, py)
     step_copy_payload(dist_dir)
     step_copy_online_assets(dist_dir)

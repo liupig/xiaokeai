@@ -4,7 +4,7 @@
 
 - **A 程序包**：代码、瘦 Python、Electron 窗口。日常改这个。不含 PyTorch。
 - **B 资源包**：角色、动作、镜头、歌曲、SenseVoice、Qwen3-TTS、记忆向量、**PyTorch/CUDA**。基本不重打。
-- **在线包**：程序和动作资产打在一起。语音识别、语音合成、记忆向量都走云端，不含离线模型和 PyTorch。配好 AI 对话的 API Key 就能用。
+- **在线包**：程序和动作资产打在一起。语音识别、语音合成、记忆向量都走云端，不含离线模型、视觉服务、OCR 和 PyTorch。运行时按 `backend/requirements-online.txt` 全新安装，不复制开发环境或旧 A/B 包。
 
 产物不进仓库，默认输出到与 `games` 同级。盘不够时先设 `XIAOKE_OUT`（例如 `H:\xiaoke-ai-packs`）。
 
@@ -19,8 +19,8 @@
 
 - Windows、已能跑通 `start.bat` 的开发环境
 - Node.js（打包机用来下载 Electron）
-- 后端 venv 已装 torch / qwen-tts / sherpa-onnx
-- 打 B、一体包、在线包时还需要：`companion/assets/` 里的角色和动作。B 和一体包另外需要 `companion/backend/data/speech/` 权重；在线包不拷这些权重
+- 打 A、B、旧一体包时，后端 venv 已装 torch / qwen-tts / sherpa-onnx；只打在线包不需要这些离线依赖，脚本会自动安装精简在线依赖
+- 打 B、一体包、在线包时还需要：`companion/assets/` 里的角色和动作。B 和一体包另外需要 `companion/backend/data/speech/` 权重；在线包不拷这些权重，也不拷视觉权重
 - [7-Zip](https://www.7-zip.org/)（默认找 `D:\BingSoft\7-Zip\7z.exe`）
 
 ## 2. 打包
@@ -70,10 +70,10 @@ E:\BingCode\bingGames\
     xiaoke-ai.exe
     xiaoke-online.json
     assets/models|motions|cameras|audio|music
-    （没有 data/speech 权重、没有 MiniLM、没有 torch）
+    （没有语音/向量/视觉权重，没有 OCR、torch 等离线推理库）
 ```
 
-在线包不用选 B。打开后在设置 → AI 对话填火山方舟 Key：默认识别是豆包语音 2.0，合成是 seed-tts 2.0，记忆向量自动跟这把 Key。改用百炼、OpenAI 或 Gemini 时，把识别和合成也改成同一家。设置里资源包那一行，语音 / 向量 / PyTorch 显示横线是正常的。
+在线包不用选 B，默认只需在设置 → AI 对话填火山方舟 Key：对话和豆包 embedding 使用这把 Key，向量优先用 `doubao-embedding-vision-251215` 的多模态接口。默认识别是免费的浏览器 Web Speech，合成是免费的 `edge-tts`，不需要任何语音 Key。需要更高音质时可再选豆包或小米：豆包 ASR 在专用语音 Key 不可用时能用 `doubao-seed-2-1-lite-260915` 音频理解；豆包 TTS 需要 `VOLC_SPEECH_API_KEY`；小米 LLM/TTS 用 `XIAOMI_KEY`、模型 `mimo-v2.6-flash`、TTS 引擎 `mimo`。参考 `.env.example`，不要把任何 Key 打进发行包。视觉功能不在在线包提供；设置里语音 / 向量 / PyTorch 显示横线是正常的。
 
 第一次打开 A：设置 → 资源包 → 选 B 目录（能看到 `xiaoke-content.json`），关掉窗口再开。路径写在 A 的 `content.path`，换新 A 把这个文件拷过去即可。
 

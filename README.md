@@ -45,7 +45,20 @@ Characters shown in screenshots are demo assets created by [aplaybox](https://ww
 
 ## Download Windows
 
-The current prebuilt pack is **2026-11-05**. It includes Chromium and a Python runtime, so neither Chrome nor a system Python installation is required. Source code may contain features added after this packaged release. See [Release History](./HISTORY.md) for previous packages and changes.
+### Online all-in-one package (2026-11-09)
+
+**For an internet-connected experience, download only the Online package—no A/B packs are needed.** Chromium, the Python runtime, characters, motions, music, tarot, tavern, Harness, and the existing companion features and assets are included.
+
+- [GitHub Release · online-20261109](https://github.com/liupig/xiaokeai/releases/tag/online-20261109)
+- [Hugging Face · Online directory](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/online)
+
+Download `xiaoke-ai-online-20261109154149.7z`, extract it, and run `xiaoke-ai.exe`. Configure one Volcengine Ark LLM API key under **Settings → AI Chat**. Chat and online memory embeddings share this key. Browser Web Speech provides free ASR and edge-tts provides free speech synthesis by default, so no separate speech key is required.
+
+**Online does not include or support local ASR, TTS, embeddings, or vision inference.** SenseVoice, Qwen TTS, MiniLM/FastEmbed, MiniCPM, OCR, PyTorch, and CUDA are not bundled. Use the A/B packs below for those local capabilities, and do not attach a B pack to the Online edition.
+
+### A/B local content packs (2026-11-05)
+
+The current A/B prebuilt packs are **2026-11-05**. They include Chromium and a Python runtime, so neither Chrome nor a system Python installation is required. Source code may contain features added after this packaged release. See [Release History](./HISTORY.md) for previous packages and changes.
 
 **Download both A and B with timestamp `20261105173339`.** The older unversioned `xiaoke-ai-B` is not compatible with this release. Baidu Netdisk uses one shared folder for both files; password: `xkai`.
 

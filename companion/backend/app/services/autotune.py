@@ -11,7 +11,7 @@ from .machine import probe as probe_machine
 
 EDGE_VOICE = "zh-CN-XiaoyiNeural"
 QWEN_VOICE = "Serena"
-ONLINE_REASON = "在线包：语音识别、语音合成、记忆向量都走云端，和 AI 对话同一把 Key"
+ONLINE_REASON = "在线包：语音识别、语音合成、记忆向量全部使用云端 API"
 
 
 def _has_mod(name: str) -> bool:
@@ -72,13 +72,15 @@ def online_settings_patch() -> Dict[str, Any]:
 
     modules = dict(settings_store.DEFAULTS["modules"])
     modules["memory"] = True
+    modules["glance"] = False
+    modules["sight"] = False
     tts = dict(settings_store.DEFAULTS["tts"])
-    tts["engine"] = "volc"
-    tts["voice"] = default_voice("volc", "zh-CN")
+    tts["engine"] = "edge"
+    tts["voice"] = default_voice("edge", "zh-CN")
     return {
-        "stt": {"engine": "volc"},
+        "stt": {"engine": "browser"},
         "tts": tts,
-        "memory": {"embedder": "auto"},
+        "memory": {"embedder": "doubao"},
         "modules": modules,
         "hardware": {
             "auto": False,
@@ -280,6 +282,9 @@ def apply_on_boot(session: Session) -> Dict[str, Any]:
     stt["engine"] = rec["stt_engine"]
     modules = dict(conf.get("modules") or {})
     modules["memory"] = bool(rec["memory"])
+    if online:
+        modules["glance"] = False
+        modules["sight"] = False
     quality = dict(conf.get("quality") or {})
     if rec["tier"] == "low":
         quality["physics"] = False
@@ -294,13 +299,16 @@ def apply_on_boot(session: Session) -> Dict[str, Any]:
         "fingerprint": rec["fingerprint"],
         "failed": hw["failed"],
     })
-    out = settings_store.update(session, {
+    patch = {
         "tts": tts,
         "stt": stt,
         "modules": modules,
         "quality": quality,
         "hardware": hw,
-    })
+    }
+    if online:
+        patch["memory"] = {"embedder": "doubao"}
+    out = settings_store.update(session, patch)
     print(
         f"[autotune] applied tier={rec['tier']} ram={rec['ram_gb']}GB "
         f"vram={rec['vram_gb']}GB asr={rec['stt_engine']} tts={rec['tts_engine']} "

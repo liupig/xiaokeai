@@ -1,0 +1,15 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.27
+SQLAlchemy==2.0.52
+sqlmodel==0.0.39
+edge-tts>=6.1
+python-multipart>=0.0.9
+numpy>=1.24
+dashscope>=1.20.0
+mem0ai>=1.0.0
+jieba>=0.42.1
+Pillow>=10.0.0
+websockets>=12
+websocket-client>=1.8
+deepseek-harness-sdk==0.2.1rc2
