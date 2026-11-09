@@ -253,3 +253,32 @@ def _write_images(day: Path, item_id: str, letter: str, blobs: list[bytes]) -> i
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def _journal_path(key: str) -> Path:
+    import hashlib
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+    return _root / "journals" / f"{digest}.json"
+
+
+def save_journal(key: str, data: dict[str, Any]) -> None:
+    if not key:
+        return
+    path = _journal_path(key)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"key": key, **data}
+        _write_json(path, payload)
+    except OSError:
+        return
+
+
+def load_journal(key: str) -> dict[str, Any]:
+    if not key:
+        return {}
+    path = _journal_path(key)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) and data.get("key") == key else {}

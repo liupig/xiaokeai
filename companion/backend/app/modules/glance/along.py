@@ -60,6 +60,8 @@ class _State:
     visual_phase: str = ""
     phase_announced: bool = False
     opening: str = ""
+    company_at: float = 0
+    persona: str = ""
 
 
 _lock = threading.Lock()
@@ -193,6 +195,9 @@ def stop(reason: str = "requested") -> None:
             _state.phase_announced = False
             _state.epoch += 1
     if running:
+        from .journal import journal
+        journal.save()
+        journal.reset()
         reset_sense()
         situation.reset()
         live.reset()
@@ -219,6 +224,7 @@ def start(character_id: int, request: str = "") -> None:
         _halt.clear()
         _state.on = True
         _state.character_id = int(character_id)
+        _state.persona = _direct_model(character_id)[1]
         _state.hold_until = 0
         _state.offer = None
         _state.pending = ""
@@ -237,6 +243,7 @@ def start(character_id: int, request: str = "") -> None:
         _state.visual_phase = ""
         _state.phase_announced = False
         _state.opening = ""
+        _state.company_at = 0
         situation.reset()
         situation.configure_watch(command=request, task=request or "陪我看当前内容")
         situation.note_user(request)
@@ -262,6 +269,113 @@ def pending_trace() -> str:
         return _state.trace_id
 
 
+def direct_pending() -> bool:
+    with _lock:
+        return bool(_state.offer and _state.offer.direct)
+
+
+def direct_result() -> dict:
+    from .direct import _EMO
+    with _lock:
+        offer = _state.offer
+        if not offer or not offer.direct:
+            return {}
+        return {
+            "action": "speak" if offer.spoken else "silent",
+            "text": offer.spoken,
+            "mood": offer.mood,
+            "generator": offer.generator,
+            "attempts": [{"raw": offer.raw, "errors": [], "problem": ""}],
+            "performance": [{"type": "emo", "value": _EMO[offer.mood]}] if offer.spoken else [],
+        }
+
+
+def _direct_model(character_id: int) -> tuple[dict, str]:
+    from sqlmodel import Session
+    from ...db import engine
+    from ...models import Character
+    from ...services import settings_store
+    from ..character.card import compose_persona
+    from ..harness.service import harness_llm
+
+    with Session(engine) as session:
+        char = session.get(Character, character_id)
+        conf = settings_store.get_all(session).get("llm") or {}
+        persona = compose_persona(char) if char else ""
+    return harness_llm(conf), persona
+
+
+def _compact_persona(persona: str) -> str:
+    for marker in ("# 对白", "# 场景", "# 临时扮演", "# 尺度"):
+        persona = persona.split(marker, 1)[0]
+    return persona.strip()[:600]
+
+
+def _empty_offer(offer: Offer) -> bool:
+    if offer.kind == "company":
+        return False
+    text = offer.summary
+    has_dialogue = bool(re.search(r"字幕|原文|听到|歌词", text))
+    if not has_dialogue and re.search(r"光柱|手没动|标题更新|没变|持续出现|一直亮|还在|仍是|还是", text):
+        return True
+    if offer.channel == "audio" and len(re.sub(r"\s+", "", text)) < 4:
+        return True
+    with _lock:
+        previous = [_state.last, *_state.trail[-4:]]
+    return any(old and same_scene(text, old) for old in previous)
+
+
+def _prepare_direct(offer: Offer, trace_id: str) -> Offer | None:
+    import asyncio
+    from .direct import company_instruction, direct_reply, instruction
+    from .journal import journal
+    from .media_timeline import timeline
+    from .trace import mark
+
+    if offer.spoken:
+        return offer
+    journal.bind(offer.object_id)
+    journal.note_observation(offer.summary)
+    conf, persona = _direct_model(_state.character_id)
+    opening = journal.opening()
+    evidence = offer.summary + ("\n" + offer.context if offer.context else "")
+    evidence += "\n" + "\n".join(journal.beats[-6:])
+    system = "\n".join(part for part in (
+        _compact_persona(persona),
+        "当前在陪看，以内容交流和共同经历为主。",
+        journal.view(situation, timeline),
+        opening,
+        "【本次确认的内容】\n" + evidence,
+    ) if part)
+    prompt = company_instruction() if offer.kind == "company" else instruction(situation.talk)
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+    with _lock:
+        epoch = _state.epoch
+
+    def current() -> bool:
+        with _lock:
+            return _state.on and epoch == _state.epoch and not _state.speak_locked
+
+    result = asyncio.run(direct_reply(
+        conf, messages, evidence=evidence, valid=current,
+        recent=live.speeches[-3:], kind=offer.kind,
+    ))
+    if offer.kind == "company":
+        with _lock:
+            _state.company_at = time.time()
+    offer.raw = "".join(attempt["raw"] for attempt in result["attempts"])
+    offer.generator = str(result.get("generator") or "")
+    offer.mood = str(result.get("mood") or "")
+    offer.spoken = str(result.get("text") or "") if result["action"] == "speak" else ""
+    reason = "；".join(
+        ", ".join(attempt["errors"]) or attempt["problem"] for attempt in result["attempts"]
+    )
+    mark(trace_id, xiaoke_in=system + "\n" + prompt, xiaoke_raw=offer.raw,
+         xiaoke_out=offer.spoken, xiaoke_action=result["action"],
+         xiaoke_reason=f"视觉侧/{offer.generator}；" + reason)
+    return offer if offer.spoken and current() else None
+
+
 def register_opening(text: str, character_id: int) -> None:
     with _lock:
         if _state.on and _state.character_id == character_id:
@@ -285,15 +399,18 @@ def ack(seq: int, status: str = "completed") -> None:
     finish_speak(status == "completed", text if status == "completed" else "")
 
 
-def generated(text: str) -> None:
+def generated(text: str, expected_trace: str = "") -> bool:
     """Generation is complete, but the device has not acknowledged audio playback."""
     with _lock:
+        if expected_trace and expected_trace != _state.trace_id:
+            return False
         _state.generated = text
         _state.playback = "generated"
         trace_id = _state.trace_id
     from .trace import mark
 
     mark(trace_id, playback_status="generated")
+    return True
 
 
 def candidate_instruction(instruction: str) -> str:
@@ -449,11 +566,20 @@ def _enqueue(offer: Offer, trace_id: str) -> None:
     print(f"[along] seq={_state.seq} {offer.summary[:40]}")
 
 
-def finish_speak(spoke: bool, text: str = "") -> None:
+def finish_speak(spoke: bool, text: str = "", expected_trace: str = "") -> None:
+    with _lock:
+        if expected_trace and expected_trace != _state.trace_id:
+            return
     situation.note_offered(spoke)
     if spoke and text.strip():
         situation.watch_spoken = text.strip()[:180]
         situation.watch_feedback = "已按当前要求接话；继续观察"
+        from .journal import journal
+        offer = _state.offer
+        journal.note_speech(
+            text, mood=offer.mood if offer else "平静",
+            cause=offer.summary if offer else "", kind=offer.kind if offer else "reaction",
+        )
     item = live.candidate
     if item is not None:
         live.considered[item.key] = live.clock
@@ -495,12 +621,15 @@ def eyes_context() -> str:
     with _lock:
         trail = list(_state.trail)
         said = _state.said
-    parts: list[str] = [situation.watch_brief()]
+        persona = _state.persona
+    from .journal import journal
+    from .media_timeline import timeline
+    parts: list[str] = [persona, situation.watch_brief(), journal.view(situation, timeline)]
     if said:
         parts.append("他刚说：" + said)
     if trail:
         parts.append("画面经过：\n" + "\n".join(f"{i + 1}. {line}" for i, line in enumerate(trail)))
-    return "\n".join(parts)[:700]
+    return "\n".join(parts)[:2400]
 
 
 def trail_lines() -> list[str]:
@@ -540,6 +669,18 @@ def note_user(text: str, character_id: int, *, glance: bool, harness: bool, sema
         return
     if not semantic and wants_start(text):
         start(character_id)
+    from .journal import journal
+    journal.note_user(text)
+    compact = _compact(text)
+    short_reaction = (
+        0 < len(compact) < 4 and not re.search(r"[?？]", compact)
+        and not any((wants_hush(text), wants_pause(text), wants_talk(text), wants_start(text)))
+    )
+    if short_reaction:
+        with _lock:
+            if _state.on:
+                _state.said = compact[:80]
+        return
     with _lock:
         if _state.on:
             # 用户的话走旁路。排队的和正在生成的主动陪看都绑在旧 epoch 上，不补说。
@@ -638,6 +779,27 @@ def _tarot_now(character_id: int) -> bool:
         return bool(active(character_id))
     except Exception:
         return False
+
+
+def _direct_company_offer() -> Offer | None:
+    from .direct import enabled as direct_enabled
+    from .journal import journal
+
+    if not direct_enabled() or situation.scene not in {"movie", "video", "music"} or situation.talk == "quiet":
+        return None
+    now = time.time()
+    with _lock:
+        if not _state.on or _state.pending or _state.speaking or now < _state.user_until:
+            return None
+        quiet_for = now - max(_state.spoke_at, journal.user_at)
+        if quiet_for < (60 if situation.talk == "more" else 120) or now - _state.company_at < 300:
+            return None
+    return Offer(
+        scene_id=situation.scene_id, object_id=situation.latest_object_id or situation.object_id,
+        topic_id=f"company:{situation.object_id}:{int(now)}", observation_time=now,
+        revision=situation.revision, summary="我们安静地看了一会儿，只谈陪伴感受，不断言画面事实。",
+        channel="journal", direct=True, kind="company", max_age=30,
+    )
 
 
 def _company_offer() -> Offer | None:
@@ -829,8 +991,20 @@ def _loop() -> None:
             quiet_obs.channel = str(found.get("channel") or "")
             situation.ingest(quiet_obs, allow_offer=False)
             live.admit(quiet_obs, None)
+        if offer is None and not speak_locked and (found.get("direct_result") or {}).get("action") == "speak":
+            change = str(found["direct_result"].get("change") or "")
+            scene = situation.scene if situation.scene != "unknown" else str((found.get("sight") or {}).get("kind") or "unknown")
+            object_id = situation.latest_object_id or situation.object_id or f"{scene}:current"
+            offer = Offer(
+                scene_id=situation.scene_id, object_id=object_id,
+                topic_id=f"visual:{object_id}:{found.get('observed_at', now)}",
+                observation_time=float(found.get("observed_at") or now), revision=situation.revision,
+                summary=change, channel="minicpm", max_age=30,
+            )
         if offer is None and not speak_locked:
             offer = _company_offer()
+        if offer is None and not speak_locked:
+            offer = _direct_company_offer()
         if (offer is None and not speak_locked and not stale_look
                 and situation.scene in {"video", "movie", "music"}
                 and found.get("used_eyes") and live.source_valid):
@@ -861,6 +1035,21 @@ def _loop() -> None:
             offer.phase = str(sight.get("phase") or "")
             hero = str((sight.get("slots") or {}).get("hero") or "")
             offer.player_hero = hero if hero != "没看清" else ""
+            from .direct import enabled as direct_enabled
+            offer.direct = direct_enabled()
+            visual_result = found.get("direct_result") or {}
+            if visual_result and visual_result.get("action") != "speak":
+                mark(trace_id, xiaoke_raw=str(found.get("direct_raw") or ""),
+                     xiaoke_action=str(visual_result.get("action") or "silent"),
+                     xiaoke_reason=str(visual_result.get("problem") or "图像模型选择沉默"))
+                if _wait(0.4):
+                    return
+                continue
+            if visual_result:
+                offer.spoken = str(visual_result.get("text") or "")
+                offer.mood = str(visual_result.get("mood") or "")
+                offer.generator = "minicpm"
+                offer.raw = str(found.get("direct_raw") or "")
             if sight.get("sub") == "league":
                 from ..sight.league import ttl
                 from .game_director import cadence, direction
@@ -879,14 +1068,18 @@ def _loop() -> None:
                         return
                     continue
             elif sight.get("kind") in {"movie", "music", "video"}:
+                from .direct import enabled as direct_enabled
                 from .media_director import cadence, bind_context
 
                 bind_context(offer, sight)
+                merged = str(found.get("subtitle_beat") or "")
+                if merged and merged not in offer.summary:
+                    offer.summary = (offer.summary + "\n合并字幕：" + merged)[:500]
                 offer.max_age = 30
                 with _lock:
                     allowed = cadence(sight["kind"], elapsed=time.time()-_state.spoke_at,
-                                      opening=not _state.greeted, talk=situation.talk,
-                                      playback=(sight.get("slots") or {}).get("playback", ""))
+                                      opening=not _state.greeted or bool(found.get("continuity_gap")), talk=situation.talk,
+                                      playback=(sight.get("slots") or {}).get("playback", ""), direct=offer.direct)
                 if not allowed:
                     live.candidate = None
                     playback = (sight.get("slots") or {}).get("playback", "")
@@ -900,6 +1093,17 @@ def _loop() -> None:
                     if _wait(0.4):
                         return
                     continue
+        if offer is not None and offer.direct and not offer.spoken:
+            if _empty_offer(offer):
+                mark(trace_id, xiaoke_action="silent", xiaoke_reason="静态或重复内容，没有新的交流价值")
+                if _wait(0.4):
+                    return
+                continue
+            offer = _prepare_direct(offer, trace_id)
+            if offer is None:
+                if _wait(0.4):
+                    return
+                continue
         if offer is None:
             if speak_locked:
                 why = "你让她先别说，只看不交"
@@ -915,7 +1119,24 @@ def _loop() -> None:
         with _lock:
             if not _state.on:
                 return
-            if _state.speaking and time.time() - _state.speak_since < 90:
+            replacing_direct = bool(
+                offer is not None and offer.direct and _state.speaking and not _state.generated
+                and _state.offer and _state.offer.direct and _sayable(offer)
+                and offer.summary.strip() != (_state.pending or "").strip()
+            )
+            if replacing_direct:
+                _state.epoch += 1
+                live.epoch = _state.epoch
+                live.candidate = None
+                _state.speaking = False
+                _state.speak_since = 0
+                _state.pending = ""
+                _state.offer = None
+                _state.held = None
+                _state.held_trace = ""
+                _state.playback = "interrupted"
+                mark(trace_id, handoff_why="更新字幕已到，作废尚未生成的旧台词")
+            elif _state.speaking and time.time() - _state.speak_since < 90:
                 hold_speech = True
                 if (
                     offer is not None
@@ -943,6 +1164,10 @@ def _loop() -> None:
                 and not _state.speak_locked
             )
             if _state.pending and newer:
+                if (_state.offer and _state.offer.direct) or offer.direct:
+                    _state.epoch += 1
+                    live.epoch = _state.epoch
+                    live.candidate = None
                 _state.pending = ""
                 _state.offer = None
             elif _state.pending and not _sayable(_state.offer):

@@ -62,7 +62,7 @@ export const useSettingsStore = defineStore('settings', {
     },
     modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, tavern: true, codewatch: true, touch: true, harness: true, glance: false, live_douyin: false, live: false, play: true },
     live: defaultLive(),
-    vision: { provider: 'minicpm' as 'minicpm' | 'openai', base_url: '', api_key: '', model: '' },
+    vision: { provider: 'minicpm' as 'minicpm' | 'openai', generator: 'chat' as 'chat' | 'minicpm', base_url: '', api_key: '', model: '' },
     memory: { embedder: 'auto' as 'auto' | 'local' | 'doubao' | 'qwen' | 'openai' | 'gemini' },
     user_persona: { enabled: false, name: '', description: '' },
     hardware: {
@@ -197,9 +197,10 @@ export const useSettingsStore = defineStore('settings', {
         live: mods?.live === true,
       };
       this.live = normalizeLive((data as { live?: unknown }).live);
-      const vision = (data as { vision?: { provider?: string; base_url?: string; api_key?: string; model?: string } }).vision;
+      const vision = (data as { vision?: { provider?: string; generator?: string; base_url?: string; api_key?: string; model?: string } }).vision;
       this.vision = {
         provider: vision?.provider === 'openai' ? 'openai' : 'minicpm',
+        generator: vision?.generator === 'minicpm' ? 'minicpm' : 'chat',
         base_url: String(vision?.base_url || ''),
         api_key: String(vision?.api_key || ''),
         model: String(vision?.model || ''),

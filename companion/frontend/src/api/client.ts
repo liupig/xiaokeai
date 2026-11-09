@@ -522,7 +522,8 @@ export function encodeAssetPath(rel: string): string {
 
 export const api = {
   assetUrl(asset: AssetItem): string {
-    return `/assets/${encodeAssetPath(asset.path)}`;
+    const url = `/assets/${encodeAssetPath(asset.path)}`;
+    return asset.fmt === 'model3' ? `${url}?v=${asset.size}` : url;
   },
 
   listAssets(kind?: string) {

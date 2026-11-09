@@ -2,7 +2,20 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections import deque
+
+
+def beat(rows: list[dict]) -> str:
+    lines = []
+    for row in rows:
+        for line in str(row.get("ocr_text") or row.get("text") or "").splitlines():
+            if not line.startswith(("字幕：", "原文：", "歌词：")):
+                continue
+            value = line.split("：", 1)[1].strip()
+            if value and value not in lines:
+                lines.append(value)
+    return "；".join(lines)[:300]
 
 
 class SubtitleSampler:
@@ -35,10 +48,14 @@ class SubtitleSampler:
             self._rows.clear()
             self._condition.notify_all()
 
-    def drain(self, source: str) -> list[dict]:
+    def drain(self, source: str, coalesce: float = 0) -> list[dict]:
         with self._condition:
             if source != self._source:
                 return []
+            if self._rows and coalesce:
+                first = float(self._rows[0].get("observed_at") or 0)
+                if first and time.time() - first < coalesce:
+                    return []
             rows = list(self._rows)
             self._rows.clear()
             return rows

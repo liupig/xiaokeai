@@ -52,6 +52,19 @@ def eyes_url() -> str:
     return (os.environ.get("XIAOKE_EYES_URL") or "http://127.0.0.1:8766").rstrip("/")
 
 
+def eyes_react(prompt: str, timeout: float = 15) -> dict:
+    client = _borrow()
+    try:
+        resp = client.post(f"{eyes_url()}/api/video/react", json={"prompt": prompt}, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        data = {"ok": False, "text": "", "message": str(exc)}
+    finally:
+        _release(client)
+    return data if isinstance(data, dict) else {"ok": False, "text": "", "message": "眼睛没有返回台词"}
+
+
 def glance_from_user(text: str) -> str:
     """对方这句话就是在让她看屏幕。模型没写出标记时，宿主仍去看。"""
     raw = (text or "").strip()
@@ -108,6 +121,7 @@ def eyes_glance(
     window_hwnd: int = 0,
     ocr_only: bool = False,
     scene: str = "auto",
+    reaction: bool = False,
 ) -> dict:
     """截屏始终问眼睛进程。本机 MiniCPM 由它看；其他视觉模型只向它要原图。"""
     from .vision import uses_local, describe
@@ -125,6 +139,7 @@ def eyes_glance(
         "prompt": prompt,
         "frames": frames,
         "window_hwnd": window_hwnd,
+        "reaction": reaction,
     }
     if crop and len(crop) == 4:
         body["crop"] = [int(crop[0]), int(crop[1]), int(crop[2]), int(crop[3])]

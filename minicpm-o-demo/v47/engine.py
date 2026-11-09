@@ -1021,6 +1021,8 @@ def describe(
             downsample,
             max_slice_nums=max_slice_nums,
         ), model)
+    elif image is None:
+        inputs = _move(_apply_content(processor, [], prompt, downsample, max_slice_nums), model)
     else:
         inputs = _move(_apply(processor, image, prompt, downsample, max_slice_nums), model)
     prep_ms = int((time.perf_counter() - prep_started) * 1000)
@@ -1128,8 +1130,8 @@ def describe(
             "generate_ms": int((finished - gen_started) * 1000),
             "downsample": downsample,
             "max_new_tokens": max_new_tokens,
-            "frames": video_frames if video_path is not None or video_timestamps is not None else len(frames) if frames else 1,
-            "input_mode": "live_video" if video_timestamps is not None else "video" if video_path is not None else "images" if frames else "single",
+            "frames": video_frames if video_path is not None or video_timestamps is not None else len(frames) if frames else 0 if image is None else 1,
+            "input_mode": "live_video" if video_timestamps is not None else "video" if video_path is not None else "images" if frames else "text" if image is None else "single",
             "input_tokens": prompt_len,
             "video_frames": video_frames,
         })

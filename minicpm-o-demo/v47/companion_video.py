@@ -24,6 +24,24 @@ def observe(engine, body):
         _requests.release()
 
 
+def react(engine, body):
+    if not _requests.acquire(blocking=False):
+        return dict(ok=True, text="", skipped=True, busy=True,
+                    message="正在生成最新反应，本次请求不排队")
+    try:
+        engine.load()
+        started = time.monotonic()
+        text = engine.describe(
+            None, body.prompt, downsample="16x", max_slice_nums=1,
+            max_new_tokens=80, do_sample=False, stream=False, preface=False,
+        )
+        elapsed = round((time.monotonic() - started) * 1000)
+        return dict(ok=True, text=text, skipped=False, elapsed_ms=elapsed,
+                    input_mode="text", channel="minicpm")
+    finally:
+        _requests.release()
+
+
 def request_close():
     global _generation
     _generation += 1
@@ -107,25 +125,24 @@ def _observe(engine, body):
                                          raw_size[0], raw_size[1]) for image in images]
         stamps = [row[0] for row in clip]
         scene = body.scene if body.scene in engine.SCENE_PROMPTS else "auto"
-        prompt = (
-            "按时间顺序理解这一段连续视频，只记录已发生且能确认的事实。"
-            "看不清就留空；封面、推荐卡片和广告不等于正在播放或正在对局。"
-            "不将主播、角色或镜头中心当用户；不从历史推断当前事件。\n"
-            + engine.SCENE_PROMPTS[scene]
-        )
-        # Conversation history and task instructions are not pixels. Supplying
-        # them here caused the small model to copy old scene facts and task names.
-        # Legacy scene prompts request independent numbered image descriptions.
-        # Native video uses the scene policy above and a single concise contract.
-        prompt += "\n只概括最后时刻的当前状态和本段一个关键变化，每项最多25字。不要逐帧解说，不写第一张、第二张，不分析推理过程。"
-        # Keep the established XiaokeAI fact parser and scene state machines.
-        prompt += "\n按现有场景要求输出可确认事实；历史仅供对比，不作为当前事实证据。"
-        prompt += "\n只输出两行：画面：当前实际可见的主体和动作\n经过：本段明确的变化，没有则留空。不要输出标题、阶段、原文或任务指令。"
+        reaction = bool(getattr(body, "reaction", False))
+        if reaction:
+            prompt = body.before + "\n" + body.prompt
+        else:
+            prompt = (
+                "按时间顺序理解这一段连续视频，只记录已发生且能确认的事实。"
+                "看不清就留空；封面、推荐卡片和广告不等于正在播放或正在对局。"
+                "不将主播、角色或镜头中心当用户；不从历史推断当前事件。\n"
+                + engine.SCENE_PROMPTS[scene]
+            )
+            prompt += "\n只概括最后时刻的当前状态和本段一个关键变化，每项最多25字。不要逐帧解说，不写第一张、第二张，不分析推理过程。"
+            prompt += "\n按现有场景要求输出可确认事实；历史仅供对比，不作为当前事实证据。"
+            prompt += "\n只输出两行：画面：当前实际可见的主体和动作\n经过：本段明确的变化，没有则留空。不要输出标题、阶段、原文或任务指令。"
         paths = save_model_frames(images, frame_ids=[row[2] for row in clip])
         started = time.monotonic()
         text = engine.describe(images[-1], prompt, frames=images,
                                video_timestamps=stamps, downsample="16x",
-                               max_slice_nums=1, max_new_tokens=48,
+                               max_slice_nums=1, max_new_tokens=80 if reaction else 48,
                                do_sample=False, stream=False, preface=False)
         if generation != _generation:
             return dict(ok=True, text="", skipped=True, stale=True,
@@ -140,8 +157,9 @@ def _observe(engine, body):
         record(text=text, prompt=prompt, elapsed_ms=elapsed, stats=stats,
                model_frames=paths, raw_frames=[row[3] for row in clip],
                frame_offsets_s=[stamp - stamps[0] for stamp in stamps])
-        # A stable scene still has usable facts. Let the companion deduplicate;
-        # do not erase a whole observation because its final field says unchanged.
+        if reaction:
+            return dict(ok=True, text="", direct_raw=text, skipped=False,
+                        elapsed_ms=elapsed, **stats)
         unchanged = text.strip().strip("。") == "没变"
         return dict(ok=True, text=text, skipped=unchanged,
                     elapsed_ms=elapsed, **stats)

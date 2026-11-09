@@ -110,7 +110,7 @@ def serve_asset(path: str):
     fp = resolve_asset_file(path)
     if fp is None:
         raise HTTPException(status_code=404, detail="asset not found")
-    return FileResponse(fp)
+    return FileResponse(fp, headers={"Cache-Control": "no-cache"})
 
 
 app.mount("/keepsakes", StaticFiles(directory=str(KEEPSAKES_DIR)), name="keepsakes")

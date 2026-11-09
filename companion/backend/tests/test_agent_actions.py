@@ -218,7 +218,7 @@ def chat_route(monkeypatch, tmp_path):
     monkeypatch.setattr(along, "seed_seen", lambda _: None)
     monkeypatch.setattr(along, "snapshot", lambda: {"on": False})
     monkeypatch.setattr(eyes_host, "capability", lambda: {"available": True, "message": "视觉可按需启动"})
-    state = {"initial": [], "calls": [], "actions": [], "captures": [], "visual_result": ""}
+    state = {"initial": [], "calls": [], "actions": [], "captures": [], "visual_result": "", "conf": conf}
 
     async def model(_conf, **kwargs):
         text = kwargs["user_text"]
@@ -437,3 +437,36 @@ def test_character_model_status_chat_does_not_capture(chat_route, monkeypatch):
     assert state["actions"] == []
     assert state["captures"] == []
     assert any(event.get("full_text") == "我在陪你聊天呢。" for event in events)
+
+
+def test_along_direct_route_only_plays_visual_side_result(chat_route, monkeypatch):
+    send, state = chat_route
+    import time
+    from app.modules.glance.situation import Offer, Situation
+    from app.modules.glance.watch import Candidate, WatchSession
+
+    state["conf"]["modules"]["glance"] = True
+    monkeypatch.setenv("XIAOKE_ALONG_DIRECT_GENERATOR", "chat")
+    now = time.time()
+    summary = "字幕：这句话终于说出来了"
+    offer = Offer("movie", "movie:clip", "movie:topic", now, 1, summary, direct=True,
+                  spoken="终于把这句话说出来了", mood="温馨", generator="chat")
+    situation = Situation()
+    situation.scene = "movie"
+    situation.latest_object_id = "movie:clip"
+    watch = WatchSession(situation)
+    watch.candidate = Candidate(0, summary, "movie:topic", "movie:clip", "movie:topic", now)
+    monkeypatch.setattr(along, "situation", situation)
+    monkeypatch.setattr(along, "live", watch)
+    monkeypatch.setattr(along, "_state", along._State(on=True, character_id=1, pending=summary, offer=offer, trace_id=""))
+    monkeypatch.setattr(along, "_preferences", lambda _: "")
+
+    events = send(summary, [
+        {"type": "text", "delta": "情绪：温馨\n值不值得说：说\n台词：终于把这句话说出来了"},
+    ], mode="along")
+
+    assert state["calls"] == []
+    assert any(event.get("type") == "emo" and event.get("value") == "relaxed" for event in events)
+    assert any(event.get("full_text") == "终于把这句话说出来了" for event in events)
+    assert along._state.generated == "终于把这句话说出来了"
+    assert along._state.playback == "generated"

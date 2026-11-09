@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 from ..models import Asset, Character
 from ..paths import ASSETS_DIR, AUDIO_DIR, CAMERAS_DIR, MODELS_DIR, MOTIONS_DIR, MUSIC_DIR
 from ..personas import GENERIC_PERSONA, QINGXIAO_GREETING, QINGXIAO_PERSONA
+from .live2d_assets import normalize_live2d_model
 
 # 动作类别：用于面板分组和 LLM 选动作
 CATEGORY_LABELS = {
@@ -293,6 +294,10 @@ def register_model(session: Session, file: Path, source: str = "local",
                    source_url: str = "", label: str = "") -> Optional[Asset]:
     """登记一个模型主文件。PMX / Live2D 以目录名为资产名，VRM/GLB 以文件名。"""
     live2d = is_live2d_model(file)
+    if live2d:
+        report = normalize_live2d_model(file)
+        if any(report.values()):
+            print(f"[live2d] normalized: {report}")
     ext = ".model3.json" if live2d else file.suffix.lower()
     if ext not in MODEL_EXTS:
         return None
@@ -302,6 +307,10 @@ def register_model(session: Session, file: Path, source: str = "local",
         name = file.stem
     existing = _get_by_name(session, "model", name)
     if existing:
+        size = file.stat().st_size
+        if existing.size != size:
+            existing.size = size
+            session.add(existing)
         return existing
     asset = Asset(
         kind="model", name=name,

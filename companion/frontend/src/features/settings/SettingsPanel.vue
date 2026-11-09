@@ -120,6 +120,13 @@ const visionOptions = computed(() => {
     { label: t('set.vision.openai'), value: 'openai' },
   ];
 });
+const alongGeneratorOptions = computed(() => {
+  settings.locale.ui;
+  return [
+    { label: t('set.mod.generatorChat'), value: 'chat' },
+    { label: t('set.mod.generatorMinicpm'), value: 'minicpm' },
+  ];
+});
 const langOptions = computed(() => {
   settings.locale.ui;
   return [
@@ -1046,6 +1053,12 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
             <n-switch :value="settings.modules.glance" @update:value="(v: boolean) => toggleMod('glance', v)" />
           </div>
           <p class="hint">{{ t('set.mod.glance') }}</p>
+          <template v-if="settings.modules.glance">
+            <label>{{ t('set.mod.alongGenerator') }}</label>
+            <n-select v-model:value="settings.vision.generator" :options="alongGeneratorOptions"
+                      @update:value="() => settings.save()" />
+            <p class="hint">{{ t('set.mod.alongGeneratorHint') }}</p>
+          </template>
           <n-button size="small" @click="openWatchLab">{{ t('set.mod.glanceLab') }}</n-button>
           <p class="hint">{{ t('set.mod.glanceLabHint') }}</p>
           <label>{{ t('set.mod.live') }}</label>
