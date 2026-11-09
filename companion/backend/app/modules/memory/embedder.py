@@ -16,10 +16,21 @@ OPENAI_BASE = "https://api.openai.com/v1"
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
 QWEN_NATIVE = "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding"
 
+DOUBAO_MULTIMODAL_MODELS = (
+    "doubao-embedding-vision-251215",
+    "doubao-embedding-vision-250615",
+)
+DOUBAO_MULTIMODAL_INSTRUCTIONS = (
+    "Target_modality: text.\n"
+    "Instruction:Retrieve semantically similar text\n"
+    "Query:"
+)
 DOUBAO_MODELS = (
+    "doubao-embedding-large-text-250515",
     "doubao-embedding-large",
     "doubao-embedding",
     "doubao-embedding-large-text-240915",
+    "doubao-embedding-text-240715",
     "doubao-embedding-text-240515",
 )
 QWEN_MODELS = (
@@ -128,11 +139,12 @@ def qwen_credentials(llm_conf: Dict[str, Any]) -> Tuple[str, str]:
 
 
 class RemoteEmbedder:
-    """OpenAI 兼容 /embeddings。豆包走方舟，千问走百炼，Gemini 走 AI Studio 兼容口。"""
+    """在线向量。豆包优先走 /embeddings/multimodal，其余走 OpenAI 兼容 /embeddings。"""
 
     def __init__(self, api_key: str, base_url: str, model: str, dims: int, *,
                  provider: str, native: bool = False, input_list: bool = True,
-                 dimensions: Optional[int] = None):
+                 dimensions: Optional[int] = None, multimodal: bool = False,
+                 instructions: str = ""):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -142,6 +154,8 @@ class RemoteEmbedder:
         self._native = native
         self._input_list = input_list
         self._dimensions = dimensions
+        self._multimodal = multimodal
+        self._instructions = instructions
         self.config = type("Cfg", (), {"embedding_dims": dims, "model": model})()
 
     @classmethod
@@ -149,6 +163,10 @@ class RemoteEmbedder:
                 models: Tuple[str, ...]) -> Optional["RemoteEmbedder"]:
         if not api_key or not base_url:
             return None
+        if provider == "doubao":
+            found = cls._doubao_multimodal(api_key, base_url)
+            if found is not None:
+                return found
         last = ""
         with httpx.Client(timeout=httpx.Timeout(12, connect=6), trust_env=False) as client:
             for model in models:
@@ -190,6 +208,41 @@ class RemoteEmbedder:
         return None
 
     @classmethod
+    def _doubao_multimodal(cls, api_key: str, base_url: str) -> Optional["RemoteEmbedder"]:
+        with httpx.Client(timeout=httpx.Timeout(20, connect=6), trust_env=False) as client:
+            for model in DOUBAO_MULTIMODAL_MODELS:
+                payload: Dict[str, Any] = {
+                    "model": model,
+                    "input": [{"type": "text", "text": "记忆召回探测"}],
+                    "encoding_format": "float",
+                    "dimensions": 1024,
+                }
+                instructions = DOUBAO_MULTIMODAL_INSTRUCTIONS if model.endswith("251215") else ""
+                if instructions:
+                    payload["instructions"] = instructions
+                try:
+                    resp = client.post(
+                        f"{base_url.rstrip('/')}/embeddings/multimodal",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        json=payload,
+                    )
+                except httpx.HTTPError:
+                    continue
+                if resp.status_code != 200:
+                    continue
+                try:
+                    vec = resp.json()["data"]["embedding"]
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if isinstance(vec, list) and len(vec) >= 32:
+                    print(f"[memory] embedder doubao {model} dim={len(vec)} multimodal")
+                    return cls(
+                        api_key, base_url, model, len(vec), provider="doubao",
+                        dimensions=len(vec), multimodal=True, instructions=instructions,
+                    )
+        return None
+
+    @classmethod
     def _dashscope_native(cls, api_key: str) -> Optional["RemoteEmbedder"]:
         with httpx.Client(timeout=httpx.Timeout(12, connect=6), trust_env=False) as client:
             for model in QWEN_MODELS:
@@ -217,6 +270,26 @@ class RemoteEmbedder:
     def _post(self, texts: List[str]) -> List[List[float]]:
         blob = [(t or "").strip() or " " for t in texts]
         with httpx.Client(timeout=httpx.Timeout(30, connect=8), trust_env=False) as client:
+            if self._multimodal:
+                out: List[List[float]] = []
+                for text in blob:
+                    payload: Dict[str, Any] = {
+                        "model": self.model,
+                        "input": [{"type": "text", "text": text}],
+                        "encoding_format": "float",
+                    }
+                    if self._dimensions:
+                        payload["dimensions"] = self._dimensions
+                    if self._instructions:
+                        payload["instructions"] = self._instructions
+                    resp = client.post(
+                        f"{self.base_url}/embeddings/multimodal",
+                        headers={"Authorization": f"Bearer {self.api_key}"},
+                        json=payload,
+                    )
+                    resp.raise_for_status()
+                    out.append(resp.json()["data"]["embedding"])
+                return out
             if self._native:
                 resp = client.post(
                     self.base_url,
@@ -264,35 +337,44 @@ def _tag_local(emb: Any) -> Any:
     return emb
 
 
+def _online_pack() -> bool:
+    from ...paths import ONLINE_MARKER, ROOT_DIR
+    return (ROOT_DIR / ONLINE_MARKER).is_file()
+
+
 def resolve(llm_conf: Dict[str, Any], choice: str) -> Tuple[Optional[Any], str]:
-    """返回 (embedder, note)。在线失败时回退本地 MiniLM，再没有则 None。"""
+    """返回 (embedder, note)。离线包可回退 MiniLM；纯在线包不加载本地向量。"""
     want = normalize_provider(choice)
     if want == "auto":
         want = guess_provider(llm_conf)
 
+    online = _online_pack()
+    fallback_note = "；纯在线包不回退本地模型" if online else "，改用本地 MiniLM"
     note = ""
     emb = None
     if want == "doubao":
         key, base = doubao_credentials(llm_conf)
         emb = RemoteEmbedder.connect("doubao", key, base, DOUBAO_MODELS)
         if emb is None:
-            note = "豆包 embedding 不可用（需要火山方舟 API Key），改用本地 MiniLM"
+            note = "豆包 embedding 不可用（需要火山方舟 API Key）" + fallback_note
     elif want == "qwen":
         key, base = qwen_credentials(llm_conf)
         emb = RemoteEmbedder.connect("qwen", key, base, QWEN_MODELS)
         if emb is None:
-            note = "千问 embedding 不可用（需要百炼 sk- Key），改用本地 MiniLM"
+            note = "千问 embedding 不可用（需要百炼 sk- Key）" + fallback_note
     elif want == "openai":
         key, base = openai_credentials(llm_conf)
         emb = RemoteEmbedder.connect("openai", key, base, OPENAI_MODELS)
         if emb is None:
-            note = "OpenAI embedding 不可用（需要 OpenAI API Key），改用本地 MiniLM"
+            note = "OpenAI embedding 不可用（需要 OpenAI API Key）" + fallback_note
     elif want == "gemini":
         key, base = gemini_credentials(llm_conf)
         emb = RemoteEmbedder.connect("gemini", key, base, GEMINI_MODELS)
         if emb is None:
-            note = "Gemini embedding 不可用（需要 Gemini API Key），改用本地 MiniLM"
+            note = "Gemini embedding 不可用（需要 Gemini API Key）" + fallback_note
     elif want == "local":
+        if online:
+            return None, "纯在线包不提供本地 MiniLM"
         emb = _tag_local(probe_local_minilm())
         if emb is None:
             note = "本地 MiniLM 未就绪"
@@ -300,6 +382,8 @@ def resolve(llm_conf: Dict[str, Any], choice: str) -> Tuple[Optional[Any], str]:
 
     if emb is not None:
         return emb, ""
+    if online:
+        return None, note or "没有可用的在线 embedding"
     fallback = _tag_local(probe_local_minilm())
     if fallback is None:
         return None, note or "没有可用的 embedding"

@@ -45,7 +45,20 @@
 
 ## 下载 Windows 体验包
 
-当前预打包版本为 **2026-11-05**，自带 Chromium 和 Python 运行时，目标电脑无需另装 Chrome 或 Python。源码可能包含此体验包之后新增的功能。旧包和变更内容见[历史版本](./HISTORY.zh-CN.md)。
+### Online 在线一体包（2026-11-09）
+
+**只想联网体验时，下载 Online 包即可，不需要 A/B 包。** 已自带 Chromium、Python 运行时、角色、动作、音乐、塔罗、酒馆和 Harness 等完整功能与素材。
+
+- [GitHub Release · online-20261109](https://github.com/liupig/xiaokeai/releases/tag/online-20261109)
+- [Hugging Face · Online 目录](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/online)
+
+下载 `xiaoke-ai-online-20261109154149.7z`，解压后双击 `xiaoke-ai.exe`，在 **设置 → AI 对话** 配置一个火山方舟 LLM API Key 即可。对话与在线记忆向量共用这把 Key；默认识别是免费的浏览器 Web Speech，朗读是免费的 edge-tts，不需要另配语音 Key。
+
+**Online 不包含且不支持本地 ASR、TTS、向量或视觉推理**，不带 SenseVoice、Qwen TTS、MiniLM/FastEmbed、MiniCPM、OCR、PyTorch 或 CUDA。需要这些本地能力时，请使用下面的 A/B 包，不要给 Online 外挂 B 包。
+
+### A/B 本地资源包（2026-11-05）
+
+当前 A/B 预打包版本为 **2026-11-05**，自带 Chromium 和 Python 运行时，目标电脑无需另装 Chrome 或 Python。源码可能包含此体验包之后新增的功能。旧包和变更内容见[历史版本](./HISTORY.zh-CN.md)。
 
 **请下载时间戳均为 `20261105173339` 的 A、B 两个包。** 旧版无时间戳的 `xiaoke-ai-B` 不能搭配此版本。百度网盘的 A、B 位于同一分享文件夹，提取码：`xkai`。
 

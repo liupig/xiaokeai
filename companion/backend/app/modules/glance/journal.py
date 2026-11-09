@@ -128,6 +128,12 @@ class Journal:
             mood = str(self.previous.get("mood") or "平静")
             return f"我们上次一起看过这个。上次最后你说：「{last}」，当时情绪是{mood}。" if last else "我们上次一起看过这个。"
 
+    def recent_lines(self, limit: int = 6) -> list[str]:
+        with self._lock:
+            current = [str(row.get("text") or "") for row in self.speeches[-limit:]]
+            previous = [str(row.get("text") or "") for row in (self.previous.get("speeches") or [])[-limit:]]
+        return [text for text in previous + current if text]
+
     def view(self, situation=None, timeline=None) -> str:
         with self._lock:
             beats = list(self.beats[-4:])

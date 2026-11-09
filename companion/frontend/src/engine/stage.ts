@@ -343,6 +343,8 @@ export class Stage {
   private petGrabOffset = 0;
   private petGrabOffsetY = 0;
   private petNextWalk = 0;
+  private petWatchAlong = false;
+  private petEdgeSide: 'left' | 'right' | 'top' | 'bottom' | null = null;
   private petPath: { x: number; y: number }[] = [];
   private petRay = new THREE.Vector3();
   private petTmp = new THREE.Vector3();
@@ -1370,16 +1372,18 @@ export class Stage {
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
     this.controls.target.set(0, 1.85, 0);
-    if (this.modelRoot && !this.petFits(this.stand.x, this.stand.y, 'edge')) {
+    if (this.modelRoot && (this.petWatchAlong || !this.petFits(this.stand.x, this.stand.y, 'edge'))) {
       this.petPath = [];
-      const p = this.clampPet(this.stand.x, this.stand.y);
+      const p = this.petWatchAlong
+        ? this.petEdge(this.stand, false)
+        : this.clampPet(this.stand.x, this.stand.y);
       this.stand.placeXY(p.x, p.y);
     }
   }
 
-  /** 换人之后把她放回画面中间，并忘掉上一只的站位 */
+  /** 换人之后重置站位，并忘掉上一只的位置 */
   private seatPet() {
-    const p = this.clampPet(0, 0);
+    const p = this.petWatchAlong ? this.petEdge({ x: 0, y: 0 }, false) : this.clampPet(0, 0);
     this.stand.placeXY(p.x, p.y);
     if (this.modelRoot) {
       this.modelRoot.position.set(this.stand.x, this.stand.y, 0);
@@ -1411,7 +1415,7 @@ export class Stage {
     const ndcX = Math.max(-1, Math.min(1, spot.x));
     const ndcY = Math.max(-1, Math.min(1, spot.y));
     const raw = this.deskPoint(ndcX, ndcY);
-    const p = this.clampPet(raw.x, raw.y);
+    const p = this.petWatchAlong ? this.petEdge(raw, false) : this.clampPet(raw.x, raw.y);
     this.petPath = [];
     this.stand.placeXY(p.x, p.y);
     if (this.modelRoot) this.modelRoot.position.set(p.x, p.y, 0);
@@ -1536,6 +1540,17 @@ export class Stage {
     };
   }
 
+  setPetWatchAlong(on: boolean) {
+    const next = !!on;
+    if (this.petWatchAlong === next) return;
+    this.petWatchAlong = next;
+    this.petEdgeSide = null;
+    if (!next || !this.petMode || !this.modelRoot || this.petHeld) return;
+    this.petPath = [this.petEdge(this.stand, false)];
+    this.petNextWalk = performance.now() + 7000;
+    this.stepPetPath();
+  }
+
   canPetWander() {
     return this.petMode && !!this.modelRoot && !this.petHeld
       && !this.stand.isMoving && !this._danceLive
@@ -1549,11 +1564,32 @@ export class Stage {
       this.petNextWalk = performance.now() + 4000 + Math.random() * 5000;
       return;
     }
-    const dest = Math.random() < 0.72 ? this.petNearby(here) : this.petInterior();
-    const mid = this.petBend(here, dest);
-    this.petPath = [mid, dest];
+    const dest = this.petWatchAlong
+      ? this.petEdge(here)
+      : (Math.random() < 0.72 ? this.petNearby(here) : this.petInterior());
+    this.petPath = this.petWatchAlong ? [dest] : [this.petBend(here, dest), dest];
     this.petNextWalk = performance.now() + 7000;
     this.stepPetPath();
+  }
+
+  private petEdge(here: { x: number; y: number }, roam = true) {
+    const current = this.projectNdc(here.x, here.y, 0);
+    if (!this.petEdgeSide) {
+      if (Math.abs(current.x) >= Math.abs(current.y)) this.petEdgeSide = current.x < 0 ? 'left' : 'right';
+      else this.petEdgeSide = current.y < 0 ? 'bottom' : 'top';
+    }
+    const side = this.petEdgeSide;
+    const vertical = side === 'left' || side === 'right';
+    const edge = 0.82 + Math.random() * 0.12;
+    const along = roam ? Math.random() * 1.44 - 0.72 : 0;
+    const ndcX = vertical
+      ? (side === 'left' ? -edge : edge)
+      : Math.max(-0.78, Math.min(0.78, roam ? along : current.x));
+    const ndcY = vertical
+      ? Math.max(-0.78, Math.min(0.78, roam ? along : current.y))
+      : (side === 'top' ? edge : -edge);
+    const p = this.deskPoint(ndcX, ndcY);
+    return this.clampPet(p.x, p.y);
   }
 
   private petInterior() {

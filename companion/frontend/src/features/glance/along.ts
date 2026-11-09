@@ -22,6 +22,7 @@ async function tick() {
     return;
   }
   alongLive.on = !!snap.on;
+  stage.setPetWatchAlong(alongLive.on);
   stage.motion.suspended = alongLive.on;
   if (alongLive.on) stage.motion.stop();
   if (!snap.on && !useSettingsStore().modules.glance) return;

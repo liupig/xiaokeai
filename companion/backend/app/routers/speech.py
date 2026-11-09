@@ -316,6 +316,9 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
         limited = any(code in str(exc) for code in ("429", "403"))
         if not limited:
             raise HTTPException(503, "edge TTS 失败") from exc
+        from ..paths import ONLINE_MARKER, ROOT_DIR
+        if (ROOT_DIR / ONLINE_MARKER).is_file():
+            raise HTTPException(503, "在线语音被限流；纯在线包不会回退本地 Qwen TTS") from exc
         from ..modules.glance.eyes_host import probe
 
         if probe():

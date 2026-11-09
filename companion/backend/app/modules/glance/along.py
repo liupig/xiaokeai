@@ -55,6 +55,7 @@ class _State:
     speak_since: float = 0
     generated: str = ""
     playback: str = "idle"
+    drafts: list[str] = field(default_factory=list)
     spoken_phase: str = ""
     spoken_hero: str = ""
     visual_phase: str = ""
@@ -189,6 +190,7 @@ def stop(reason: str = "requested") -> None:
             _state.speak_since = 0
             _state.generated = ""
             _state.playback = "idle"
+            _state.drafts.clear()
             _state.spoken_phase = ""
             _state.spoken_hero = ""
             _state.visual_phase = ""
@@ -238,6 +240,7 @@ def start(character_id: int, request: str = "") -> None:
         _state.speak_since = 0
         _state.generated = ""
         _state.playback = "idle"
+        _state.drafts.clear()
         _state.spoken_phase = ""
         _state.spoken_hero = ""
         _state.visual_phase = ""
@@ -325,6 +328,20 @@ def _empty_offer(offer: Offer) -> bool:
     return any(old and same_scene(text, old) for old in previous)
 
 
+def _recent_lines(current: str = "") -> list[str]:
+    with _lock:
+        drafts = list(_state.drafts[-6:])
+        direct_current = bool(
+            current and _state.offer and _state.offer.direct
+            and drafts and drafts[-1] == current
+        )
+    if direct_current:
+        drafts.pop()
+    from .journal import journal
+
+    return [*journal.recent_lines(), *live.speeches[-6:], *drafts]
+
+
 def _prepare_direct(offer: Offer, trace_id: str) -> Offer | None:
     import asyncio
     from .direct import company_instruction, direct_reply, instruction
@@ -358,7 +375,7 @@ def _prepare_direct(offer: Offer, trace_id: str) -> Offer | None:
 
     result = asyncio.run(direct_reply(
         conf, messages, evidence=evidence, valid=current,
-        recent=live.speeches[-3:], kind=offer.kind,
+        recent=_recent_lines(), kind=offer.kind,
     ))
     if offer.kind == "company":
         with _lock:
@@ -373,7 +390,12 @@ def _prepare_direct(offer: Offer, trace_id: str) -> Offer | None:
     mark(trace_id, xiaoke_in=system + "\n" + prompt, xiaoke_raw=offer.raw,
          xiaoke_out=offer.spoken, xiaoke_action=result["action"],
          xiaoke_reason=f"视觉侧/{offer.generator}；" + reason)
-    return offer if offer.spoken and current() else None
+    if not offer.spoken or not current():
+        return None
+    with _lock:
+        _state.drafts.append(offer.spoken)
+        del _state.drafts[:-12]
+    return offer
 
 
 def register_opening(text: str, character_id: int) -> None:
@@ -404,11 +426,19 @@ def generated(text: str, expected_trace: str = "") -> bool:
     with _lock:
         if expected_trace and expected_trace != _state.trace_id:
             return False
-        _state.generated = text
-        _state.playback = "generated"
         trace_id = _state.trace_id
+    from .direct import duplicate_line
     from .trace import mark
 
+    if duplicate_line(text, _recent_lines(current=text)):
+        mark(trace_id, playback_status="duplicate", xiaoke_action="duplicate",
+             xiaoke_reason="重复台词，交给播放前拦截")
+        return False
+    with _lock:
+        if expected_trace and expected_trace != _state.trace_id:
+            return False
+        _state.generated = text
+        _state.playback = "generated"
     mark(trace_id, playback_status="generated")
     return True
 

@@ -57,6 +57,26 @@ def test_volc_error_frame():
         raise AssertionError("expected error")
 
 
+def test_volc_ark_asr_body_and_auth_fallback(monkeypatch):
+    import asyncio
+
+    body = asr_volc.request_ark_body(b"RIFFxxxx")
+    audio = body["messages"][0]["content"][0]["input_audio"]
+    assert body["model"] == "doubao-seed-2-1-lite-260915"
+    assert audio["format"] == "wav"
+    assert audio["data"] == "UklGRnh4eHg="
+
+    async def denied(wav, key):
+        raise RuntimeError("火山识别鉴权失败 HTTP 401")
+
+    async def recognized(wav, key):
+        return "兜底识别"
+
+    monkeypatch.setattr(asr_volc, "_transcribe_speech", denied)
+    monkeypatch.setattr(asr_volc, "transcribe_ark", recognized)
+    assert asyncio.run(asr_volc.transcribe(b"wav", "ark-key")) == "兜底识别"
+
+
 def test_wav_stays_16k_pcm():
     import io
     buf = io.BytesIO()

@@ -75,6 +75,39 @@ def test_duplicate_and_expired_lines_never_reach_playback():
     assert result["action"] == "drop" and not result["text"]
 
 
+def test_repeated_clauses_are_duplicates_even_with_new_content_around_them():
+    from app.modules.glance.direct import evaluate
+
+    recent = ["黑块退，累不累？躺会儿。"]
+    assert evaluate("标题下黑块退，累不累？躺会儿。", evidence="", recent=recent, kind="company")["action"] == "duplicate"
+    assert evaluate("画面里烟雾飘，累不累？躺会儿。", evidence="", recent=recent, kind="company")["action"] == "duplicate"
+    result = evaluate("这个反转真的没料到", evidence="", recent=recent, kind="company")
+    assert result["action"] == "speak"
+
+
+def test_unplayed_drafts_feed_generation_and_playback_guards(monkeypatch):
+    from types import SimpleNamespace
+    from app.modules.glance import along
+    from app.modules.glance.situation import Offer
+
+    text = "画面里烟雾飘，累不累？躺会儿。"
+    offer = Offer("video", "video:clip", "new", time.time(), 1, "新画面", direct=True)
+    state = along._State(on=True, offer=offer, trace_id="trace", drafts=["黑块退，累不累？躺会儿。", text])
+    monkeypatch.setattr(along, "_state", state)
+    monkeypatch.setattr(along, "live", SimpleNamespace(speeches=[]))
+    monkeypatch.setattr("app.modules.glance.journal.journal.recent_lines", lambda: [])
+    assert text in along._recent_lines()
+    assert not along.generated(text, expected_trace="trace")
+    assert state.generated == ""
+    assert state.playback != "generated"
+
+    fresh = "这个反转真的没料到"
+    state.drafts[:] = [fresh]
+    assert along.generated(fresh, expected_trace="trace")
+    assert state.generated == fresh
+    assert state.playback == "generated"
+
+
 def test_subtitle_rows_merge_after_the_coalescing_window():
     sampler = SubtitleSampler()
     sampler._source = "movie"

@@ -156,6 +156,43 @@ def test_normalize_provider() -> None:
     assert embed_svc.normalize_provider(None) == "auto"
 
 
+def test_doubao_multimodal_embedding_and_batch(monkeypatch) -> None:
+    calls = []
+
+    class _Response:
+        status_code = 200
+
+        def json(self):
+            return {"data": {"embedding": [0.1] * 1024}}
+
+        def raise_for_status(self):
+            return None
+
+    class _Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def post(self, url, **kwargs):
+            calls.append((url, kwargs["json"]))
+            return _Response()
+
+    monkeypatch.setattr(embed_svc.httpx, "Client", _Client)
+    emb = embed_svc.RemoteEmbedder.connect("doubao", "key", embed_svc.DOUBAO_BASE, ())
+    assert emb is not None
+    assert emb.model == "doubao-embedding-vision-251215"
+    assert emb.embed_batch(["第一条", "第二条"]) == [[0.1] * 1024, [0.1] * 1024]
+    assert len(calls) == 3
+    assert all(url.endswith("/embeddings/multimodal") for url, _ in calls)
+    assert calls[-1][1]["input"] == [{"type": "text", "text": "第二条"}]
+    assert calls[-1][1]["dimensions"] == 1024
+
+
 if __name__ == "__main__":
     import tempfile
 

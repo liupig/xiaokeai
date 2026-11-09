@@ -2,6 +2,7 @@
 
 整段 wav 走流式输入（nostream）：发完最后一包再拿整句，和现在「切一段再识别」一致。
 鉴权是新版控制台的 X-Api-Key，资源 volc.seedasr.sauc.duration。
+专用语音 Key 鉴权失败时，用同一把方舟 Key 走 Seed 2.1 Lite 音频理解兜底。
 """
 from __future__ import annotations
 
@@ -17,6 +18,8 @@ import numpy as np
 
 VOLC_ASR_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream"
 VOLC_ASR_RESOURCE = "volc.seedasr.sauc.duration"
+VOLC_ARK_BASE = "https://ark.cn-beijing.volces.com/api/v3"
+VOLC_ARK_ASR_MODEL = "doubao-seed-2-1-lite-260915"
 
 _FULL = 0x1
 _AUDIO = 0x2
@@ -143,7 +146,7 @@ def _audio_request(seq: int, pcm: bytes, last: bool) -> bytes:
     return pack_frame(_AUDIO, 0x01, 0, _GZIP, seq, payload)
 
 
-async def transcribe(wav: bytes, api_key: str) -> str:
+async def _transcribe_speech(wav: bytes, api_key: str) -> str:
     if not api_key:
         raise RuntimeError(
             "火山识别需要 API Key。默认用设置 → AI 对话里的那把；"
@@ -210,3 +213,66 @@ async def transcribe(wav: bytes, api_key: str) -> str:
             ) from exc
         raise RuntimeError(f"火山识别失败：{message}") from exc
     return text
+
+
+def request_ark_body(wav: bytes, model: str = "") -> Dict[str, Any]:
+    import base64
+    import os
+
+    return {
+        "model": model or (os.environ.get("VOLC_ASR_MODEL") or VOLC_ARK_ASR_MODEL),
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "input_audio", "input_audio": {
+                    "data": base64.b64encode(wav).decode("ascii"), "format": "wav",
+                }},
+                {"type": "text", "text": "请准确转写这段语音，只返回语音原文，不要解释，不要添加格式。"},
+            ],
+        }],
+    }
+
+
+async def transcribe_ark(wav: bytes, api_key: str) -> str:
+    import httpx
+
+    if not api_key:
+        raise RuntimeError("方舟音频理解需要 ARK_API_KEY")
+    timeout = httpx.Timeout(90, connect=10)
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+        resp = await client.post(
+            f"{VOLC_ARK_BASE}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json=request_ark_body(wav),
+        )
+    if resp.status_code != 200:
+        raise RuntimeError(f"方舟音频理解失败 HTTP {resp.status_code}：{resp.text[:300]}")
+    try:
+        content = resp.json()["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise RuntimeError(f"方舟音频理解响应格式异常：{resp.text[:200]}") from exc
+    return str(content or "").strip()
+
+
+async def transcribe(wav: bytes, api_key: str) -> str:
+    import os
+
+    try:
+        return await _transcribe_speech(wav, api_key)
+    except RuntimeError as exc:
+        message = str(exc)
+        if not any(code in message for code in ("401", "403", "45000010", "鉴权失败")):
+            raise
+        ark_key = (
+            os.environ.get("ARK_API_KEY")
+            or os.environ.get("VOLC_ARK_API_KEY")
+            or api_key
+        ).strip()
+        if not ark_key:
+            raise
+        try:
+            text = await transcribe_ark(wav, ark_key)
+        except Exception as ark_exc:
+            raise RuntimeError(f"{exc}；方舟音频理解兜底也失败：{ark_exc}") from ark_exc
+        print("[asr] 豆包语音专用 Key 不可用，本轮使用方舟音频理解")
+        return text
