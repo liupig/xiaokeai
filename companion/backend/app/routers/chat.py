@@ -461,38 +461,42 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
 
             async def along_turns():
                 from ..modules.glance.along import live as along_live
-                from ..modules.glance.along import pending_trace
+                from ..modules.glance.along import direct_pending, pending_trace
                 from ..modules.glance.trace import mark as mark_trace
                 from ..modules.glance.situation import situation
-                from ..modules.glance.watch import along_turn, hollow_company, parse_reaction
+                from ..modules.glance.watch import along_turn
 
                 nonlocal linked_topic
                 from ..modules.glance.along import candidate_instruction, generated
 
-                instruction = candidate_instruction(along_turn(situation.talk))
+                direct = direct_pending()
+                if direct:
+                    from ..modules.glance.direct import instruction as direct_instruction
+                    instruction = candidate_instruction(direct_instruction(situation.talk))
+                else:
+                    instruction = candidate_instruction(along_turn(situation.talk))
                 pieces: list[str] = []
                 trace_id = pending_trace()
 
                 def _told(action: str, spoken: str = "") -> None:
+                    reason = "；".join(
+                        ", ".join(attempt["errors"]) or attempt["problem"] or
+                        ("模型选择沉默" if not attempt["raw"].strip() or attempt["raw"].strip() in {"silent", "不说"} else "")
+                        for attempt in result["attempts"]
+                    )
                     mark_trace(
                         trace_id,
                         xiaoke_in=instruction + "\n" + note,
                         xiaoke_raw="".join(pieces),
                         xiaoke_out=spoken,
                         xiaoke_action=action,
-                        xiaoke_reason="；".join(
-                            ", ".join(attempt["errors"]) or attempt["problem"] or
-                            ("模型选择沉默" if not attempt["raw"].strip() or attempt["raw"].strip() in {"silent", "不说"} else "")
-                            for attempt in result["attempts"]
-                        ),
+                        xiaoke_reason=(f"字幕直达/{result.get('generator', 'chat')}；" if direct else "旧链路；") + reason,
                     )
 
                 along_messages = [
                     {"role": "system", "content": note},
                     {"role": "user", "content": instruction},
                 ]
-                from ..modules.glance.game_director import grounded_reply
-
                 evidence = along_live.candidate.summary if along_live.candidate else seen
                 if along_live.candidate and along_live.candidate.context:
                     evidence += "\n" + along_live.candidate.context
@@ -509,16 +513,24 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                         prior=harness_prior, cancel=turn_cancel, valid=candidate_alive,
                     )
 
-                result = await grounded_reply(hconf, along_messages, evidence=evidence, topic=topic,
-                                              valid=candidate_alive, scene=scene, stream=agent_stream)
+                if direct:
+                    from ..modules.glance.along import direct_result
+                    result = direct_result()
+                else:
+                    from ..modules.glance.game_director import grounded_reply
+                    result = await grounded_reply(hconf, along_messages, evidence=evidence, topic=topic,
+                                                  valid=candidate_alive, scene=scene, stream=agent_stream)
                 pieces.extend(attempt["raw"] for attempt in result["attempts"])
                 if result["action"] != "speak":
-                    finish_speak(False)
+                    finish_speak(False, expected_trace=trace_id)
                     _told(result["action"])
                     yield {"type": "done", "full_text": ""}
                     return
                 spoken = result["text"]
-                generated(spoken)
+                if not generated(spoken, expected_trace=trace_id):
+                    _told("drop")
+                    yield {"type": "done", "full_text": ""}
+                    return
                 _told("speak", spoken)
                 linked_topic = topic
                 for event in result["performance"]:
@@ -548,7 +560,9 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 from ..modules.glance.situation import situation as live_situation
 
                 if along_snapshot().get("on"):
+                    from ..modules.glance.journal import journal
                     scene_note = live_situation.watch_brief() + "\n" + live_situation.blocks()
+                    scene_note += "\n" + journal.view(live_situation)
                     if live_situation.scene in {"movie", "video", "music"}:
                         from ..modules.glance.media_timeline import timeline
                         scene_note += "\n" + timeline.context(time.time())

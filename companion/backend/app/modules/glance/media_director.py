@@ -18,10 +18,11 @@ def bind_context(offer, sight: dict) -> None:
     offer.summary = "\n".join(context)[:500]
 
 
-def cadence(scene: str, *, elapsed: float, opening: bool, talk: str, playback: str) -> bool:
+def cadence(scene: str, *, elapsed: float, opening: bool, talk: str, playback: str, direct: bool = False) -> bool:
     if talk == "quiet" or playback in {"paused", "暂停", "已暂停", "stopped", "unavailable"}:
         return False
-    gap = {"movie": 25, "music": 25, "video": 12}.get(scene, 25)
+    gap = {"movie": 15 if direct else 25, "music": 15 if direct else 25,
+           "video": 8 if direct else 12}.get(scene, 25)
     if talk == "more":
         gap /= 2
     return opening or elapsed >= gap

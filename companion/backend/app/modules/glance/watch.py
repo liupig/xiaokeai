@@ -12,13 +12,13 @@ from dataclasses import dataclass, field
 from .situation import Situation, parse_observation
 
 INTERVALS = {
-    "movie": 12.0,
-    "code": 18.0,
-    "music": 8.0,
-    "video": 5.0,
-    "slides": 15.0,
-    "game": 8.0,
-    "unknown": 10.0,
+    "movie": 20.0,
+    "code": 25.0,
+    "music": 20.0,
+    "video": 15.0,
+    "slides": 25.0,
+    "game": 10.0,
+    "unknown": 20.0,
 }
 BUFFER = 48
 OVERLAP = 3
@@ -69,9 +69,9 @@ def along_turn(talk: str = "normal") -> str:
     """开口时告诉她眼前发生了什么。感受由她自己来，空的陪伴不算接上。"""
     more = "他想多听一点，可以再多接一句。" if talk == "more" else ""
     return (
-        "对方没说话。你正和他一起看，一句接一句，不要停在上一句。"
+        "对方没说话。你正和他一起看，一句接一句，从当前内容起头。"
         "【眼前】引号里这句才是现在发生的。就接这句，说你的反应。"
-        "不要把原句再念一遍，不要接着更早的事，不要说你在安安静静陪着，没有的不要编。"
+        "不要把原句再念一遍；可以接着自己的情绪和共同看过的前情，但不要脱离当前内容，没有的不要编。"
         "只有这一句和你刚说过的是同一件事，才可以不说。"
         + more
     )

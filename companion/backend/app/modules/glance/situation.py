@@ -81,6 +81,12 @@ class Offer:
     phase: str = ""
     player_hero: str = ""
     context: str = ""
+    direct: bool = False
+    spoken: str = ""
+    mood: str = ""
+    generator: str = ""
+    raw: str = ""
+    kind: str = "reaction"
 
 
 def _none_fact(text: str) -> bool:

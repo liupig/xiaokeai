@@ -3,6 +3,7 @@ import { speechPlayer } from '../voice/tts';
 import { useCharacterStore } from '../../stores/character';
 import { useChatStore } from '../../stores/chat';
 import { useSettingsStore } from '../../stores/settings';
+import { stage } from '../../engine/stage';
 
 export const alongLive = { on: false };
 
@@ -21,6 +22,8 @@ async function tick() {
     return;
   }
   alongLive.on = !!snap.on;
+  stage.motion.suspended = alongLive.on;
+  if (alongLive.on) stage.motion.stop();
   if (!snap.on && !useSettingsStore().modules.glance) return;
   if (!snap.on || !snap.text || snap.seq === acked) return;
   const chars = useCharacterStore();
@@ -50,5 +53,5 @@ async function tick() {
 
 export function installAlong() {
   if (timer) return;
-  timer = window.setInterval(() => { void tick(); }, 2000);
+  timer = window.setInterval(() => { void tick(); }, 500);
 }

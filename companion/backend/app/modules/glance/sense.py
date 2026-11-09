@@ -231,7 +231,10 @@ def collect(
         observed_at = float(found.get("observed_at") or observed_at)
         if not found.get("ok"):
             return found
-    subtitle_rows = subtitles.drain(source_key) if streaming_subtitles else []
+    from .direct import enabled as direct_enabled
+    from .media_subtitles import beat as subtitle_beat
+    subtitle_rows = subtitles.drain(source_key, coalesce=2.0 if direct_enabled() else 0) if streaming_subtitles else []
+    merged_subtitles = subtitle_beat(subtitle_rows)
     def media_id(row):
         return next((line.split("：", 1)[1].strip() for line in str(row.get("ocr_text") or row.get("text") or "").splitlines()
                      if line.startswith("媒体标识：")), "")
@@ -316,6 +319,19 @@ def collect(
         public["segments"] = timeline.rows(time.time())
         found["media_context"] = public["timeline"]
         found["sight"] = public
+    if found.get("direct_raw"):
+        from .direct import evaluate
+        reaction = evaluate(str(found["direct_raw"]), evidence=str(found["direct_raw"]), kind="visual")
+        change = str(reaction.get("change") or "")
+        found["direct_result"] = reaction
+        found["text"] = "变化：" + change if change else ""
+        found["skipped"] = not change
+        found["channel"] = "minicpm"
+        found["sight"] = public
+        if change and media_kind:
+            timeline.add(Moment(observed_at, observed_at, visual=change), epoch=timeline_epoch, now=time.time())
+        _trace(found, called=True)
+        return found
     if brief.active and brief.handoff:
         if brief.handoff == _last_text and not find:
             _trace(found, called=bool(found.get("trace_id")))
@@ -341,6 +357,7 @@ def collect(
         }
         if brief.kind in {"movie", "video", "music"}:
             found["channel"] = brief.slots.get("line_source") or "screen"
+            found["subtitle_beat"] = merged_subtitles
             if brief.slots.get("switched") or brief.slots.get("seek"):
                 found["continuity_gap"] = "媒体内容切换或进度跳转，不保证前后连续"
         _trace(found, called=bool(found.get("trace_id")))
@@ -445,6 +462,7 @@ def _heard(desk: Desk, find: bool) -> str:
 
 
 def _look(desk: Desk, *, ask: str, along: bool, before: str, timeout: float, order=None, ocr_only: bool = False) -> dict:
+    from .direct import visual_instruction
     from .service import eyes_glance
     from .vision import uses_local
 
@@ -457,8 +475,9 @@ def _look(desk: Desk, *, ask: str, along: bool, before: str, timeout: float, ord
     context = hint + (before or "")
     box = window_box(desk.hwnd) if desk.hwnd else None
     bound = order is not None and getattr(order, "active", False)
-    prompt = order.prompt if bound else ""
-    if bound and order.sub == "league" and not uses_local():
+    reaction = False
+    prompt = visual_instruction() if reaction else order.prompt if bound else ""
+    if bound and order.sub == "league" and not uses_local() and not reaction:
         from ..sight.league import detailed_prompt
 
         prompt = detailed_prompt()
@@ -475,6 +494,7 @@ def _look(desk: Desk, *, ask: str, along: bool, before: str, timeout: float, ord
         window_hwnd=desk.hwnd,
         ocr_only=ocr_only,
         scene=order.kind if bound else desk.kind,
+        reaction=reaction,
     )
 
 

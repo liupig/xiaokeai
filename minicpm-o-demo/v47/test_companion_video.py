@@ -78,5 +78,55 @@ class VideoIntegrationTests(unittest.TestCase):
         self.assertEqual(result['text'], '画面：新采集已经恢复')
 
 
+class TextReactionTests(unittest.TestCase):
+    def test_react_uses_text_only_model_input(self):
+        calls = {}
+
+        class Engine:
+            def load(self):
+                calls['loaded'] = True
+
+            def describe(self, image, prompt, **kwargs):
+                calls.update(kwargs, image=image, prompt=prompt)
+                return '情绪：平静\n值不值得说：不说\n台词：'
+
+        body = SimpleNamespace(prompt='刚刚片子里说：船要开了')
+        result = video.react(Engine(), body)
+        self.assertTrue(calls['loaded'])
+        self.assertIsNone(calls['image'])
+        self.assertEqual(calls['prompt'], body.prompt)
+        self.assertFalse(calls['do_sample'])
+        self.assertEqual(result['input_mode'], 'text')
+        self.assertIn('值不值得说', result['text'])
+
+    def test_visual_reaction_returns_three_line_result_without_a_second_observation(self):
+        calls = {}
+
+        class Capture:
+            error = None
+            thread = SimpleNamespace(is_alive=lambda: True)
+            def latest(self):
+                return [(time.monotonic() + i * .2, Image.new('RGB', (16, 8)), i, '') for i in range(4)]
+            def close(self):
+                pass
+
+        class Engine:
+            SCENE_PROMPTS = {'movie': '电影'}
+            def load(self):
+                pass
+            def describe(self, image, prompt, **kwargs):
+                calls.update(kwargs, prompt=prompt)
+                return '变化：舱门打开\n情绪：紧张\n台词：门突然开了'
+
+        body = SimpleNamespace(scene='movie', before='精简人设', prompt='变化情绪台词', ask='', crop=[], reaction=True)
+        with patch.object(video, '_source', ('movie', 0, ())), patch.object(video, '_live', Capture()), \
+                patch('observations.save_model_frames', return_value=[]), patch('observations.record'):
+            result = video.observe(Engine(), body)
+        self.assertIn('精简人设\n变化情绪台词', calls['prompt'])
+        self.assertEqual(calls['max_new_tokens'], 80)
+        self.assertEqual(result['direct_raw'], '变化：舱门打开\n情绪：紧张\n台词：门突然开了')
+        self.assertEqual(result['text'], '')
+
+
 if __name__ == '__main__':
     unittest.main()

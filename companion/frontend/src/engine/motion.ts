@@ -34,6 +34,7 @@ function rememberClip(
  */
 export class MotionPlayer {
   active = false;
+  suspended = false;
   currentUrl = '';
   onPhysicsReset: (() => void) | null = null;
   /** 动作被 stop / once 播完时回调（切到新动作 / 定格末帧 不会触发） */
@@ -128,7 +129,7 @@ export class MotionPlayer {
   }
 
   async play(url: string, opts?: { once?: boolean; holdLast?: boolean }): Promise<boolean> {
-    if (!this.mesh) return false;
+    if (this.suspended || !this.mesh) return false;
     const seq = ++this.playSeq;
     this.onceRemain = 0;
     this.holding = false;
@@ -224,6 +225,7 @@ export class MotionPlayer {
   }
 
   update(dt: number) {
+    if (this.suspended) return;
     if (this.holding) {
       this.applyPose(this.holdPose);
       return;

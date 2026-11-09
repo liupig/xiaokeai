@@ -93,6 +93,7 @@ class GlanceBody(BaseModel):
     prompt: str = ""
     frames: int = 0
     window_hwnd: int = 0
+    reaction: bool = False
 
 
 @app.post("/api/video/observe")
@@ -100,6 +101,19 @@ def api_video_observe(body: GlanceBody):
     from companion_video import observe
     try:
         return observe(engine, body)
+    except Exception as exc:
+        return {"ok": False, "text": "", "message": str(exc)}
+
+
+class ReactBody(BaseModel):
+    prompt: str
+
+
+@app.post("/api/video/react")
+def api_video_react(body: ReactBody):
+    from companion_video import react
+    try:
+        return react(engine, body)
     except Exception as exc:
         return {"ok": False, "text": "", "message": str(exc)}
 

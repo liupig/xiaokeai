@@ -49,7 +49,7 @@ def test_movie_low_diff_still_looks_and_plot_moves():
         session.see(t=float(t), text=opening, scene="movie", changed=False)
     assert session.looks == 1
     later = _movie("海上钢琴师", "钢琴师推开舱门", "舱门打开了")
-    session.see(t=12, text=later, scene="movie", changed=False)
+    session.see(t=20, text=later, scene="movie", changed=False)
     assert session.looks == 2
     assert session.forced_looks >= 1
     assert session.situation.scene_id.startswith("1:movie") or "movie" in session.situation.scene_id
@@ -57,7 +57,7 @@ def test_movie_low_diff_still_looks_and_plot_moves():
     blob = " ".join(session.situation.facts)
     assert "用户在跑" not in blob
     running = _movie("海上钢琴师", "他在跑", "片子里有人开始跑")
-    session.see(t=14, text=running, scene="movie", changed=True)
+    session.see(t=22, text=running, scene="movie", changed=True)
     assert "画面中有人在奔跑" in " ".join(session.situation.facts)
     assert "用户在跑" not in " ".join(session.situation.facts)
 
