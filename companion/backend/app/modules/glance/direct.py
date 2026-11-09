@@ -122,6 +122,29 @@ def parse_visual_protocol(raw: str) -> dict:
     return result
 
 
+def _clauses(text: str) -> list[str]:
+    return [
+        kept for part in re.split(r"[，。！？!?；;…\n]+", text or "")
+        if len(kept := re.sub(r"[^\w\u4e00-\u9fff]+", "", part)) >= 3
+    ]
+
+
+def duplicate_line(text: str, recent: list[str]) -> bool:
+    from .along import same_scene
+
+    if any(same_scene(text, old) for old in recent):
+        return True
+    clauses = _clauses(text)
+    for old in recent:
+        previous = _clauses(old)
+        for clause in clauses:
+            for old_clause in previous:
+                shorter, longer = sorted((clause, old_clause), key=len)
+                if shorter in longer or same_scene(clause, old_clause):
+                    return True
+    return False
+
+
 def evaluate(raw: str, *, evidence: str, recent: list[str] | None = None, kind: str = "reaction") -> dict:
     parsed = parse_natural(raw)
     action = parsed["action"]
@@ -136,12 +159,11 @@ def evaluate(raw: str, *, evidence: str, recent: list[str] | None = None, kind: 
             if problem:
                 action = "unsupported"
         if not problem:
-            from .along import same_scene
             from .watch import hollow_company
             if _META.search(spoken):
                 action, problem = "hollow", "陪伴套话不是有效互动"
-            elif any(same_scene(spoken, old) for old in (recent or [])[-3:]):
-                action, problem = "duplicate", "同一个点不重复说"
+            elif duplicate_line(spoken, (recent or [])[-6:]):
+                action, problem = "duplicate", "同一个点或短句不重复说"
             elif kind != "company" and hollow_company(spoken):
                 action, problem = "hollow", "没有接住当前内容"
     mood = _mood(spoken) if spoken else "平静"
