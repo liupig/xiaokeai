@@ -113,6 +113,8 @@ _dl/
 # 记忆向量库、证物、临时文件、SenseVoice / Qwen3-TTS 权重（数 GB）
 /companion/data/
 companion/backend/data/
+# TeraTTSv2 is an optional user download, never a repository asset.
+companion/backend/data/optional-models/teratts-v2/
 
 # 构建时从 node_modules 拷贝的 Silero VAD / ONNX Runtime / AEC3 资源
 companion/frontend/public/vad/

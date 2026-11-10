@@ -18,23 +18,25 @@ _cache: Dict[str, Dict[str, Any]] = {}
 _re_cache: Dict[tuple, re.Pattern] = {}
 _lock = threading.Lock()
 
-SUPPORTED = ("zh-CN", "en", "ja", "ko")
+SUPPORTED = ("zh-CN", "en", "ja", "ko", "ru")
 
 _ZH_IGNORECASE = {"roleplay.enter", "roleplay.inject", "classify.dance"}
 
-BCP = {"zh-CN": "zh-CN", "en": "en-US", "ja": "ja-JP", "ko": "ko-KR"}
+BCP = {"zh-CN": "zh-CN", "en": "en-US", "ja": "ja-JP", "ko": "ko-KR", "ru": "ru-RU"}
 
 EDGE_DEFAULT = {
     "zh-CN": "zh-CN-XiaoyiNeural",
     "en": "en-US-AriaNeural",
     "ja": "ja-JP-NanamiNeural",
     "ko": "ko-KR-SunHiNeural",
+    "ru": "ru-RU-SvetlanaNeural",
 }
 QWEN_DEFAULT = {
     "zh-CN": "Serena",
     "en": "Serena",
     "ja": "Ono_Anna",
     "ko": "Sohee",
+    "ru": "Serena",
 }
 VOLC_DEFAULT = {
     "zh-CN": "zh_female_vv_uranus_bigtts",
@@ -86,6 +88,8 @@ def normalize(code: str | None) -> str:
         return "en"
     if low in ("zh", "zh-cn", "zh-hans", "zh-sg"):
         return "zh-CN"
+    if low == "ru" or low.startswith("ru-"):
+        return "ru"
     if low.startswith("ja"):
         return "ja"
     if low.startswith("ko"):
@@ -120,6 +124,9 @@ def ui_of(conf: Dict[str, Any] | None) -> str:
 def detect_script(text: str) -> Optional[str]:
     """整句明显是另一种文字才返回语言。夹一两个英文词返回 None。"""
     s = re.sub(r"\[[a-z]+:[^\]]+\]", " ", text or "")
+    cyrillic = len(re.findall(r"[А-Яа-яЁё]", s))
+    if cyrillic >= 3:
+        return "ru"
     cjk = len(re.findall(r"[\u4e00-\u9fff]", s))
     kana = len(re.findall(r"[\u3040-\u30ff]", s))
     hang = len(re.findall(r"[\uac00-\ud7af]", s))
@@ -278,6 +285,8 @@ def _volc_lang(voice: str) -> str:
 def voice_lang(engine: str, voice: str) -> str:
     vid = (voice or "").strip()
     eng = (engine or "").strip().lower()
+    if eng == "tera":
+        return "ru" if vid.startswith("ru_") else "en" if vid.startswith("eng_") else ""
     if eng == "volc":
         return _volc_lang(vid)
     if eng == "mimo" or vid in _MIMO_LANG:
@@ -292,12 +301,16 @@ def voice_lang(engine: str, voice: str) -> str:
         return "ja"
     if vid.startswith("ko-"):
         return "ko"
+    if vid.startswith("ru-"):
+        return "ru"
     return ""
 
 
 def default_voice(engine: str, lang: str | None) -> str:
     lang = normalize(lang)
     eng = (engine or "").strip().lower()
+    if eng == "tera":
+        return "eng_f3" if lang == "en" else "ru_f1"
     if eng == "qwen":
         return QWEN_DEFAULT.get(lang, "Serena")
     if eng == "volc":
@@ -317,11 +330,14 @@ def voice_fits(engine: str, voice: str, lang: str | None) -> bool:
     """这个音色能不能拿来念该对话语言。英语允许塞蕾娜 / 薇薇安，避免落到男声。"""
     lang = normalize(lang)
     vid = (voice or "").strip()
+    if (engine or "").strip().lower() == "tera" and lang in {"ru", "en"}:
+        from .services.tts_tera import VOICES
+        return vid in {item["id"] for item in VOICES}
     have = voice_lang(engine, vid)
     if have == lang:
         return True
     eng = (engine or "").strip().lower()
-    return lang == "en" and eng == "qwen" and vid in _QWEN_EN_FEMALE
+    return lang in {"en", "ru"} and eng == "qwen" and vid in _QWEN_EN_FEMALE
 
 
 def align_voice(engine: str, voice: str, lang: str | None) -> str:

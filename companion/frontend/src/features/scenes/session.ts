@@ -387,6 +387,8 @@ export function spokenWelcome(card: SceneCard | null | undefined): string {
         ? '[emo:relaxed][intent:look]ここにいる。'
         : replyLang() === 'ko'
           ? '[emo:relaxed][intent:look]여기 있어.'
+          : replyLang() === 'ru'
+            ? '[emo:relaxed][intent:look]Я здесь.'
           : '[emo:relaxed][intent:look]I\'m here.';
   }
   const cam = full.cam || 'half';
@@ -400,6 +402,7 @@ export function spokenWelcome(card: SceneCard | null | undefined): string {
   ] || (replyLang() === 'zh-CN' ? '你来了。'
     : replyLang() === 'ja' ? '来た。'
       : replyLang() === 'ko' ? '왔어.'
+      : replyLang() === 'ru' ? 'Ты пришёл.'
         : 'You\'re here.');
   sceneSession.lastLine = line;
   return `[emo:relaxed][cam:${cam}][intent:${intent}]${line}`;

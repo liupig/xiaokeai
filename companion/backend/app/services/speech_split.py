@@ -195,7 +195,7 @@ class SentenceSplitter:
         if not delta:
             return []
         self.buf += delta
-        if self.lang == "en":
+        if self.lang in ("en", "ru"):
             return self._drain_en(flush=False)
         if self.lang in ("ja", "ko"):
             return self._drain_mark(flush=False)
@@ -207,7 +207,7 @@ class SentenceSplitter:
         return [s for s in cleaned if s]
 
     def flush(self) -> List[str]:
-        if self.lang == "en":
+        if self.lang in ("en", "ru"):
             return self._drain_en(flush=True)
         if self.lang in ("ja", "ko"):
             return self._drain_mark(flush=True)

@@ -24,6 +24,7 @@ def opening(ask: str, *, active: bool = False, lang: str = "zh-CN") -> str:
     lines = {
         "ja": ("うん、一緒に見よう。", "ちょっと見てみるね。"),
         "ko": ("좋아, 같이 보자.", "잠깐 볼게."),
+        "ru": ("Хорошо, давай посмотрим вместе.", "Сейчас посмотрю."),
     }
     pair = lines.get(lang.split("-")[0], ("Sure, let's watch together.", "Let me take a look."))
     return pair[0 if continuous else 1]

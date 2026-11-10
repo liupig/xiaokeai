@@ -116,7 +116,7 @@ def normalize(brief: dict[str, Any], text: str) -> dict[str, Any] | None:
     return None
 
 
-_LANG_NAME = {"zh-CN": "中文", "en": "English", "ja": "日本語", "ko": "한국어"}
+_LANG_NAME = {"zh-CN": "中文", "en": "English", "ja": "日本語", "ko": "한국어", "ru": "Русский"}
 
 _GOAL = {
     "scrape": "这一局的目标是混苟分。少碰枪，能跟小牌就跟，假牌少出。只有上一手张数多、而且这个人以往爱诈，才揭穿。",

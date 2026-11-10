@@ -221,12 +221,16 @@ def _warmup_memory() -> None:
 def _warmup_asr() -> None:
     from .services import autotune
     try:
-        asr_svc.warmup(download=False)
+        from .locale_pack import reply_of
+        with Session(engine) as session:
+            language = reply_of(settings_store.get_all(session))
+        asr_svc.warmup(download=False, language=language)
     except Exception as exc:
         asr_svc._state["message"] = str(exc)
         asr_svc._state["downloading"] = False
         print(f"[asr] warmup failed: {exc}")
-        autotune.fallback_stt(str(exc))
+        if locals().get("language") != "ru":
+            autotune.fallback_stt(str(exc))
 
 
 def _warmup_tts() -> None:

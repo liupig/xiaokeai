@@ -320,7 +320,7 @@ def resolve_play_choice(text: str) -> Optional[str]:
 
 def match_play_id(text: str) -> Optional[str]:
     """从口语里认出玩法。先对标题，再对常用叫法。开局唤醒也走这里，别放太宽。"""
-    n = _compact(text)
+    n = _compact(text).lower()
     if not n:
         return None
     ranked = sorted(PLAYS, key=lambda p: len(str(p.get("title") or "")), reverse=True)
@@ -348,15 +348,15 @@ def match_play_id(text: str) -> Optional[str]:
     from ...locale_pack import current_reply, normalize
     if normalize(current_reply()) != "zh-CN":
         extra = (
-            ("celtic", ("celticcross", "celtic", "tencards")),
-            ("choice", ("twooptions", "eitheror")),
-            ("bond", ("relationshipspread", "lovespread")),
-            ("work", ("careerspread", "workspread")),
-            ("body", ("bodyandmind",)),
-            ("advice", ("advicespread", "whatshouldido")),
-            ("yesno", ("yesorno",)),
-            ("three", ("threecards", "pastpresentfuture")),
-            ("daily", ("dailycard", "drawacard", "onecard", "cardoftheday")),
+            ("celtic", ("celticcross", "celtic", "tencards", "кельтскийкрест", "десятькарт")),
+            ("choice", ("twooptions", "eitheror", "дваварианта", "выбор")),
+            ("bond", ("relationshipspread", "lovespread", "раскладналюбовь", "отношения")),
+            ("work", ("careerspread", "workspread", "раскладнаработу", "карьера")),
+            ("body", ("bodyandmind", "телоииразум", "телоиразум")),
+            ("advice", ("advicespread", "whatshouldido", "совет", "чтомнеделать")),
+            ("yesno", ("yesorno", "даилинет")),
+            ("three", ("threecards", "pastpresentfuture", "трикарты", "прошлоенастоящеебудущее")),
+            ("daily", ("dailycard", "drawacard", "onecard", "cardoftheday", "однакарта", "картанадень", "вытащикарту")),
         )
         for pid, words in extra:
             if any(w and w in n for w in words):
@@ -401,6 +401,10 @@ _TITLE_KO = {
     "choice": "둘 중 하나",
     "celtic": "켈틱 크로스",
 }
+_TITLE_RU = {
+    "daily": "Карта дня", "yesno": "Да или нет", "three": "Три карты", "advice": "Совет",
+    "body": "Душа и тело", "bond": "Отношения", "work": "Работа", "choice": "Два пути", "celtic": "Кельтский крест",
+}
 _POS_EN = {
     "daily": ("Today",),
     "yesno": ("Lean",),
@@ -414,6 +418,14 @@ _POS_EN = {
         "Now", "Challenge", "Root", "Recent past", "Aim",
         "Near future", "Self", "Outside", "Hope and fear", "Way out",
     ),
+}
+_POS_RU = {
+    "daily": ("Сегодня",), "yesno": ("Ответ",), "three": ("Прошлое", "Настоящее", "Будущее"),
+    "advice": ("Сейчас", "Препятствие", "Совет"), "body": ("Душа", "Тело", "Дыхание"),
+    "bond": ("Я", "Другой человек", "Связь", "Препятствие", "Возможность"),
+    "work": ("Сейчас", "Сила", "Испытание", "Возможность", "Действие"),
+    "choice": ("Путь А сейчас", "Препятствие А", "Направление А", "Путь Б сейчас", "Препятствие Б", "Направление Б", "Совет"),
+    "celtic": ("Сейчас", "Испытание", "Корень", "Недавнее прошлое", "Цель", "Ближайшее будущее", "Я", "Окружение", "Надежда и страх", "Выход"),
 }
 _POS_JA = {
     "daily": ("今日",),
@@ -453,6 +465,8 @@ def spread_title(play: Play) -> str:
         return _TITLE_JA.get(pid) or _TITLE_EN.get(pid) or str(play.get("title") or pid)
     if lang == "ko":
         return _TITLE_KO.get(pid) or _TITLE_EN.get(pid) or str(play.get("title") or pid)
+    if lang == "ru":
+        return _TITLE_RU.get(pid) or str(play.get("title") or pid)
     if lang != "zh-CN":
         return _TITLE_EN.get(pid) or str(play.get("id") or play.get("title") or "")
     return str(play.get("title") or "")
@@ -466,6 +480,8 @@ def spread_positions(play: Play) -> List[str]:
         return list(_POS_JA[pid])
     if lang == "ko" and pid in _POS_KO:
         return list(_POS_KO[pid])
+    if lang == "ru" and pid in _POS_RU:
+        return list(_POS_RU[pid])
     if lang != "zh-CN" and pid in _POS_EN:
         return list(_POS_EN[pid])
     return list(play.get("positions") or [])
