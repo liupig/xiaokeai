@@ -18,7 +18,7 @@ Voice chat with VRM, MMD (PMX), or GLB characters who speak, lip-sync, express e
 - **Your character, your setup.** Import VRM, MMD/PMX, and GLB models, use SillyTavern character cards and lorebooks, and choose local or cloud chat and speech providers.
 - **Free and open source.** No membership or usage cap. The source is Apache 2.0; third-party models, motions, music, and voices retain their own licenses.
 
-The interface and speech languages can be configured independently: **Simplified Chinese, English, Japanese, and Korean**.
+The interface and speech languages can be configured independently: **Simplified Chinese, English, Japanese, Korean, and Russian**. Russian includes optional offline ASR/TTS; models are downloaded on demand and are not included in Git or the B bundle.
 
 ## Preview
 
@@ -100,13 +100,14 @@ For packs dated 2026-10-21 or earlier, pair the older A with `xiaoke-ai-B`, sele
 - **Long-term memory:** Extract preferences, relationships, and promises with mem0, store embeddings locally in Qdrant, and recall them in later conversations. Choose automatic routing or one of five explicit embedding backends: local MiniLM, Doubao, Qwen, OpenAI, or Gemini. Memory can be inspected and deleted.
 - **Conversation controls:** Review transcripts, rewrite the previous reply, rewind to an earlier message, or perform the same line again with a different emotion without another model request.
 - **Full-duplex interaction:** Listen while speaking, choose per-sentence interruption or queueing, and continue after silence. Silero VAD and WebRTC AEC3 help distinguish your voice from the companion's playback.
-- **Four UI and speech languages:** Configure Simplified Chinese, English, Japanese, and Korean independently for the interface and conversation.
+- **Five UI and speech languages:** Configure Simplified Chinese, English, Japanese, Korean, and Russian independently for the interface and conversation.
 
 #### Speech recognition — 7 ASR options
 
 | Engine | Runs | Model / notes |
 |---|---|---|
 | SenseVoice-Small | **Local, CPU** | Automatic Chinese, English, Japanese, Korean, and Cantonese recognition; approximately 230 MB |
+| GigaAM-v3 | **Local, CPU** | Offline Russian recognition through sherpa-onnx; approximately 232 MB on first preparation |
 | Alibaba Cloud Model Studio | Cloud | `qwen3-asr-flash` |
 | Volcengine Doubao ASR 2.0 | Cloud | `volc.seedasr.sauc.duration` |
 | OpenAI | Cloud | `gpt-transcribe` |
@@ -121,6 +122,7 @@ Local and cloud engines provide **300+ listed preset voices**. Lip-sync follows 
 | Engine | Runs | Model / voices |
 |---|---|---|
 | Qwen3-TTS | **Local, GPU, streaming** | 0.6B or 1.7B models, 9 shared voices, optional style instructions on 1.7B |
+| TeraTTSv2 | **Optional local GPU, streaming** | Russian and English voices; downloaded from Speech settings, not bundled |
 | Browser system speech | Local | Voices installed on the device |
 | Xiaomi MiMo | Cloud, streaming | `mimo-v2.5-tts`, 9 preset voices with emotion directions |
 | Volcengine Doubao TTS 2.0 | Cloud | `seed-tts-2.0`, 100 voices |
@@ -133,6 +135,7 @@ Local and cloud engines provide **300+ listed preset voices**. Lip-sync follows 
 ### 3D stage and performance
 
 - **Three model formats:** Hot-swap VRM, MMD/PMX, and GLB characters, with MMD cloth physics for hair, skirts, and ribbons.
+- **Optional Live2D module:** Enable it in Settings and import a Cubism package containing `.model3.json`; native motions, physics, gaze, touch, outfits, parameters, and presets are supported. When disabled, the Live2D engine is not loaded and the 3D path is unchanged.
 - **Stage appearance:** Choose from 20 image scenes, six solid-color backgrounds, or a custom image; adjust rendering resolution, lighting, physics, music volume, and the stage base.
 - **Performed replies:** Streamed emotion, action, dance, camera, and stance tags drive expressions and movement in real time. A local fallback keeps the performance path usable without a chat API key.
 - **Camera review:** Approve shot × camera × stance × motion combinations before they enter a performance to reduce clipping and mismatched movement.
