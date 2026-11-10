@@ -15,10 +15,12 @@ _last_eyes = 0.0
 _last_text = ""
 _last_ocr = 0.0
 _pinned = 0
+_league_scores: dict = {}
 
 
 def reset() -> None:
-    global _last_eyes, _last_text, _last_ocr, _pinned
+    global _last_eyes, _last_text, _last_ocr, _pinned, _league_scores
+    _league_scores = {}
     _last_eyes = 0.0
     _last_text = ""
     _last_ocr = 0.0
@@ -284,16 +286,36 @@ def collect(
             heard = ""
         eyes_text = inputs(desk, eyes_text, heard, metadata=metadata, echo=_echoes(heard, echo or []))
         found["media_inputs"] = eyes_text
-    if order.sub == "league" and desk.process.lower() == "league of legends.exe" and call:
-        from ..sight.league_client import latest
+    if order.sub == "league" and call:
+        from ..sight.league_client import is_league_process
 
-        state = latest()
+        if not is_league_process(desk.process):
+            state = None
+        else:
+            from ..sight.league_client import start_polling, snapshot
+            start_polling()
+            state = snapshot()
         if state:
+            from ..sight.league_client import score_brief
+            from ..sight.league_fusion import fuse
+            fusion = fuse(state, _league_scores, observed_at, time.time())
+            from .trace import mark
+            mark(str(found.get('trace_id') or ''), league_snapshot=state, league_fusion=fusion)
+            score_context = score_brief(state, _league_scores)
+            score_context += '\n' + fusion['instruction']
+            from ..sight.league_companion import strategy
+            score_context += '\n' + strategy(state, fusion['events'])
+            _league_scores.clear()
+            _league_scores.update(state)
             eyes_text += f"\n英雄：{state['hero']}\n身份来源：liveclient\n对局时钟：{state['game_time']}"
             if state["dead"]:
                 eyes_text += f"\n原文：返回于 {int(state['respawn'])}\n阶段：阵亡"
     brief = sight_commit(desk.process, desk.title, desk.window, eyes_text)
     public = brief.public()
+    if order.sub == 'league' and call and state and score_context:
+        public['fusion'] = fusion
+        public['company'] = public.get('company', '') + '\n' + score_context
+        public['handoff'] = public.get('handoff', '') + '\n' + score_context
     if brief.active and brief.kind in {"movie", "video", "music"}:
         slots = brief.slots
         if slots.get("switched") or slots.get("seek") or slots.get("playback") in {"paused", "stopped", "unavailable"}:

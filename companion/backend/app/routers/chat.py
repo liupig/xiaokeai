@@ -214,6 +214,9 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                     lore_mid = contents
                 else:
                     lore_post = contents
+    from ..modules.glance.game_truth import note as note_game_truth, context as game_truth_context
+    if mode == 'user':
+        note_game_truth(req.character_id, req.text or '')
     messages = prompt_stack.build_messages(
         persona=persona,
         char_name=(char.name if char else ""),
@@ -229,6 +232,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         lorebook_before_hist=lore_post,
         user_persona=user_persona,
     )
+    messages.append({'role': 'system', 'content': game_truth_context(req.character_id)})
     if req.live2d:
         capability_text = json.dumps(req.live2d, ensure_ascii=False)
         messages.append({

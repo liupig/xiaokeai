@@ -19,11 +19,40 @@ class AckBody(BaseModel):
 
 class KeepBody(BaseModel):
     on: bool = False
+    permanent: bool = False
 
 
 class PowerBody(BaseModel):
     on: bool = False
     character_id: int = 0
+
+
+class LeagueModeBody(BaseModel):
+    mode: str
+
+
+@router.get('/league/mode')
+def league_mode_get():
+    from .league_mode import mode
+    return {'mode': mode()}
+
+
+@router.post('/league/mode')
+def league_mode_set(body: LeagueModeBody):
+    from .league_mode import set_mode, mode
+    if body.mode not in ('api', 'hybrid'):
+        raise HTTPException(400, 'mode must be api or hybrid')
+    snap = along.snapshot()
+    along.stop()
+    from .eyes_host import shutdown, enable_glance, ensure
+    shutdown()
+    set_mode(body.mode)
+    if snap.get('on') and snap.get('character_id'):
+        if mode() == 'hybrid':
+            enable_glance()
+            ensure()
+        along.start(int(snap['character_id']))
+    return {'mode': mode()}
 
 
 @router.get("/along")
@@ -42,10 +71,11 @@ def along_stop() -> Dict[str, Any]:
 
 def _power() -> Dict[str, Any]:
     from .eyes_host import eyes_status
+    from .league_mode import mode
 
     snap = along.snapshot()
     return {**eyes_status(), "along": bool(snap.get("on")), "character_id": snap.get("character_id") or 0,
-            "contract": snap.get("contract")}
+            "contract": snap.get("contract"), 'league_mode': mode()}
 
 
 @router.get("/power")
@@ -56,15 +86,25 @@ def power_status() -> Dict[str, Any]:
 @router.post("/power")
 def power_set(body: PowerBody) -> Dict[str, Any]:
     from .eyes_host import enable_glance, ensure, shutdown
+    from .league_mode import mode, set_mode
+    snap = along.snapshot()
+    from ..sight.service import current
+    league_active = mode() == 'api' or current().sub == 'league'
+    cid = int(body.character_id or snap.get('character_id') or 0)
 
     if body.on:
+        along.stop()
+        set_mode('hybrid')
         enable_glance()
         ensure()
-        if body.character_id:
-            along.start(int(body.character_id))
+        if cid:
+            along.start(cid)
     else:
         along.stop()
         shutdown()
+        set_mode('api')
+        if league_active and cid and snap.get('on'):
+            along.start(cid)
     return _power()
 
 
@@ -90,7 +130,7 @@ def lab_keep() -> Dict[str, Any]:
 @router.post("/lab/keep")
 def lab_keep_set(body: KeepBody) -> Dict[str, Any]:
     from . import archive
-    archive.set_keeping(body.on)
+    archive.set_keeping(body.on, permanent=body.permanent)
     return archive.status()
 
 

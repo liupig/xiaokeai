@@ -20,6 +20,7 @@ DAYS = 3
 _DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _ID = re.compile(r"^g\d{17}-\d{4}$")
 _FIELDS = {
+    'league_snapshot', 'league_fusion', 'league_event_ids', 'league_delivery',
     "media_context", "media_segments",
     "xiaoke_reason",
     "handoff", "handoff_why", "xiaoke_in", "xiaoke_raw", "xiaoke_out", "xiaoke_action",
@@ -58,16 +59,16 @@ def keeping() -> bool:
     return bool(raw.get("on"))
 
 
-def set_keeping(on: bool) -> None:
+def set_keeping(on: bool, *, permanent: bool = False) -> None:
     _root.mkdir(parents=True, exist_ok=True)
     (_root / "keep.json").write_text(
-        json.dumps({"on": bool(on)}, ensure_ascii=False),
+        json.dumps({"on": bool(on), "permanent": bool(permanent)}, ensure_ascii=False),
         encoding="utf-8",
     )
 
 
 def status() -> dict[str, Any]:
-    return {"on": keeping(), "packed": _packed(), "days": DAYS}
+    return {"on": keeping(), "packed": _packed(), "days": DAYS, 'permanent': bool((_read_keep() or {}).get('permanent'))}
 
 
 def lab_url() -> str:
@@ -121,7 +122,7 @@ def patch(item_id: str, fields: dict[str, Any]) -> None:
         return
     for key, value in fields.items():
         if key in _FIELDS:
-            data[key] = str(value or "")[:4000]
+            data[key] = str(value or "") if key in {'league_snapshot', 'league_fusion'} else str(value or "")[:4000]
     try:
         _write_json(path, data)
     except OSError:
@@ -182,6 +183,8 @@ def wipe() -> None:
 
 
 def prune() -> None:
+    if (_read_keep() or {}).get('permanent'):
+        return
     global _rows
     if not _root.is_dir():
         return

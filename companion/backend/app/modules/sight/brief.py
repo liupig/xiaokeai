@@ -47,6 +47,8 @@ def make_brief(sub: Sub, phase: Phase, slots: dict[str, str], surface: str = "")
         f"变化：{phase.label}",
     ])
     kind = _kind_label(sub.kind)
+    from .game_company import company as game_company
+    companionship = game_company(sub.label, phase.label, sentence) if sub.kind == 'game' else ''
     return Brief(
         active=True,
         kind=sub.kind,
@@ -61,7 +63,7 @@ def make_brief(sub: Sub, phase: Phase, slots: dict[str, str], surface: str = "")
         still=True,
         handoff="\n".join(lines),
         speak=phase.speak,
-        company=phase.company + (
+        company=phase.company + '\n' + companionship + (
             f"已确认用户这局操控的英雄是{values['hero']}。这是你这把{values['hero']}，不是在旁观别人。"
             "用第二人称接他的操作，不要叫他盯着自己的英雄，不要编对面是谁。"
             if sub.id == "league" and values.get("hero") not in {None, "", _EMPTY} else ""

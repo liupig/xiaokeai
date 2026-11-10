@@ -163,6 +163,10 @@ def _wait(seconds: float) -> bool:
 
 
 def stop(reason: str = "requested") -> None:
+    from .companion_intent import companion_intent
+    companion_intent.reset()
+    from ..sight.league_client import stop_polling
+    stop_polling()
     from .hearing import ear
     from .sense import reset as reset_sense
     from .service import abort_eyes_calls
@@ -214,6 +218,8 @@ def start(character_id: int, request: str = "") -> None:
     global _thread
     if not character_id:
         return
+    from .league_mode import sync_visual_mode
+    sync_visual_mode()
     with _lock:
         if _state.on and _state.character_id == int(character_id) and _thread is not None and _thread.is_alive():
             if request and not situation.watch_task:
@@ -259,7 +265,9 @@ def start(character_id: int, request: str = "") -> None:
         _state.said = request[:80]
         from .hearing import ear
 
-        ear.start()
+        from .league_mode import mode
+        if mode() != 'api':
+            ear.start()
         alive = _thread is not None and _thread.is_alive()
         if not alive:
             _thread = threading.Thread(target=_run_loop, name="glance-along", daemon=True)
@@ -357,12 +365,16 @@ def _prepare_direct(offer: Offer, trace_id: str) -> Offer | None:
     opening = journal.opening()
     evidence = offer.summary + ("\n" + offer.context if offer.context else "")
     evidence += "\n" + "\n".join(journal.beats[-6:])
+    from .companion_intent import companion_intent
     system = "\n".join(part for part in (
         _compact_persona(persona),
         "当前在陪看，以内容交流和共同经历为主。",
+        companion_intent.context(),
+        '【最近实际说过，换表达角度而非同义改写】\n' + '\n'.join(journal.recent_lines(limit=6)),
         journal.view(situation, timeline),
         opening,
         "【本次确认的内容】\n" + evidence,
+        "【当前游戏互动规则】\n" + offer.speech_rule if offer.speech_rule else "",
     ) if part)
     prompt = company_instruction() if offer.kind == "company" else instruction(situation.talk)
     messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
@@ -601,6 +613,10 @@ def finish_speak(spoke: bool, text: str = "", expected_trace: str = "") -> None:
         if expected_trace and expected_trace != _state.trace_id:
             return
     situation.note_offered(spoke)
+    if _state.offer and _state.offer.event_ids:
+        from .trace import mark
+        mark(_state.trace_id, league_event_ids=_state.offer.event_ids,
+             league_delivery='played' if spoke else 'cancelled')
     if spoke and text.strip():
         situation.watch_spoken = text.strip()[:180]
         situation.watch_feedback = "已按当前要求接话；继续观察"
@@ -654,7 +670,7 @@ def eyes_context() -> str:
         persona = _state.persona
     from .journal import journal
     from .media_timeline import timeline
-    parts: list[str] = [persona, situation.watch_brief(), journal.view(situation, timeline)]
+    parts: list[str] = [situation.watch_brief(), journal.view(situation, timeline)]
     if said:
         parts.append("他刚说：" + said)
     if trail:
@@ -701,6 +717,8 @@ def note_user(text: str, character_id: int, *, glance: bool, harness: bool, sema
         start(character_id)
     from .journal import journal
     journal.note_user(text)
+    from .companion_intent import companion_intent
+    companion_intent.user(text)
     compact = _compact(text)
     short_reaction = (
         0 < len(compact) < 4 and not re.search(r"[?？]", compact)
@@ -890,9 +908,13 @@ def _run_loop() -> None:
     """采集失败只重试；用户停止仍立即生效。"""
     from ... import talk_log
     import traceback
+    from .league_mode import mode, run
 
     while not _halt.is_set():
         try:
+            if mode() == 'api':
+                run()
+                return
             _loop()
             return
         except Exception:
@@ -1065,6 +1087,7 @@ def _loop() -> None:
             offer.phase = str(sight.get("phase") or "")
             hero = str((sight.get("slots") or {}).get("hero") or "")
             offer.player_hero = hero if hero != "没看清" else ""
+            offer.event_ids = list((sight.get('fusion') or {}).get('event_ids') or [])
             from .direct import enabled as direct_enabled
             offer.direct = direct_enabled()
             visual_result = found.get("direct_result") or {}

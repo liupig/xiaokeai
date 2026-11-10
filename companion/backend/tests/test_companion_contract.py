@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.modules.sight import service, session
 from app.modules.sight.league import result
-from app.modules.sight.league_client import parse_state
+from app.modules.sight.league_client import is_league_process, parse_state
 from app.modules.glance import along
 from app.modules.glance.router import router
 from app.modules.glance.situation import Offer
@@ -98,6 +98,13 @@ def test_local_telemetry_resolves_the_player_instead_of_first_player():
     assert state["hero"] == "LeBlanc"
     assert state["dead"] is True
     assert parse_state({"activePlayer": {}, "allPlayers": [{"championName": "Garen"}]}) == {}
+
+
+def test_league_process_variants_enable_local_telemetry():
+    assert is_league_process("LeagueClientUx.exe")
+    assert is_league_process(r"C:\\Riot Games\\League of Legends\\League of Legends.exe")
+    assert is_league_process("leagueclientuxrender.exe")
+    assert not is_league_process("steam.exe")
 
 
 def queue():

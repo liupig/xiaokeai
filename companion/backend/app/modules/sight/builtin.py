@@ -44,6 +44,8 @@ def _game() -> Kind:
         _fortnite(kind),
         *_region_games(kind),
     )
+    from .game_profiles import additional_subs
+    subs = (*subs, *additional_subs(kind, subs))
     return Kind(kind.id, kind.label, kind.scene, kind.configurable, kind.interval, kind.template, subs)
 
 
