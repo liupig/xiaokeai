@@ -27,6 +27,12 @@ const LABELS = {
     stage: '무대로',
     quit: '종료',
   },
+  ru: {
+    show: 'Показать окно',
+    pet: 'На рабочий стол',
+    stage: 'Вернуться на сцену',
+    quit: 'Выход',
+  },
 };
 
 function normalizeTrayLocale(lang) {
@@ -34,6 +40,7 @@ function normalizeTrayLocale(lang) {
   if (low === 'en' || low.startsWith('en-')) return 'en';
   if (low.startsWith('ja')) return 'ja';
   if (low.startsWith('ko')) return 'ko';
+  if (low === 'ru' || low.startsWith('ru-')) return 'ru';
   return 'zh-CN';
 }
 

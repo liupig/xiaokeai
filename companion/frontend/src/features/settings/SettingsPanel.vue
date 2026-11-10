@@ -134,6 +134,7 @@ const langOptions = computed(() => {
     { label: t('lang.en'), value: 'en' as const },
     { label: t('lang.ja'), value: 'ja' as const },
     { label: t('lang.ko'), value: 'ko' as const },
+    { label: 'Русский', value: 'ru' as const },
   ];
 });
 const replyModeOptions = computed(() => {
@@ -623,6 +624,7 @@ const ttsEngineOptions = computed(() => {
     { label: t('set.tts.elevenEngine'), value: 'eleven' },
     { label: t('set.tts.geminiEngine'), value: 'gemini' },
     { label: t('set.tts.qwen'), value: 'qwen' },
+    { label: 'TeraTTSv2 · Русский (offline)', value: 'tera' },
     { label: t('set.tts.edge'), value: 'edge' },
     { label: t('set.tts.browser'), value: 'browser' },
     { label: t('set.tts.off'), value: 'off' },
@@ -664,7 +666,7 @@ const asrEngineOptions = computed(() => {
     { label: t('set.asr.eleven'), value: 'eleven' },
     { label: t('set.asr.gemini'), value: 'gemini' },
     { label: t('set.asr.browser'), value: 'browser' },
-    { label: t('set.asr.sense'), value: 'sensevoice' },
+    { label: settings.locale.reply === 'ru' ? 'GigaAM-v3 · Русский (offline)' : t('set.asr.sense'), value: 'sensevoice' },
   ];
 });
 const embedderOptions = computed(() => {
@@ -702,7 +704,7 @@ const hwHint = computed(() => {
 });
 const ttsNeedsVoice = computed(() =>
   settings.tts.engine === 'cosy' || settings.tts.engine === 'edge'
-  || settings.tts.engine === 'qwen' || settings.tts.engine === 'volc'
+  || settings.tts.engine === 'qwen' || settings.tts.engine === 'tera' || settings.tts.engine === 'volc'
   || settings.tts.engine === 'openai' || settings.tts.engine === 'eleven'
   || settings.tts.engine === 'gemini' || settings.tts.engine === 'mimo'
 );
@@ -710,7 +712,7 @@ const ttsNeedsVoice = computed(() =>
 watch(() => settings.tts.engine, (eng) => {
   const list = settings.voices.filter((v) => v.engine === eng);
   if (list.length && !list.some((v) => v.id === settings.tts.voice)) {
-    settings.tts.voice = (eng === 'qwen' || eng === 'edge' || eng === 'volc'
+    settings.tts.voice = (eng === 'qwen' || eng === 'tera' || eng === 'edge' || eng === 'volc'
       || eng === 'openai' || eng === 'eleven' || eng === 'gemini' || eng === 'mimo')
       ? defaultVoice(eng, settings.locale.reply)
       : '';
@@ -723,13 +725,14 @@ type SpeechStatus = {
   tts: { available: boolean; ready: boolean; loading?: boolean; downloading?: boolean;
          gpu?: boolean; device?: string; size?: string; message: string;
          sizes?: Record<string, { installed: boolean; label: string; gb: string }> };
+  tera: { installed: boolean; ready: boolean; downloading: boolean; gpu_runtime: boolean; gpu_downloading: boolean; loading: boolean; message: string; url: string };
 };
 const speechStatus = ref<SpeechStatus | null>(null);
 let statusTimer: number | null = null;
 
 async function refreshSpeechStatus() {
   try {
-    speechStatus.value = await api.getSpeechStatus();
+    speechStatus.value = await api.getSpeechStatus(settings.locale.reply);
   } catch { /* 后端未开时忽略 */ }
 }
 
@@ -947,10 +950,10 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <p class="hint">{{ t('lang.hint') }}</p>
           <label>{{ t('lang.ui') }}</label>
           <n-select :value="settings.locale.ui" :options="langOptions"
-                    @update:value="(v: 'zh-CN' | 'en' | 'ja' | 'ko') => settings.setLocale({ ui: v })" />
+                    @update:value="(v: 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru') => settings.setLocale({ ui: v })" />
           <label>{{ t('lang.reply') }}</label>
           <n-select :value="settings.locale.reply" :options="langOptions"
-                    @update:value="(v: 'zh-CN' | 'en' | 'ja' | 'ko') => settings.setLocale({ reply: v })" />
+                    @update:value="(v: 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru') => settings.setLocale({ reply: v })" />
           <label>{{ t('lang.mode') }}</label>
           <n-select :value="settings.locale.reply_mode" :options="replyModeOptions"
                     @update:value="(v: 'fixed' | 'follow') => settings.setLocale({ reply_mode: v })" />
@@ -1212,6 +1215,18 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <h3 class="section-title">{{ t('set.tts.title') }}</h3>
           <label>{{ t('set.tts.engine') }}</label>
           <n-select v-model:value="settings.tts.engine" :options="ttsEngineOptions" />
+          <div v-if="settings.tts.engine === 'tera'" class="speech-status">
+            <p class="hint">{{ speechStatus?.tera.message || (speechStatus?.tera.installed ? 'TeraTTSv2 ✓' : t('set.tera.missing')) }}</p>
+            <n-button size="small" :loading="!!speechStatus?.tera.downloading"
+                      @click="async () => { await api.downloadTera(); await refreshSpeechStatus(); }">{{ t('set.tera.download') }}</n-button>
+            <n-button size="small" :loading="!!speechStatus?.tera.gpu_downloading"
+                      @click="async () => { await api.downloadTeraGpu(); await refreshSpeechStatus(); }">{{ t('set.tera.gpu') }} {{ speechStatus?.tera.gpu_runtime ? '✓' : '' }}</n-button>
+            <n-button size="small" :loading="!!speechStatus?.tera.loading"
+                      :disabled="!speechStatus?.tera.installed || !speechStatus?.tera.gpu_runtime"
+                      @click="async () => { await api.warmupTera(); await refreshSpeechStatus(); }">{{ t('set.tera.warmup') }}</n-button>
+            <a href="https://huggingface.co/TeraSpace/TeraTTSv2" target="_blank" rel="noopener noreferrer">TeraTTSv2 · Hugging Face</a>
+            <p class="hint">{{ t('set.tera.hint') }}</p>
+          </div>
           <template v-if="settings.tts.engine === 'qwen'">
             <label>{{ t('set.tts.size') }}</label>
             <n-select v-model:value="settings.tts.qwen_size" :options="qwenSizeOptions" />

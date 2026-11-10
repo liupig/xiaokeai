@@ -2,6 +2,10 @@ import { createI18n } from 'vue-i18n';
 import zhUi from '../../../locales/zh-CN/ui.json';
 import enUi from '../../../locales/en/ui.json';
 import jaUi from '../../../locales/ja/ui.json';
+import ruUi from '../../../locales/ru/ui.json';
+import ruIntents from '../../../locales/ru/intents.json';
+import ruPrompts from '../../../locales/ru/prompts.json';
+import ruContent from '../../../locales/ru/content.json';
 import koUi from '../../../locales/ko/ui.json';
 import zhIntents from '../../../locales/zh-CN/intents.json';
 import enIntents from '../../../locales/en/intents.json';
@@ -16,11 +20,11 @@ import enContent from '../../../locales/en/content.json';
 import jaContent from '../../../locales/ja/content.json';
 import koContent from '../../../locales/ko/content.json';
 
-export type ReplyLang = 'zh-CN' | 'en' | 'ja' | 'ko';
+export type ReplyLang = 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru';
 
-const INTS: Record<string, any> = { 'zh-CN': zhIntents, en: enIntents, ja: jaIntents, ko: koIntents };
-const PROMPTS: Record<string, any> = { 'zh-CN': zhPrompts, en: enPrompts, ja: jaPrompts, ko: koPrompts };
-const CONTENT: Record<string, any> = { 'zh-CN': zhContent, en: enContent, ja: jaContent, ko: koContent };
+const INTS: Record<string, any> = { 'zh-CN': zhIntents, en: enIntents, ja: jaIntents, ko: koIntents, ru: ruIntents };
+const PROMPTS: Record<string, any> = { 'zh-CN': zhPrompts, en: enPrompts, ja: jaPrompts, ko: koPrompts, ru: ruPrompts };
+const CONTENT: Record<string, any> = { 'zh-CN': zhContent, en: enContent, ja: jaContent, ko: koContent, ru: ruContent };
 
 const reCache = new Map<string, RegExp>();
 
@@ -30,12 +34,13 @@ export const i18n = createI18n({
   legacy: false,
   locale: 'zh-CN',
   fallbackLocale: 'en',
-  messages: { 'zh-CN': zhUi, en: enUi, ja: jaUi, ko: koUi },
+  messages: { 'zh-CN': zhUi, en: enUi, ja: jaUi, ko: koUi, ru: ruUi },
 });
 
 export function normalizeLang(code: string | null | undefined): ReplyLang {
   const low = (code || '').trim().replace('_', '-').toLowerCase();
   if (low === 'en' || low.startsWith('en-')) return 'en';
+  if (low === 'ru' || low.startsWith('ru-')) return 'ru';
   if (low.startsWith('ja')) return 'ja';
   if (low.startsWith('ko')) return 'ko';
   if (low === 'zh' || low.startsWith('zh-')) return 'zh-CN';
@@ -43,6 +48,7 @@ export function normalizeLang(code: string | null | undefined): ReplyLang {
 }
 
 export function bcp(lang: string = reply): string {
+  if (lang === 'ru') return 'ru-RU';
   if (lang === 'en') return 'en-US';
   if (lang === 'ja') return 'ja-JP';
   if (lang === 'ko') return 'ko-KR';
@@ -116,6 +122,8 @@ const MIMO: Record<string, ReplyLang> = {
 };
 
 export function voiceLang(id: string): ReplyLang | '' {
+  if (['ru_f1', 'ru_f2', 'ru_m1', 'ru_m5'].includes(id)) return 'ru';
+  if (['eng_f3', 'eng_f4_whisper', 'eng_f5', 'eng_m2_whisper', 'eng_m3', 'eng_m4'].includes(id)) return 'en';
   if (MIMO[id]) return MIMO[id];
   if (QWEN[id]) return QWEN[id];
   if (id.startsWith('zh_')) return 'zh-CN';
@@ -126,11 +134,13 @@ export function voiceLang(id: string): ReplyLang | '' {
   if (id.startsWith('en-')) return 'en';
   if (id.startsWith('ja-')) return 'ja';
   if (id.startsWith('ko-')) return 'ko';
+  if (id.startsWith('ru-')) return 'ru';
   return '';
 }
 
 export function defaultVoice(engine: string, lang: string = reply): string {
   const l = normalizeLang(lang);
+  if (engine === 'tera') return l === 'en' ? 'eng_f3' : 'ru_f1';
   if (engine === 'qwen') {
     if (l === 'en') return 'Serena';
     if (l === 'ja') return 'Ono_Anna';
@@ -150,6 +160,7 @@ export function defaultVoice(engine: string, lang: string = reply): string {
     if (l === 'en') return 'Mia';
     return '冰糖';
   }
+  if (l === 'ru') return 'ru-RU-SvetlanaNeural';
   if (l === 'en') return 'en-US-AriaNeural';
   if (l === 'ja') return 'ja-JP-NanamiNeural';
   if (l === 'ko') return 'ko-KR-SunHiNeural';
@@ -165,10 +176,13 @@ export function motionTitle(name: string, stored = ''): string {
 
 export function voiceFits(voice: string, lang: string, engine = ''): boolean {
   const want = normalizeLang(lang);
+  if (engine.toLowerCase() === 'tera' && (want === 'ru' || want === 'en')) {
+    return ['ru_f1', 'ru_f2', 'ru_m1', 'ru_m5', 'eng_f3', 'eng_f4_whisper', 'eng_f5', 'eng_m2_whisper', 'eng_m3', 'eng_m4'].includes(voice);
+  }
   const have = voiceLang(voice);
   if (have === want) return true;
   const eng = (engine || 'qwen').toLowerCase();
-  return want === 'en' && eng === 'qwen' && (voice === 'Serena' || voice === 'Vivian');
+  return (want === 'en' || want === 'ru') && eng === 'qwen' && (voice === 'Serena' || voice === 'Vivian');
 }
 
 function volcLang(id: string): ReplyLang | '' {

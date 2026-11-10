@@ -106,7 +106,7 @@ def _present(table: Table, cid: int, session: Session) -> dict:
 def _lang(session: Session) -> str:
     loc = settings_store.get_all(session).get("locale") or {}
     ui = str(loc.get("ui") or "zh-CN")
-    return ui if ui in ("zh-CN", "en", "ja", "ko") else "zh-CN"
+    return ui if ui in ("zh-CN", "en", "ja", "ko", "ru") else "zh-CN"
 
 
 def _after(cid: int, session: Session, token: tuple) -> dict:

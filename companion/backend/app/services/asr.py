@@ -41,6 +41,7 @@ _ctx = mp.get_context("spawn")
 _in_q = None
 _out_q = None
 _proc = None
+_worker_language = ""
 _state: Dict[str, Any] = {
     "ready": False,
     "downloading": False,
@@ -58,8 +59,13 @@ def _model_ready() -> bool:
     )
 
 
-def status() -> Dict[str, Any]:
-    installed = _model_ready()
+def status(language: str = "") -> Dict[str, Any]:
+    russian = language.lower().startswith("ru")
+    if russian:
+        from . import asr_gigaam
+        installed = asr_gigaam.model_ready()
+    else:
+        installed = _model_ready()
     sherpa_ok = True
     try:
         import sherpa_onnx  # noqa: F401
@@ -70,13 +76,17 @@ def status() -> Dict[str, Any]:
         msg = "未安装 sherpa-onnx，请在后端目录执行 pip install sherpa-onnx"
     elif not installed and not _state["downloading"]:
         msg = msg or "模型未下载（约 230MB），点「准备模型」或首次识别时自动拉取"
+    if russian and not installed and not _state["downloading"]:
+        msg = "GigaAM-v3 model not installed (about 232 MB)"
+    elif _worker_alive() and (_worker_language == "ru") != russian:
+        msg = "GigaAM-v3 model installed" if russian and installed else "SenseVoice model installed" if installed else "Model not installed"
     fw = asr_framework()
     return {
-        "engine": "sensevoice",
+        "engine": "gigaam-v3" if russian else "sensevoice",
         "framework": fw["name"],
         "framework_via": fw["via"],
         "installed": installed,
-        "ready": bool(_worker_alive()) or bool(_recognizer) or (installed and sherpa_ok),
+        "ready": (bool(_worker_alive()) and (_worker_language == "ru") == russian) or (installed and sherpa_ok),
         "downloading": bool(_state["downloading"]),
         "progress": float(_state["progress"]),
         "message": msg,
@@ -241,19 +251,27 @@ def _stop_worker() -> None:
     _state["pid"] = 0
 
 
-def _ensure_worker(*, download: bool = True) -> None:
-    global _proc, _in_q, _out_q
-    if _worker_alive():
+def _ensure_worker(*, download: bool = True, language: str = "") -> None:
+    global _proc, _in_q, _out_q, _worker_language
+    language = "ru" if language.lower().startswith("ru") else ""
+    if _worker_alive() and _worker_language == language:
         return
-    ensure_model(download=download)
+    if _worker_alive():
+        _stop_worker()
+    if language == "ru":
+        from . import asr_gigaam
+        asr_gigaam.ensure_model(download=download)
+    else:
+        ensure_model(download=download)
     with _lock:
         if _worker_alive():
             return
         from .asr_proc import main as asr_main
         _in_q = _ctx.Queue()
         _out_q = _ctx.Queue()
-        _proc = _ctx.Process(target=asr_main, args=(_in_q, _out_q), daemon=True, name="companion-asr")
+        _proc = _ctx.Process(target=asr_main, args=(_in_q, _out_q, language), daemon=True, name="companion-asr")
         _proc.start()
+        _worker_language = language
         kind, _, payload = _out_q.get(timeout=120)
         if kind != "ready":
             _stop_worker()
@@ -261,7 +279,7 @@ def _ensure_worker(*, download: bool = True) -> None:
         _state["pid"] = int(_proc.pid or 0)
         _state["ready"] = True
         _state["message"] = (
-            f"SenseVoice 已加载（独立 CPU 进程 pid={_proc.pid}，"
+            f"{'GigaAM' if language == 'ru' else 'SenseVoice'} 已加载（独立 CPU 进程 pid={_proc.pid}，"
             f"{cpu_infer_threads(cap=4, floor=2)} 线程）"
         )
         print(f"[asr] worker pid={_proc.pid}")
@@ -273,7 +291,8 @@ def release() -> None:
     import os
     if os.environ.get("COMPANION_ASR_WORKER") == "1":
         return
-    _stop_worker()
+    with _rpc_lock:
+        _stop_worker()
     _state["ready"] = False
     _state["downloading"] = False
     _state["pid"] = 0
@@ -281,7 +300,7 @@ def release() -> None:
     print("[asr] released worker")
 
 
-def warmup(*, download: bool = False) -> Dict[str, Any]:
+def warmup(*, download: bool = False, language: str = "") -> Dict[str, Any]:
     import os
     try:
         import sherpa_onnx  # noqa: F401
@@ -293,8 +312,9 @@ def warmup(*, download: bool = False) -> Dict[str, Any]:
         _state["downloading"] = False
         _state["message"] = f"SenseVoice 已加载（CPU INT8，{cpu_infer_threads(cap=4, floor=2)} 线程）"
         return status()
-    _ensure_worker(download=download)
-    return status()
+    with _rpc_lock:
+        _ensure_worker(download=download, language=language)
+    return status(language)
 
 
 def _transcribe_local(wav_bytes: bytes) -> str:
@@ -311,13 +331,13 @@ def _transcribe_local(wav_bytes: bytes) -> str:
     return text
 
 
-def transcribe(wav_bytes: bytes) -> str:
+def transcribe(wav_bytes: bytes, language: str = "") -> str:
     import os
     if os.environ.get("COMPANION_ASR_WORKER") == "1":
         return _transcribe_local(wav_bytes)
-    _ensure_worker()
     job = uuid.uuid4().hex
     with _rpc_lock:
+        _ensure_worker(language=language)
         _in_q.put(("transcribe", job, wav_bytes))
         kind, jid, payload = _out_q.get(timeout=45)
     if kind == "ok" and jid == job:

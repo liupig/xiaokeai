@@ -120,7 +120,7 @@ export class SpeechSplitter {
   feed(delta: string): string[] {
     if (!delta) return [];
     this.buf += delta;
-    if (replyLang() === 'en') return this.drainEn(false);
+    if ((replyLang() === 'en' || replyLang() === 'ru')) return this.drainEn(false);
     const out: string[] = [];
     out.push(...this.drainHard());
     out.push(...this.drainSoft());
@@ -129,7 +129,7 @@ export class SpeechSplitter {
   }
 
   flush(): string[] {
-    if (replyLang() === 'en') return this.drainEn(true);
+    if ((replyLang() === 'en' || replyLang() === 'ru')) return this.drainEn(true);
     const left = this.buf;
     this.buf = '';
     return packComplete(left);

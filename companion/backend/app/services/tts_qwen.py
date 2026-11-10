@@ -396,7 +396,8 @@ def _speak_text(text: str) -> str:
 
 
 def _latin(text: str) -> bool:
-    letters = sum(ch.isascii() and ch.isalpha() for ch in text)
+    # Space-delimited Cyrillic must follow the same word-preserving path as Latin.
+    letters = sum((ch.isascii() and ch.isalpha()) or "\u0400" <= ch <= "\u052f" for ch in text)
     cjk = sum("\u4e00" <= ch <= "\u9fff" for ch in text)
     return letters > cjk
 
@@ -564,6 +565,8 @@ def qwen_language(reply: str | None) -> str:
     low = (reply or "").strip().replace("_", "-").lower()
     if low == "en" or low.startswith("en-"):
         return "English"
+    if low == "ru" or low.startswith("ru-"):
+        return "Russian"
     if low.startswith("ja"):
         return "Japanese"
     if low.startswith("ko"):

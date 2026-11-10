@@ -12,11 +12,13 @@ mem0ai>=1.0.0
 qwen-tts==0.1.1
 transformers==4.57.3
 huggingface-hub==0.36.2
+modelscope>=1.15
 tokenizers==0.22.2
 qwen3-tts-streaming>=0.1.2
 scipy>=1.11
 accelerate==1.12.0
 onnxruntime>=1.17.0
+num2words>=0.5.13
 rapidocr==3.10.0
 jieba>=0.42.1
 Pillow>=10.0.0

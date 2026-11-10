@@ -971,5 +971,10 @@
   "live2d.resetAll": "全部复位",
   "live2d.parameterHint": "修改实时生效并自动保存。动作播放期间，模型原生动画可能暂时覆盖部分参数。",
   "live2d.reset": "复位",
-  "live2d.noMatching": "没有匹配的参数"
+  "live2d.noMatching": "没有匹配的参数",
+  "set.tera.missing": "模型尚未下载",
+  "set.tera.download": "下载 TeraTTSv2",
+  "set.tera.hint": "支持俄语和英语。需要 NVIDIA 显卡及 GPU 运行库；模型单独下载，不包含在 B 包中。",
+  "set.tera.gpu": "下载 GPU 运行库",
+  "set.tera.warmup": "预热 GPU"
 }

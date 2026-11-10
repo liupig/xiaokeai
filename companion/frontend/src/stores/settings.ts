@@ -27,7 +27,7 @@ export const useSettingsStore = defineStore('settings', {
       max_tokens: 0, thinking: 'off',
       harness_model: '', harness_base_url: '', harness_api_key: '',
     },
-    tts: { engine: 'qwen' as 'cosy' | 'edge' | 'qwen' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'mimo' | 'browser' | 'off',
+    tts: { engine: 'qwen' as 'cosy' | 'edge' | 'qwen' | 'tera' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'mimo' | 'browser' | 'off',
            voice: 'Serena', rate: '+0%', qwen_size: '0.6b' as '0.6b' | '1.7b',
            qwen_style: 'yujie' as string, qwen_instruct: '',
            duplex_cmd: 'interrupt_or_queue' as DuplexCmd,
@@ -48,8 +48,8 @@ export const useSettingsStore = defineStore('settings', {
     },
     omni_env: false,
     locale: {
-      ui: 'zh-CN' as 'zh-CN' | 'en' | 'ja' | 'ko',
-      reply: 'zh-CN' as 'zh-CN' | 'en' | 'ja' | 'ko',
+      ui: 'zh-CN' as 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru',
+      reply: 'zh-CN' as 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru',
       reply_mode: 'fixed' as 'fixed' | 'follow',
     },
     locale_set: false,
@@ -147,7 +147,7 @@ export const useSettingsStore = defineStore('settings', {
       };
       if (!this.locale_set && typeof navigator !== 'undefined') {
         const nav = navigator.language.toLowerCase();
-        const os = nav.startsWith('ko') ? 'ko' : nav.startsWith('ja') ? 'ja' : nav.startsWith('en') ? 'en' : '';
+        const os = nav.startsWith('ru') ? 'ru' : nav.startsWith('ko') ? 'ko' : nav.startsWith('ja') ? 'ja' : nav.startsWith('en') ? 'en' : '';
         if (os) {
           this.locale = { ui: os, reply: os, reply_mode: 'fixed' };
           this.tts.voice = alignVoice(this.tts.engine, this.tts.voice, os);
@@ -237,7 +237,7 @@ export const useSettingsStore = defineStore('settings', {
         const ok = v.some((x) => x.engine === this.tts.engine && x.id === this.tts.voice);
         if ((this.tts.engine === 'edge' || this.tts.engine === 'qwen' || this.tts.engine === 'volc'
           || this.tts.engine === 'openai' || this.tts.engine === 'eleven' || this.tts.engine === 'gemini'
-          || this.tts.engine === 'mimo') && !ok) {
+          || this.tts.engine === 'mimo' || this.tts.engine === 'tera') && !ok) {
           this.tts.voice = defaultVoice(this.tts.engine, this.locale.reply);
         } else if (this.tts.engine === 'cosy' && !ok) {
           this.tts.voice = '';
@@ -269,7 +269,7 @@ export const useSettingsStore = defineStore('settings', {
       this.applyTts();
       this.maybeWarmupSpeech();
     },
-    async setLocale(patch: Partial<{ ui: 'zh-CN' | 'en' | 'ja' | 'ko'; reply: 'zh-CN' | 'en' | 'ja' | 'ko'; reply_mode: 'fixed' | 'follow' }>) {
+    async setLocale(patch: Partial<{ ui: 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru'; reply: 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru'; reply_mode: 'fixed' | 'follow' }>) {
       const prevReply = this.locale.reply;
       const prevVoice = this.tts.voice;
       this.locale = { ...this.locale, ...patch };

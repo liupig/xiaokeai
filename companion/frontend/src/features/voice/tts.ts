@@ -20,10 +20,10 @@ export { DEFAULT_DUPLEX_REMAIN_SEC, normalizeDuplexCmd };
  * Pool + 播放器。
  * pushUnit 按 DuplexCmd 决定插队/排队/丢掉；真正拉 TTS 流只在决定要播之后。
  */
-export type TtsEngine = 'cosy' | 'edge' | 'qwen' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'mimo' | 'browser' | 'off';
+export type TtsEngine = 'cosy' | 'edge' | 'qwen' | 'tera' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'mimo' | 'browser' | 'off';
 
-const STREAM_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'volc', 'openai', 'eleven', 'gemini', 'mimo']);
-const VOICE_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'volc', 'openai', 'eleven', 'gemini', 'mimo']);
+const STREAM_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'tera', 'volc', 'openai', 'eleven', 'gemini', 'mimo']);
+const VOICE_ENGINES = new Set<TtsEngine>(['cosy', 'edge', 'qwen', 'tera', 'volc', 'openai', 'eleven', 'gemini', 'mimo']);
 
 /** 小米朗读吃情绪。从原文取出 [emo:happy:0.8]，念出去的字仍然去掉标记。 */
 function mimoCue(raw: string): string {
@@ -436,7 +436,7 @@ export class SpeechPlayer {
         timer = window.setTimeout(() => {
           ac.abort();
           reject(new Error('tts timeout'));
-        }, 12000);
+        }, this.engine === 'tera' ? 120000 : 12000);
       });
       return Promise.race([work, limit]).finally(() => window.clearTimeout(timer));
     };

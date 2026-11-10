@@ -971,5 +971,10 @@
   "live2d.resetAll": "Reset all",
   "live2d.parameterHint": "Changes apply immediately and save automatically. Native motions may temporarily override some parameters.",
   "live2d.reset": "Reset",
-  "live2d.noMatching": "No matching parameters"
+  "live2d.noMatching": "No matching parameters",
+  "set.tera.missing": "Model not downloaded",
+  "set.tera.download": "Download TeraTTSv2",
+  "set.tera.hint": "Russian and English. Requires an NVIDIA GPU and GPU runtime. The model is downloaded separately and is not included in the B package.",
+  "set.tera.gpu": "Download GPU runtime",
+  "set.tera.warmup": "Warm up GPU"
 }

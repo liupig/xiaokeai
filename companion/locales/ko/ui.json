@@ -971,5 +971,10 @@
   "live2d.resetAll": "모두 초기화",
   "live2d.parameterHint": "변경 사항은 즉시 적용되고 자동 저장됩니다. 모션 중에는 일부 값이 덮어쓰일 수 있습니다.",
   "live2d.reset": "초기화",
-  "live2d.noMatching": "일치하는 파라미터가 없습니다"
+  "live2d.noMatching": "일치하는 파라미터가 없습니다",
+  "set.tera.missing": "모델이 다운로드되지 않았습니다",
+  "set.tera.download": "TeraTTSv2 다운로드",
+  "set.tera.hint": "러시아어와 영어를 지원합니다. NVIDIA GPU와 GPU 런타임이 필요하며 모델은 B 패키지에 포함되지 않습니다.",
+  "set.tera.gpu": "GPU 런타임 다운로드",
+  "set.tera.warmup": "GPU 예열"
 }
