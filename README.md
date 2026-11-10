@@ -2,7 +2,7 @@
 
 **An open-source, local-first 3D AI companion and transparent desktop pet.**
 
-Voice chat with VRM, MMD (PMX), or GLB characters who speak, lip-sync, express emotions, move, dance, and remember you. Watch movies and videos, listen to music, play games, or simply share your desktop together.
+Voice chat with VRM, MMD (PMX), GLB, or Live2D/Cubism characters who speak, lip-sync, express emotions, move, dance, and remember you. Watch movies and videos, listen to music, play games, or simply share your desktop together.
 
 **English** · [简体中文](./README.zh-CN.md) · [Website](https://xiaoke.ai) · [Download](#download-windows) · [Discord](https://discord.gg/xxvXxHP8T)
 
@@ -15,7 +15,7 @@ Voice chat with VRM, MMD (PMX), or GLB characters who speak, lip-sync, express e
 - **A companion you can see and hear.** Real-time 3D performance combines speech, lip-sync, expressions, motion, dance, and cinematic camera work—not just a text chat window.
 - **Local-first and private by design.** Chats, long-term memory, keepsakes, and local model weights stay on your computer. Screen-companion video is processed locally; only the cloud services you configure receive their respective requests.
 - **More than conversation.** Watch movies, short videos, and listen to music together; draw tarot cards, save memories, launch installed games, or interact with a livestream audience.
-- **Your character, your setup.** Import VRM, MMD/PMX, and GLB models, use SillyTavern character cards and lorebooks, and choose local or cloud chat and speech providers.
+- **Your character, your setup.** Import VRM, MMD/PMX, GLB, or Live2D/Cubism (`.model3.json`) models, use SillyTavern character cards and lorebooks, and choose local or cloud chat and speech providers.
 - **Free and open source.** No membership or usage cap. The source is Apache 2.0; third-party models, motions, music, and voices retain their own licenses.
 
 The interface and speech languages can be configured independently: **Simplified Chinese, English, Japanese, Korean, and Russian**. Russian includes optional offline ASR/TTS; models are downloaded on demand and are not included in Git or the B bundle.
