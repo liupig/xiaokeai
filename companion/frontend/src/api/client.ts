@@ -691,14 +691,24 @@ export const api = {
   getVoices() {
     return request<{ id: string; label: string; engine: string }[]>('/api/speech/voices');
   },
-  getSpeechStatus() {
+  getSpeechStatus(language = "") {
     return request<{
       asr: { available: boolean; installed?: boolean; ready: boolean; downloading?: boolean;
              progress?: number; message: string };
       tts: { available: boolean; ready: boolean; loading?: boolean; downloading?: boolean;
              gpu?: boolean; device?: string; size?: string; message: string;
              sizes?: Record<string, { installed: boolean; label: string; gb: string }> };
-    }>('/api/speech/status');
+      tera: { installed: boolean; ready: boolean; loading: boolean; downloading: boolean; gpu_runtime: boolean; gpu_downloading: boolean; message: string; url: string };
+    }>(`/api/speech/status?language=${encodeURIComponent(language)}`);
+  },
+  downloadTera() {
+    return request<{ ok: boolean }>('/api/speech/tera/download', { method: 'POST' });
+  },
+  downloadTeraGpu() {
+    return request<{ ok: boolean }>('/api/speech/tera/gpu-runtime', { method: 'POST' });
+  },
+  warmupTera() {
+    return request<{ ok: boolean }>('/api/speech/tera/warmup', { method: 'POST' });
   },
   warmupSpeech(target: 'asr' | 'tts' | 'all' = 'all', qwenSize?: string) {
     return request<{ ok: boolean; message: string }>(

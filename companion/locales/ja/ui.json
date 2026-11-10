@@ -971,5 +971,10 @@
   "live2d.resetAll": "すべてリセット",
   "live2d.parameterHint": "変更は即時反映・自動保存されます。モーション中は一部が上書きされることがあります。",
   "live2d.reset": "リセット",
-  "live2d.noMatching": "一致するパラメータがありません"
+  "live2d.noMatching": "一致するパラメータがありません",
+  "set.tera.missing": "モデル未ダウンロード",
+  "set.tera.download": "TeraTTSv2 をダウンロード",
+  "set.tera.hint": "ロシア語と英語に対応。NVIDIA GPU と GPU ランタイムが必要です。モデルは B パックに含まれません。",
+  "set.tera.gpu": "GPU ランタイムをダウンロード",
+  "set.tera.warmup": "GPU を準備"
 }

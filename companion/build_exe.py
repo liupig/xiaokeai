@@ -48,6 +48,7 @@ SEVEN_ZIP_CANDIDATES = (
 
 SPEECH_KEEP = (
     "sensevoice",
+    "gigaam-v3",
     "qwen3-tts-0.6b-customvoice",
     "qwen3-tts-1.7b-customvoice",
     "qwen3-tts-tokenizer",
@@ -730,7 +731,7 @@ def strip_unused_site_packages(site_packages: Path) -> int:
 # 在线包会把这些库删掉，A 若从在线包拷 runtime，不补上就会 ModuleNotFoundError。
 TTS_KEEP_PACKAGES = (
     "scipy", "scipy.libs", "numba", "llvmlite", "llvmlite.libs",
-    "librosa", "audioread", "joblib", "lazy_loader", "msgpack", "pooch", "soxr", "einops",
+    "librosa", "audioread", "joblib", "lazy_loader", "msgpack", "pooch", "soxr", "einops", "num2words", "docopt.py",
     "decorator.py", "soundfile.py", "_soundfile.py", "_soundfile_data",
 )
 
@@ -981,6 +982,8 @@ def step_copy_payload_full(dist_dir: Path) -> None:
     speech_dst.mkdir(parents=True, exist_ok=True)
     for name in SPEECH_KEEP:
         src = speech_src / name
+        if not src.exists():
+            src = COMPANION / "data" / "speech" / name
         if src.exists():
             print(f"  语音模型 {name} …")
             robocopy(src, speech_dst / name)
@@ -1108,6 +1111,8 @@ def step_copy_content(dist_dir: Path) -> None:
     speech_dst.mkdir(parents=True, exist_ok=True)
     for name in SPEECH_KEEP:
         src = speech_src / name
+        if not src.exists():
+            src = COMPANION / "data" / "speech" / name
         if src.exists():
             print(f"  语音模型 {name} …")
             robocopy(src, speech_dst / name)

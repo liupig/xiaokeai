@@ -1,0 +1,274 @@
+{
+  ".gitattributes": {
+    "size": 85,
+    "sha256": "09c93d801c06815fb12cc4385fa82943d6f58f7234d7064f064198230028a384"
+  },
+  "config.json": {
+    "size": 569,
+    "sha256": "9400b10eea09b333f53be7872b410189012f5f5a5d7af91bc269a30d899cdf8e"
+  },
+  "configuration_teratts.py": {
+    "size": 963,
+    "sha256": "5cf0287951265c119f7ab9c5b745c5ada1195f53044ecf6c152d033304978a79"
+  },
+  "LICENSE": {
+    "size": 4171,
+    "sha256": "9de0fb6f7d93e5329ac2195ad5c16166b9d66d5247ed5da9b5d9e81810f998e2"
+  },
+  "LICENSE-OPENRAIL": {
+    "size": 15007,
+    "sha256": "0d944a9110fed9a9602d60e0423a272903e7bd21ab060490774efc77c2275e9f"
+  },
+  "modeling_teratts.py": {
+    "size": 5191,
+    "sha256": "c934b75b75164251a672b064cd0a7fcfdebf5114abb1ee7541400070c56729ef"
+  },
+  "README.md": {
+    "size": 7331,
+    "sha256": "de46ea2619df433b8478876b5e57178d9e45733076505ce976633353a107a081"
+  },
+  "requirements.txt": {
+    "size": 117,
+    "sha256": "0e60389d2ef5f49111836475925c9e4b3260c426f0216208ae95f53b9db91afa"
+  },
+  "RUACCENT_NOTICE.txt": {
+    "size": 1176,
+    "sha256": "079aded52d6e28786b692c28ce8373412e8688490333d87588527b5b1ffe0da7"
+  },
+  "teratts.py": {
+    "size": 22443,
+    "sha256": "a75273a935a0d938a2aef07365ef955a1ba5f08fdc1ba4d9fe3ee1ff68e768f8"
+  },
+  "teratts_ruaccent.py": {
+    "size": 13767,
+    "sha256": "0e991d3a896187420635f81d4fc4ab0805c330d04a60508f5fb98d40e659ab67"
+  },
+  "unicode_indexer.json": {
+    "size": 262171,
+    "sha256": "c1ed0c0804b836bd0e38170ae7b5b00647d818c5f659fcf21fa0feea950aa04d"
+  },
+  "models/duration_predictor.onnx": {
+    "size": 1572411,
+    "sha256": "15248b4751493fe48543f01164cd9b74d103b4483c63367a01c344442ebf03d8"
+  },
+  "models/sampler_distilled_cfg3_8step.onnx": {
+    "size": 256417643,
+    "sha256": "921a050f19794bf97234ca8ffc0298559eaca466d9f7f3b72ec41dfefb37acc6"
+  },
+  "models/sampler_teacher_8step.onnx": {
+    "size": 256528347,
+    "sha256": "b38b6334cdc5fa228f260710a41082d52a581b29c1a474f87e2a0f70887258fb"
+  },
+  "models/text_encoder.onnx": {
+    "size": 27910305,
+    "sha256": "d59b7911fe9e465988f26bedbf7c34ef9b2c5588d9b0da5f86d41340a3324a12"
+  },
+  "models/vocoder.onnx": {
+    "size": 101416199,
+    "sha256": "d4e4cf9a9b9de8cca28f309c4cb7735327322b5a764ba61dfc3706c3c7942c07"
+  },
+  "ruaccent/dictionary/accents.json.gz": {
+    "size": 20954156,
+    "sha256": "aa460ebba90de00fbbf3d41d121961f605b98667e45efb7920f127473b15515e"
+  },
+  "ruaccent/dictionary/omographs.json.gz": {
+    "size": 219047,
+    "sha256": "04a9e81c68d65f65ba493fe0110f99e79087548c2beeec3032e2b66e28706f36"
+  },
+  "ruaccent/dictionary/yo_homographs.json.gz": {
+    "size": 5747,
+    "sha256": "c4ee777bbbab87f9eac838f370ad92974e079d02b21903e480c54b5f0c8c60d1"
+  },
+  "ruaccent/dictionary/yo_words.json.gz": {
+    "size": 548914,
+    "sha256": "a19fa89a964a0691d9fe4ee384783e3934904891843d8f59a1c480d67947a82a"
+  },
+  "ruaccent/nn/nn_accent/big.onnx": {
+    "size": 2285217,
+    "sha256": "47e69d9ae19f2a82e21b1c70f6a4bbfb1abc5759e98b2e67d009c5e9d7af18c9"
+  },
+  "ruaccent/nn/nn_accent/config.json": {
+    "size": 841,
+    "sha256": "e377f159a8fc8673e211f100d4a237d5fe3dceb3b6789a5a738bf50bda23be49"
+  },
+  "ruaccent/nn/nn_accent/model.onnx": {
+    "size": 803402,
+    "sha256": "4e393144e45626f6f1062a0784ef06f921b97321a8e7b87ac2a09a892286500a"
+  },
+  "ruaccent/nn/nn_accent/ort_config.json": {
+    "size": 727,
+    "sha256": "31dd1c06997b2c5097b558829e46b4e91a5ef8e5c6bea07dfc67e48b3bbc8775"
+  },
+  "ruaccent/nn/nn_accent/special_tokens_map.json": {
+    "size": 99,
+    "sha256": "2acac3fb89054158ccbeff3c52744ca93979f738002709c0aea001597213024b"
+  },
+  "ruaccent/nn/nn_accent/tokenizer_config.json": {
+    "size": 257,
+    "sha256": "efea18a18af2809330eb0f431ab86979304d2559571e887de7b6359e3f18f0d8"
+  },
+  "ruaccent/nn/nn_accent/vocab.txt": {
+    "size": 140,
+    "sha256": "242882b2f27800e49a6babf46867dabf6dc9b6535b600776a68815fe4d4f4382"
+  },
+  "ruaccent/nn/nn_stress_usage_predictor/config.json": {
+    "size": 822,
+    "sha256": "aa0638edf56254f123e593e96f034c2b5e68303ac207b29f64f0878dc4c22631"
+  },
+  "ruaccent/nn/nn_stress_usage_predictor/model.onnx": {
+    "size": 116473561,
+    "sha256": "3d547500637b4ddfec8880ed6d1405fd50ee9d3f0131ef8a2a69dcf961dbefeb"
+  },
+  "ruaccent/nn/nn_stress_usage_predictor/special_tokens_map.json": {
+    "size": 125,
+    "sha256": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3"
+  },
+  "ruaccent/nn/nn_stress_usage_predictor/tokenizer.json": {
+    "size": 2413536,
+    "sha256": "ce51cde5df60ecb167abec4c90db11360482150628f7a91f3e316df6d6ff6f6f"
+  },
+  "ruaccent/nn/nn_stress_usage_predictor/tokenizer_config.json": {
+    "size": 368,
+    "sha256": "4466c2e475c434d35bce0f4a46f918730155386b50582fa3742b7b7d67897e96"
+  },
+  "ruaccent/nn/nn_stress_usage_predictor/vocab.txt": {
+    "size": 1080667,
+    "sha256": "f056a69b097422652053bf87565c35543e5d81540ca4b7dddd28de4157a969e0"
+  },
+  "ruaccent/nn/nn_yo_homograph_resolver/config.json": {
+    "size": 625,
+    "sha256": "adf7fd2c67be1498071f447ec4a23dbe84904c49f95d1d3e6c7d9df269b9a2e9"
+  },
+  "ruaccent/nn/nn_yo_homograph_resolver/model.onnx": {
+    "size": 14332169,
+    "sha256": "42cc85bf0c4b319dfe3d89fa17b162a92fd5e1c651a657cb3d5f44978d4e70ac"
+  },
+  "ruaccent/nn/nn_yo_homograph_resolver/special_tokens_map.json": {
+    "size": 125,
+    "sha256": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3"
+  },
+  "ruaccent/nn/nn_yo_homograph_resolver/tokenizer.json": {
+    "size": 126952,
+    "sha256": "f2bf174f2fe62ff11c28d56555f9c0cf16b24e162ef53bcf42ff85ebcf6ebfa8"
+  },
+  "ruaccent/nn/nn_yo_homograph_resolver/tokenizer_config.json": {
+    "size": 401,
+    "sha256": "804b8a4b4a02c9d38af8c88706206718759061ff9a102ad8483e9ac00011188c"
+  },
+  "ruaccent/nn/nn_yo_homograph_resolver/vocab.txt": {
+    "size": 48576,
+    "sha256": "9276b81ff34cd9560563a476de6735abf5ed9a3871131644992230dc4e630056"
+  },
+  "ruaccent/nn/nn_omograph/turbo3.1/added_tokens.json": {
+    "size": 279418,
+    "sha256": "071c01df9ba59b64b9d0d9af0eaac5412a5fc558d540a214ada4ee7531d38096"
+  },
+  "ruaccent/nn/nn_omograph/turbo3.1/config.json": {
+    "size": 723,
+    "sha256": "fa47e006d2a15a164d36e0303b5f8344a795f2108a3e55724133a87710216136"
+  },
+  "ruaccent/nn/nn_omograph/turbo3.1/merges.txt": {
+    "size": 1213606,
+    "sha256": "120c75258d87ba748b2025f517819fd0e0386e8d31cc6b29a21f900d395dd825"
+  },
+  "ruaccent/nn/nn_omograph/turbo3.1/model.onnx": {
+    "size": 359306923,
+    "sha256": "2cb6a174c4cdb45bd3132b4f7c8a3779fc4b6869863180ed7d0e421bcd453dbd"
+  },
+  "ruaccent/nn/nn_omograph/turbo3.1/special_tokens_map.json": {
+    "size": 280,
+    "sha256": "06e405a36dfe4b9604f484f6a1e619af1a7f7d09e34a8555eb0b77b66318067f"
+  },
+  "ruaccent/nn/nn_omograph/turbo3.1/tokenizer.json": {
+    "size": 5532343,
+    "sha256": "eb84a77af38a91f6f327486c7827d8541f8d446250f8d408909999b6be817afa"
+  },
+  "ruaccent/nn/nn_omograph/turbo3.1/tokenizer_config.json": {
+    "size": 492,
+    "sha256": "f159df92d0b0be03e1ceb0768222aa4c21dcfd37c5763b6b395b6864e023c7fb"
+  },
+  "ruaccent/nn/nn_omograph/turbo3.1/vocab.json": {
+    "size": 1555282,
+    "sha256": "ba028ba89c029a473ac369716b4d52bb252a38004fc5dd085d18f4ada4a760b3"
+  },
+  "styles/eng_f3/style_dp.npy": {
+    "size": 640,
+    "sha256": "8471b25d2db5281feebc6e03af5bfb413c647368d75cdd8cebc44be36def7948"
+  },
+  "styles/eng_f3/style_ttl.npy": {
+    "size": 51328,
+    "sha256": "95fdfe490f5b3d3cf699495309177c405a38a89707bc9c711f93dc083fe099b6"
+  },
+  "styles/eng_f4_whisper/style_dp.npy": {
+    "size": 640,
+    "sha256": "47031c5fbbea490cba67cfd82f1ffc8ee8ed64c68aa68260f13746c2174ffbfa"
+  },
+  "styles/eng_f4_whisper/style_ttl.npy": {
+    "size": 51328,
+    "sha256": "ae4a81c2459e4fccb6206b37c3bba518ac3e23fc91344b07516c5e6125257d59"
+  },
+  "styles/eng_f5/style_dp.npy": {
+    "size": 640,
+    "sha256": "9629dce9db38b4ab5163429c1eeb9a5771786e58e98e343ea6251bf93a9dfd60"
+  },
+  "styles/eng_f5/style_ttl.npy": {
+    "size": 51328,
+    "sha256": "b4cc8b6d271d6ee587b13af7bef8f0151821b24d6af546a1167fa885bd962496"
+  },
+  "styles/eng_m2_whisper/style_dp.npy": {
+    "size": 640,
+    "sha256": "1a2814cc92643cc102d438d0a70742bacbd01921a78cc0ff39b722ab78b2682c"
+  },
+  "styles/eng_m2_whisper/style_ttl.npy": {
+    "size": 51328,
+    "sha256": "e651551d547ca305256bc56062df24c2706308ffccfc5b8ad9735f057975f270"
+  },
+  "styles/eng_m3/style_dp.npy": {
+    "size": 640,
+    "sha256": "dbcc78e880d2e7c6a45f4bff464ee90c9ba17a2599c9d3cc3dea2c0abcb94524"
+  },
+  "styles/eng_m3/style_ttl.npy": {
+    "size": 51328,
+    "sha256": "f0ffd38329830d1556e1096d396c2a807626b9308eb12af84ea4733c712d8d01"
+  },
+  "styles/eng_m4/style_dp.npy": {
+    "size": 640,
+    "sha256": "526724e17a6d0d917c18db0bac6ac97af15ae63312375129ef294462fbbfc0a2"
+  },
+  "styles/eng_m4/style_ttl.npy": {
+    "size": 51328,
+    "sha256": "a8d5016c1aade83d2bdec1e3aa86d0e421ff9e2fb7a781637e64f8a0d8ef663e"
+  },
+  "styles/ru_f1/style_dp.npy": {
+    "size": 640,
+    "sha256": "189e1eabfccf8f0f76a6b10d84ba0fdde18de2ecc2c2e16e3a790f961db95382"
+  },
+  "styles/ru_f1/style_ttl.npy": {
+    "size": 51328,
+    "sha256": "489cb6d10f3e2528d7ac4b3e4d8b01ca54d44b98d193dd26684b16c3a24bd9a7"
+  },
+  "styles/ru_f2/style_dp.npy": {
+    "size": 640,
+    "sha256": "48c10c8c3e6f9016e4ff625425450b99772a9246ffed6b062d236f23863b27d1"
+  },
+  "styles/ru_f2/style_ttl.npy": {
+    "size": 51328,
+    "sha256": "4947fa632443f8ad8343399ac258f67f1e85e9594cf5d42ef7e18d6f6fa3e763"
+  },
+  "styles/ru_m1/style_dp.npy": {
+    "size": 640,
+    "sha256": "0bbdbe5044f5682152b1fe399f7681424870e03023e857b9706863a6d73bf9e9"
+  },
+  "styles/ru_m1/style_ttl.npy": {
+    "size": 51328,
+    "sha256": "0a49356abab63262e3183518eacadd9e073681f87b8bfd86f7b5aed0317fbd0c"
+  },
+  "styles/ru_m5/style_dp.npy": {
+    "size": 640,
+    "sha256": "79741747bb75e0dac2357c089bc923926c4a34fe46b5ce9f85376b14b8e59bf9"
+  },
+  "styles/ru_m5/style_ttl.npy": {
+    "size": 51328,
+    "sha256": "6eccc64350dcc23a8e790eebd7abbec24b0055e6451d975deffa899885e26e99"
+  }
+}

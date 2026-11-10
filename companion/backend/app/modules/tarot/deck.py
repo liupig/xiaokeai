@@ -194,6 +194,8 @@ def angle_for(card: Card, reversed: bool, lang: str | None = None) -> str:
         face = "逆位置" if reversed else "正位置"
     elif lang == "ko":
         face = "역방향" if reversed else "정방향"
+    elif lang == "ru":
+        face = "перевёрнутая" if reversed else "прямая"
     else:
         face = "reversed" if reversed else "upright"
     hint = display_hint(card, reversed, lang)
@@ -201,6 +203,8 @@ def angle_for(card: Card, reversed: bool, lang: str | None = None) -> str:
         return f"牌名：{name}（{face}）。\n画面の手がかり：{hint}\nこの絵から話す。牌の名前を変えない。"
     if lang == "ko":
         return f"카드 이름: {name} ({face}).\n그림의 단서: {hint}\n이 그림으로 말한다. 카드 이름을 바꾸지 않는다."
+    if lang == "ru":
+        return f"Карта: {name} ({face}).\nПодсказка изображения: {hint}\nГовори об этой картине и не меняй название карты."
     return (
         f"Card name: {name} ({face}).\n"
         f"Picture cue: {hint}\n"
@@ -223,10 +227,16 @@ _KO_MAJOR = [
     "바보", "마법사", "여사제", "여황제", "황제", "교황", "연인", "전차", "힘", "은둔자",
     "운명의 수레바퀴", "정의", "매달린 사람", "죽음", "절제", "악마", "탑", "별", "달", "태양", "심판", "세계",
 ]
+_RU_MAJOR = [
+    "Шут", "Маг", "Верховная Жрица", "Императрица", "Император", "Иерофант", "Влюблённые",
+    "Колесница", "Сила", "Отшельник", "Колесо Фортуны", "Справедливость", "Повешенный",
+    "Смерть", "Умеренность", "Дьявол", "Башня", "Звезда", "Луна", "Солнце", "Суд", "Мир",
+]
 _SUIT_NAME = {
     "en": {"wands": "Wands", "cups": "Cups", "swords": "Swords", "coins": "Pentacles"},
     "ja": {"wands": "ワンド", "cups": "カップ", "swords": "ソード", "coins": "ペンタクル"},
     "ko": {"wands": "완드", "cups": "컵", "swords": "소드", "coins": "펜타클"},
+    "ru": {"wands": "Жезлов", "cups": "Кубков", "swords": "Мечей", "coins": "Пентаклей"},
 }
 _PIP_NAME = {
     "en": {"01": "Ace", "02": "Two", "03": "Three", "04": "Four", "05": "Five",
@@ -238,6 +248,9 @@ _PIP_NAME = {
     "ko": {"01": "에이스", "02": "2", "03": "3", "04": "4", "05": "5",
            "06": "6", "07": "7", "08": "8", "09": "9", "10": "10",
            "page": "페이지", "knight": "나이트", "queen": "퀸", "king": "킹"},
+    "ru": {"01": "Туз", "02": "Двойка", "03": "Тройка", "04": "Четвёрка", "05": "Пятёрка",
+           "06": "Шестёрка", "07": "Семёрка", "08": "Восьмёрка", "09": "Девятка", "10": "Десятка",
+           "page": "Паж", "knight": "Рыцарь", "queen": "Королева", "king": "Король"},
 }
 _PIP_HINT_EN = {
     "01": ("a start, the spark just up", "still at the door"),
@@ -273,7 +286,7 @@ def display_name(card: Card, lang: str) -> str:
             idx = int(cid.split("/")[1].split("-")[0])
         except ValueError:
             idx = -1
-        table = {"ja": _JA_MAJOR, "ko": _KO_MAJOR}.get(lang, _EN_MAJOR)
+        table = {"ja": _JA_MAJOR, "ko": _KO_MAJOR, "ru": _RU_MAJOR}.get(lang, _EN_MAJOR)
         if 0 <= idx < len(table):
             return table[idx]
         return str(card.get("name") or "")
@@ -287,10 +300,14 @@ def display_name(card: Card, lang: str) -> str:
         return f"{suit}の{pip}"
     if lang == "ko":
         return f"{suit}의 {pip}"
+    if lang == "ru":
+        return f"{pip} {suit}"
     return f"{pip} of {suit}"
 
 
 def display_hint(card: Card, reversed: bool, lang: str) -> str:
+    if lang == "ru":
+        return "изображение перевёрнутой карты" if reversed else "изображение карты"
     rank = _rank_id(card)
     pair = _PIP_HINT_EN.get(rank)
     if pair:

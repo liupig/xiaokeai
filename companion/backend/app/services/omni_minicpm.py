@@ -33,6 +33,8 @@ def oral_system() -> str:
     from ..locale_pack import current_reply
     if current_reply() == "zh-CN":
         return ORAL_SYSTEM
+    if current_reply() == "ru":
+        return "Ты виртуальный собеседник. Отвечай короткими разговорными фразами по-русски, без markdown, списков и ремарок."
     if current_reply() == "ja":
         return "あなたは仮想の相手です。短い話し言葉の日本語で返す。markdown、箇条書き、括弧のト書きは使わない。"
     if current_reply() == "ko":

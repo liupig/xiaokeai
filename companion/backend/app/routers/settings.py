@@ -136,11 +136,14 @@ def _sync_speech_workers(conf: Dict[str, Any]) -> None:
     """设置里没选本地引擎就把对应 worker 卸掉，避免空占 CPU/GPU。"""
     from ..services import asr as asr_svc
     from ..services import tts_qwen
+    from ..services import tts_tera
 
     tts_eng = ((conf.get("tts") or {}).get("engine") or "").strip().lower()
     stt_eng = ((conf.get("stt") or {}).get("engine") or "").strip().lower()
     if tts_eng != "qwen":
         tts_qwen.release()
+    if tts_eng != "tera":
+        tts_tera.release()
     if stt_eng != "sensevoice":
         asr_svc.release()
 

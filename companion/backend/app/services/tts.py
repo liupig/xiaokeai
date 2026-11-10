@@ -9,6 +9,7 @@ from . import tts_gemini
 from . import tts_mimo
 from . import tts_openai
 from . import tts_qwen
+from . import tts_tera
 from . import tts_volc
 
 EDGE_VOICES = [
@@ -23,6 +24,8 @@ EDGE_VOICES = [
     {"id": "en-US-JennyNeural", "label": "Jenny（英语）", "lang": "en"},
     {"id": "en-US-GuyNeural", "label": "Guy（英语男声）", "lang": "en"},
     {"id": "ja-JP-NanamiNeural", "label": "七海（日语）", "lang": "ja"},
+    {"id": "ru-RU-SvetlanaNeural", "label": "Svetlana (русский)", "lang": "ru"},
+    {"id": "ru-RU-DmitryNeural", "label": "Dmitry (русский)", "lang": "ru"},
     {"id": "ko-KR-SunHiNeural", "label": "SunHi（韩语）", "lang": "ko"},
 ]
 
@@ -34,14 +37,14 @@ def language_route(engine: str, lang: str) -> tuple[str, str]:
     """MiMo presets have no Japanese/Korean voice; use a matching online voice."""
     from ..locale_pack import normalize, default_voice
     lang = normalize(lang)
-    if engine == "mimo" and lang in {"ja", "ko"}:
+    if engine == "mimo" and lang in {"ja", "ko", "ru"}:
         return "edge", default_voice("edge", lang)
     return engine, ""
 
 
 def _edge_lang(voice: Dict[str, str]) -> str:
     named = str(voice.get("lang") or "")
-    if named in ("zh-CN", "en", "ja", "ko"):
+    if named in ("zh-CN", "en", "ja", "ko", "ru"):
         return named
     vid = voice.get("id") or ""
     if vid.startswith("en"):
@@ -67,6 +70,7 @@ def list_voices(engine: str = "") -> List[Dict[str, str]]:
             "engine": "qwen",
             "lang": _QWEN_LANG.get(v.get("language") or "", ""),
         })
+    items.extend(tts_tera.VOICES)
     for v in tts_cosy.list_voices():
         items.append(v)
     for v in tts_volc.list_voices():

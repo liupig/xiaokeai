@@ -50,6 +50,7 @@ _PURSE = {
     "en": "The wallet holds {n} coins right now. If asked how much money or how many coins, say this number only. Do not add up wish drops. Do not mention it unless asked.",
     "ja": "相手の財布には今コインが {n} 枚ある。いくら持っているか聞かれたらこの数だけ言う。願いで落ちた枚数を足さない。聞かれなければ言わない。",
     "ko": "지갑에는 지금 코인이 {n}개 있다. 돈이 얼마인지 물으면 이 숫자만 말한다. 소원으로 떨어진 개수를 더하지 않는다. 묻기 전에는 말하지 않는다.",
+    "ru": "В кошельке сейчас {n} монет. При вопросе о балансе назови только это число. Не добавляй выпавшие монеты и не упоминай баланс без вопроса.",
 }
 
 
@@ -71,6 +72,7 @@ _SAY = {
     "en": "You have {n} coins.",
     "ja": "今、コインは {n} 枚ある。",
     "ko": "지금 코인은 {n}개야.",
+    "ru": "У тебя сейчас {n} монет.",
 }
 
 

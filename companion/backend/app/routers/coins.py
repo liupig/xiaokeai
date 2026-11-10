@@ -55,6 +55,11 @@ _NAMES: Dict[str, Dict[str, str]] = {
         "key": "열쇠", "letter": "편지", "worry": "걱정", "magnet": "자석",
         "card": "신용카드", "alarm": "자명종", "sock": "양말 한 짝", "meeting": "월요일 회의",
     },
+    "ru": {
+        "work": "работа", "phone": "телефон", "computer": "компьютер", "bracelet": "браслет",
+        "key": "ключ", "letter": "письмо", "worry": "тревога", "magnet": "магнит",
+        "card": "кредитная карта", "alarm": "будильник", "sock": "носок", "meeting": "совещание в понедельник",
+    },
 }
 
 _MEMORY = {
@@ -62,6 +67,7 @@ _MEMORY = {
     "en": "[wish] Wished {times} times. Last throw: {items}. {n} coins came back.",
     "ja": "[wish] 願いの池を{times}回やった。この前は{items}を投げて、コイン{n}枚が落ちた。",
     "ko": "[wish] 소원 연못을 {times}번 했다. 이번에는 {items}를 던졌고, 코인 {n}개가 떨어졌다.",
+    "ru": "[wish] Загадывали желание {times} раз. Последний бросок: {items}. Выпало монет: {n}.",
 }
 
 
@@ -98,13 +104,15 @@ def _lang(session: Session) -> str:
         return "ja"
     if low.startswith("ko"):
         return "ko"
+    if low.startswith("ru"):
+        return "ru"
     return "zh-CN"
 
 
 def _item_names(lang: str, throws: List[Dict[str, Any]]) -> str:
     table = _NAMES.get(lang) or _NAMES["zh-CN"]
     names = [table.get(str(item.get("id") or ""), str(item.get("id") or "")) for item in throws]
-    sep = ", " if lang == "en" else "、"
+    sep = ", " if lang in ("en", "ru") else "、"
     return sep.join(names)
 
 
@@ -166,7 +174,7 @@ async def _wish_line_closed(lang: str, row: Dict[str, Any]) -> str:
         return ""
     coins_n = max(1, int(row.get("drop_milli") or 0) // 1000)
     items = _item_names(lang, list(row.get("throws") or []))
-    lang_name = {"zh-CN": "简体中文", "en": "English", "ja": "日本語", "ko": "한국어"}.get(lang, "简体中文")
+    lang_name = {"zh-CN": "简体中文", "en": "English", "ja": "日本語", "ko": "한국어", "ru": "Русский"}.get(lang, "简体中文")
     messages = [
         {
             "role": "system",

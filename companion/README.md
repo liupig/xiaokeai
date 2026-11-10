@@ -11,7 +11,13 @@
 - **资产中心**：本地导入 zip/rar/单文件（自动解压、乱码文件名修复、PMX/VMD/音频自动分类入库）；对接模之屋（aplaybox）在线搜索与下载。
 - **角色卡**：模型 + 人设（System Prompt）+ 音色 + 情绪映射（每种情绪叠加模型自带形态键）+ 闲置动作。
 - **对话表演**：LLM 流式输出内嵌 `[emo:]` `[act:]` `[dance:]` `[cam:]` 标签，实时驱动表情、动作、舞蹈和运镜；无 API Key 时本地兜底应答，表演链路完全可用。
-- **语音闭环**：ASR / TTS 分开设置。在线：浏览器 Web Speech + edge-tts / 百炼 CosyVoice；离线：SenseVoice-Small（CPU）+ Qwen3-TTS 本地流式。真实振幅口型同步。
+- **语音闭环**：ASR / TTS 分开设置。在线：浏览器 Web Speech + edge-tts / 百炼 CosyVoice；离线：SenseVoice-Small（CPU）+ Qwen3-TTS 本地流式。俄语使用 GigaAM-v3（CPU、sherpa-onnx），其它语言继续使用 SenseVoice；首次准备或识别俄语时下载约 232 MB 模型，之后可离线运行。真实振幅口型同步。
+
+Text-to-speech powered by [TeraTTSv2 by TeraSpace](https://huggingface.co/TeraSpace/TeraTTSv2). The optional model is downloaded separately from voice settings and is not included in the B package.
+
+在设置 → 语音中选择 TeraTTSv2，分别点击下载模型和 NVIDIA GPU 运行库，并可预热 GPU。也可从模型页面手动下载完整文件，放到应用的数据目录 `data/optional-models/teratts-v2/`（开发环境为 `companion/backend/data/optional-models/teratts-v2/`）。提供全部 10 个音色，支持俄语和英语；其他引擎不依赖这些文件。TeraTTS 模型不会加入 Git 或 B 包。
+
+模型下载会根据连通性选择魔搭、Hugging Face 官方站或 Hugging Face 镜像，并在下载完成后核对固定版本文件的 SHA-256。魔搭需要存在同名模型且文件与固定版本完全一致；否则自动使用 Hugging Face 来源。
 - **长期记忆 / 情境 / 证物**：mem0 抽取并召回长期事实；情境卡设定「今晚这场戏」；舞台截图与短片按角色归档。
 - **Code 伴侣**：对话栏点「码」打开。盯本机 Cursor / Codex / Claude Code / 通义灵码 / Trae / 文心快码 的开工与收工，她用表情、动作和一句短话接上。Cursor 默认可看 agent-transcripts，也可选装用户钩子。
 - **一起看**：默认关。陪你看电影、刷视频、听音乐。顶栏或桌宠旁边的眼睛，或者说「一起看」「打开视觉」，拉起旁边的视觉进程。画面和声音留在那个进程里，对话里只进一句短描述，值得说的时候她才开口。再按一次，或说「别看了」「关掉视觉」，进程退出。关掉程序时它也一起退出。她不替你点，也不替你操作。设置 → 体验模块 →「打开一起看记录」才打开本机记录页，启动时不再自动弹出。

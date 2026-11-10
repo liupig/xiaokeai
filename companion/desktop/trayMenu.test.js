@@ -40,6 +40,8 @@ test('托盘菜单跟着界面语言', () => {
   assert.equal(normalizeTrayLocale('ja_JP'), 'ja');
   assert.equal(normalizeTrayLocale('ko'), 'ko');
   assert.equal(normalizeTrayLocale(''), 'zh-CN');
+  assert.equal(normalizeTrayLocale('ru-RU'), 'ru');
+  assert.equal(trayLabels('ru').quit, 'Выход');
   assert.equal(trayLabels('zh-CN').pet, '放到桌面');
   assert.equal(trayLabels('en').stage, 'Back to stage');
   assert.equal(trayLabels('ja').quit, '終了');

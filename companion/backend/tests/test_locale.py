@@ -35,6 +35,7 @@ def test_zh_draw_and_en_commands():
     assert LangRe("tarot.one").search("한 장 뽑아")
     assert LangRe("classify.dance").search("춤춰 줘")
     assert LangRe("roleplay.exit").search("롤플레이 그만")
+    set_reply("zh-CN")
 
 
 def test_english_split_keeps_words():
