@@ -96,7 +96,9 @@
       <p id="hint">固定页面。截图、视觉模型和交给小可爱的内容都留在这里。</p>
     </div>
     <div class="tools">
-      <label><input id="keep" type="checkbox" /> 保留最近三天的截图</label>
+      <label><input id="keep" type="checkbox" /> 录制陪看测试数据（截图、API与对话）</label>
+      <label>LoL陪玩模式 <select id="league-mode"><option value="hybrid">API＋视觉</option><option value="api">纯API（不截图）</option></select></label>
+      <label><input id="permanent" type="checkbox" /> 长期保留验收样本（取消后恢复三天清理）</label>
       <label><input id="live" type="checkbox" checked /> 自动刷新</label>
       <button id="clear" type="button">清空</button>
     </div>
@@ -106,6 +108,14 @@
     const list = document.getElementById('list');
     const live = document.getElementById('live');
     const keep = document.getElementById('keep');
+    const leagueMode = document.getElementById('league-mode');
+    fetch('/api/modules/glance/league/mode').then(r => r.json()).then(d => { leagueMode.value = d.mode; });
+    leagueMode.onchange = async () => {
+      const response = await fetch('/api/modules/glance/league/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: leagueMode.value }) });
+      if (!response.ok) alert('模式切换失败，请重试');
+    };
+    const permanent = document.getElementById('permanent');
+    fetch('/api/modules/glance/lab/keep').then(r => r.json()).then(data => { permanent.checked = !!data.permanent; });
     const hint = document.getElementById('hint');
     let rows = [];
     let more = false;
@@ -223,10 +233,11 @@
       await fetch('/api/modules/glance/lab/keep', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ on: keep.checked }),
+        body: JSON.stringify({ on: keep.checked, permanent: permanent.checked }),
       });
       pull();
     };
+    permanent.onchange = keep.onchange;
     document.getElementById('clear').onclick = async () => {
       if (!window.confirm('清空会删掉这个页面上的陪看记录，包括本机保存的截图。')) return;
       rows = [];

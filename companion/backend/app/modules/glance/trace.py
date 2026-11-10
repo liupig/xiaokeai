@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import threading
 import time
 from typing import Any
@@ -71,6 +72,7 @@ def mark(item_id: str, **fields: Any) -> None:
     if not item_id:
         return
     allowed = {
+        "league_snapshot", "league_fusion", "league_event_ids", "league_delivery",
         "media_context", "media_segments",
         "xiaoke_reason",
         "handoff", "handoff_why", "xiaoke_in", "xiaoke_raw", "xiaoke_out", "xiaoke_action",
@@ -80,7 +82,11 @@ def mark(item_id: str, **fields: Any) -> None:
         "media_inputs",
         "freshness_phase", "capture_age", "freshness_limit",
     }
+    fields = {k: json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v for k, v in fields.items()}
     cleaned = {key: str(value or "")[:4000] for key, value in fields.items() if key in allowed}
+    for key in ('league_snapshot', 'league_fusion'):
+        if key in fields:
+            cleaned[key] = str(fields[key])
     if not cleaned:
         return
     with _lock:
@@ -168,6 +174,7 @@ def _public(row: dict[str, Any]) -> dict[str, Any]:
         "height": int(row.get("height") or 0),
         "ms": int(row.get("ms") or 0),
         "observed_at": float(row.get("observed_at") or 0),
+        **{key: row.get(key, '') for key in ('league_snapshot', 'league_fusion', 'league_event_ids', 'league_delivery')},
         "source_process": str(row.get("source_process") or ""),
         "source_window": str(row.get("source_window") or ""),
         "source_title": str(row.get("source_title") or ""),

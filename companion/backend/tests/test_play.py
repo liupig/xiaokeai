@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.modules.play.host import Proc, Shortcut  # noqa: E402
 from app.modules.play.intent import extract_query  # noqa: E402
 from app.modules.play import service  # noqa: E402
+from app.modules.play.titles import platform_name, title_of  # noqa: E402
 
 
 def _p(path: str) -> str:
@@ -318,6 +319,15 @@ def test_chat_opens_lol_and_ignores_other_opens():
     _lol(loose)
     assert service.on_user_text("今天好想玩英雄联盟", "zh-CN", loose)
     assert loose.spawned == [["wegame://action=StartFor&game_id=26"]]
+
+
+def test_popular_pc_catalog_resolves_cross_platform_aliases():
+    assert platform_name("Steam") == "steam"
+    assert title_of("绝地求生").home == "steam"
+    assert title_of("Apex").home == "steam"
+    assert title_of("火箭联盟").home == "epic"
+    assert title_of("文明7").home == "steam"
+    assert title_of("彩虹六号").home == "steam"
 
 
 def test_unknown_game_is_not_found():

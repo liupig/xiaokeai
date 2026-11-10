@@ -102,19 +102,21 @@ def _default_ahead(sub: Sub, phase: Phase) -> tuple[str, ...]:
 def _hero_hint(sub: Sub, phase: Phase) -> str:
     """英雄联盟的加载卡和镜头正中才是他这局的英雄。别的游戏没有这块版式。"""
     if sub.id == "league" and phase.id in {"load", "shop", "leave", "lane", "fight", "dead", "score"}:
-        return "英雄只写玩家自己的那一个。加载画面写正中间最大那张立绘下沿的名字，底下横排是别人，不要写。已经在局里就写画面正中的那个。认不准就空着。"
+        return "英雄只写玩家自己的那一个。必须有自己的HUD、玩家身份标识或本地API确认；卡片大小、排版、镜头正中都不能确认玩家身份。认不准就空着。"
     if sub.id == "league":
         return "英雄只写他已经锁定的那个名字。还在挑、认不准，就空着。"
-    return "英雄只写画面上认得准的名字，中间最大的那张卡优先。认不准就空着。"
+    return "玩家角色必须由自己的HUD或玩家身份标识确认；镜头目标、最大卡片、队友和敌人不能当成玩家。认不准就空着。"
 
 
 def prompt_for(sub: Sub, phase: Phase, surface: str = "") -> str:
     """先让模型照抄看见的字，再用画面对阶段。不给一个只能选的词。"""
     del surface
+    from .game_profiles import profile_for
+    profile = profile_for(sub.label)
     if sub.id == "league":
         from .league import prompt
 
-        return prompt()
+        return prompt() + f"\n【{sub.label}专属陪玩策略】阶段：{profile['phases']}；关注：{profile['focus']}；口吻：{profile['tone']}。同一状态无新变化就写没变。"
     if sub.kind in {"movie", "music", "video"}:
         from .media import prompt
 
@@ -128,6 +130,8 @@ def prompt_for(sub: Sub, phase: Phase, surface: str = "") -> str:
         "这张如果是陪看记录，或不是这个窗口，阶段空着，仍在写否。",
         "画面：",
         "原文：",
+        f"【{sub.label}专属陪玩策略】阶段：{profile['phases']}；关注：{profile['focus']}；口吻：{profile['tone']}。",
+        "策略只约束关注点和语气，不把未确认内容当事实；同一状态没有新变化就写没变。",
     ]
     if nxt:
         lines.append("对得上才写阶段：")

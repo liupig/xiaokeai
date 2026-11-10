@@ -87,6 +87,7 @@ class Offer:
     generator: str = ""
     raw: str = ""
     kind: str = "reaction"
+    event_ids: list[int] = field(default_factory=list)
 
 
 def _none_fact(text: str) -> bool:

@@ -843,6 +843,8 @@ async def stream_reply(
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """把 dsh 的助手正文喂进现有标签解析，事件形状和 stream_chat 一致。"""
     loop = asyncio.get_running_loop()
+    from ..glance.game_truth import context as game_truth_context
+    recall = game_truth_context(character_id) + '\n' + recall
     queue: asyncio.Queue = asyncio.Queue()
     cancel = cancel or threading.Event()
     current = runtime()
