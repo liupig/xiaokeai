@@ -88,6 +88,21 @@ def test_model_warmup_failure_is_preserved(monkeypatch):
     assert eyes_host.ensure() == "failed"
 
 
+def test_remote_vision_does_not_load_local_gpu_model(monkeypatch):
+    from app.modules.glance import vision, service
+    monkeypatch.setattr(eyes_host, 'probe', lambda: True)
+    monkeypatch.setattr(eyes_host, '_phase', 'starting')
+    monkeypatch.setattr(eyes_host, '_message', '')
+    monkeypatch.setattr(eyes_host, '_token', 1)
+    monkeypatch.setattr(eyes_host, 'bind_running', lambda: None)
+    monkeypatch.setattr(vision, 'uses_local', lambda: False)
+    def forbidden():
+        raise AssertionError('remote vision must not warm up MiniCPM')
+    monkeypatch.setattr(service, '_borrow', forbidden)
+    eyes_host._warmup(1)
+    assert eyes_host._phase == 'up'
+
+
 def test_stop_works_even_without_available_visual_environment(monkeypatch):
     called = []
     monkeypatch.setattr(along, "stop", lambda: called.append("stop"))
@@ -142,8 +157,8 @@ def test_capability_check_never_launches_or_probes(monkeypatch, tmp_path):
     assert eyes_host.capability()["available"]
 
 
-@pytest.mark.parametrize("enabled", [False, True])
-def test_eyes_process_log_is_opt_in(monkeypatch, tmp_path, enabled):
+@pytest.mark.parametrize("setting", [None, "0", "1"])
+def test_eyes_process_log_defaults_on_with_explicit_opt_out(monkeypatch, tmp_path, setting):
     import subprocess
     from types import SimpleNamespace
 
@@ -152,10 +167,10 @@ def test_eyes_process_log_is_opt_in(monkeypatch, tmp_path, enabled):
     (home / "app.py").write_text("", encoding="utf-8")
     python = home / "python.exe"
     python.write_text("", encoding="utf-8")
-    if enabled:
-        monkeypatch.setenv("XIAOKE_EYES_LOG", "1")
-    else:
+    if setting is None:
         monkeypatch.delenv("XIAOKE_EYES_LOG", raising=False)
+    else:
+        monkeypatch.setenv("XIAOKE_EYES_LOG", setting)
     monkeypatch.setattr(eyes_host, "_local", lambda: True)
     monkeypatch.setattr(eyes_host, "probe", lambda: False)
     monkeypatch.setattr(eyes_host, "_phase", "down")
@@ -174,7 +189,7 @@ def test_eyes_process_log_is_opt_in(monkeypatch, tmp_path, enabled):
 
     assert eyes_host.ensure() == "starting"
     assert launched["stdout"] is launched["stderr"]
-    if enabled:
+    if setting != "0":
         assert launched["stdout"].name == str(home / "eyes-host.log")
         eyes_host._close_log(launched["stdout"])
     else:
@@ -334,6 +349,18 @@ def test_route_stop_does_not_capture_or_say_looking(chat_route):
     events = send("把眼睛关掉", [{"type": "glance", "value": "关闭"}])
     assert state["captures"] == []
     assert not any("我看看" in event.get("delta", "") for event in events)
+
+
+@pytest.mark.parametrize("text", ["你不知道我选的谁吗？", "怎么不说话", "为什么关闭视觉", "不要关闭视觉"])
+def test_model_cannot_close_vision_without_user_request(chat_route, text):
+    send, state = chat_route
+    send(text, [{"type": "glance", "value": "关闭"}])
+    assert state["actions"] == []
+
+
+@pytest.mark.parametrize("text", ["别看了", "关闭视觉", "把眼睛关掉", "turn off vision"])
+def test_explicit_visual_stop_is_allowed(text):
+    assert actions.visual_stop_allowed(text)
 
 
 @pytest.mark.parametrize("extra", [{"mode": "welcome"}, {"reroll": True}])

@@ -10,18 +10,19 @@ export function useGlancePower() {
   const settings = useSettingsStore();
   const glance = ref<GlancePower>({ along: false, eyes: 'down', message: '', character_id: 0 });
   const glanceBusy = ref(false);
+  const glanceOn = computed(() => ['up', 'starting', 'remote'].includes(glance.value.eyes));
   let timer = 0;
 
   const glanceTip = computed(() => {
     if (glance.value.eyes === 'starting' || glanceBusy.value) return t('top.glanceStarting');
     if (glance.value.message) return glance.value.message;
     const contract = glance.value.contract;
-    if (glance.value.along && contract && settings.locale.ui.startsWith('zh')) {
+    if (glanceOn.value && glance.value.along && contract && settings.locale.ui.startsWith('zh')) {
       const amount = { more: '多聊一点', normal: '自然接话', quiet: '只看，暂停主动说话' }[contract.talk];
       return [t('top.glanceOff'), contract.task, contract.focus ? `留意：${contract.focus}` : '', amount, contract.feedback]
         .filter(Boolean).join('\n');
     }
-    return glance.value.along ? t('top.glanceOff') : t('top.glance');
+    return glanceOn.value ? t('top.glanceOff') : t('top.glance');
   });
 
   async function refreshGlance() {
@@ -36,7 +37,7 @@ export function useGlancePower() {
 
   async function toggleGlance() {
     if (glanceBusy.value) return;
-    const next = !glance.value.along;
+    const next = !glanceOn.value;
     glanceBusy.value = true;
     try {
       if (next && !settings.modules.glance) {
@@ -58,5 +59,5 @@ export function useGlancePower() {
   });
   onUnmounted(() => window.clearInterval(timer));
 
-  return { glance, glanceBusy, glanceTip, toggleGlance };
+  return { glance, glanceOn, glanceBusy, glanceTip, toggleGlance };
 }

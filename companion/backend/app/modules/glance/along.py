@@ -430,6 +430,10 @@ def ack(seq: int, status: str = "completed") -> None:
     from .trace import mark
 
     mark(trace_id, playback_status=status, playback_at=str(time.time()))
+    from ... import talk_log
+    talk_log.write("spoken" if status == "completed" else "note",
+                   text if status == "completed" else f"陪玩播放未完成：{status}",
+                   character_id=_state.character_id, seq=seq, playback_status=status)
     finish_speak(status == "completed", text if status == "completed" else "")
 
 
@@ -639,6 +643,7 @@ def finish_speak(spoke: bool, text: str = "", expected_trace: str = "") -> None:
     with _lock:
         _state.speaking = False
         _state.speak_since = 0
+        _state.generated = ""
         if spoke:
             _state.opening = ""
             _state.spoke_at = time.time()
@@ -912,11 +917,14 @@ def _run_loop() -> None:
 
     while not _halt.is_set():
         try:
-            if mode() == 'api':
+            selected = mode()
+            if selected == 'api':
                 run()
+            else:
+                _loop()
+            # A mode switch hands the same session to the other source.
+            if mode() == selected or not _state.on:
                 return
-            _loop()
-            return
         except Exception:
             talk_log.write("note", "陪看采集异常，重试：" + traceback.format_exc())
             if _wait(2):
@@ -928,6 +936,9 @@ def _loop() -> None:
     from .watch import INTERVALS
 
     while True:
+        from .league_mode import mode
+        if mode() == 'api':
+            return
         with _lock:
             if not _state.on:
                 return

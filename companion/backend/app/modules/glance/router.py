@@ -93,14 +93,17 @@ def power_set(body: PowerBody) -> Dict[str, Any]:
     cid = int(body.character_id or snap.get('character_id') or 0)
 
     if body.on:
-        along.stop()
+        along.stop(reason="切换为视觉陪玩")
+        from .eyes_host import eyes_status
+        if eyes_status().get('message'):
+            shutdown()
         set_mode('hybrid')
         enable_glance()
         ensure()
         if cid:
             along.start(cid)
     else:
-        along.stop()
+        along.stop(reason="关闭视觉，切换为API陪玩" if league_active else "用户关闭视觉")
         shutdown()
         set_mode('api')
         if league_active and cid and snap.get('on'):

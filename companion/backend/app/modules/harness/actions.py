@@ -39,6 +39,17 @@ def visual_request_allowed(user_text: str, prior=None) -> bool:
     return visual_request_policy(user_text, prior) == "allow"
 
 
+def visual_stop_allowed(user_text: str) -> bool:
+    """Closing vision needs a stop request in the current user turn."""
+    from ..glance.along import wants_stop
+    text = user_text or ""
+    if re.search(r"不要(?:关|停)|别(?:关|停)|不用(?:关|停)|为什么|怎么.*(?:关|停)|是不是.*(?:关|停)", text):
+        return False
+    return wants_stop(text) or bool(re.search(
+        r"(?:关|停).{0,6}(?:视觉|眼睛|陪看|截屏)|(?:视觉|眼睛|陪看).{0,6}(?:关掉|关闭|停掉|停止)|"
+        r"(?:stop|disable|turn off)\s+(?:watching|vision|screen capture)", text, re.I))
+
+
 def play_note(query: str, locale: str, *, host=None) -> str:
     from ..play.service import open_game, _hint
     from ..sight.service import hold_name

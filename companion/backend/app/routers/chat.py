@@ -636,6 +636,11 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                         # Greetings, silence follow-ups and rewrites cannot
                         # authorize a new capture or restart continuous vision.
                         continue
+                    if ev.get("type") == "glance" and str(ev.get("value") or "") == "关闭":
+                        from ..modules.harness.actions import visual_stop_allowed
+                        if not visual_stop_allowed(req.text or ""):
+                            watch_failure = "用户没有要求关闭视觉，关闭动作未执行；陪看保持原状态，回答用户当前的问题。"
+                            continue
                     if ev.get("type") == "glance" and str(ev.get("value") or "") != "关闭":
                         policy = visual_request_policy(req.text or "", harness_prior, screen_context=bool(along_snapshot().get("on")))
                         if policy != "allow":

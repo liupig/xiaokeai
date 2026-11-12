@@ -37,6 +37,12 @@ def index():
     return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/health")
+def api_health():
+    # A liveness probe must not import torch or initialize CUDA.
+    return {"ok": True}
+
+
 @app.get("/api/status")
 def api_status():
     return engine.status()
