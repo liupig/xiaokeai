@@ -153,7 +153,7 @@ export function classifyMotion(m: AssetItem): MotionCard {
     };
   };
 
-  if (/走路|walk\.vmd/i.test(t) && !/挥手|wave/i.test(t)) {
+  if (/走路|walk.*\.(?:vmd|fbx|xkmotion)/i.test(t) && !/挥手|wave/i.test(t)) {
     return base({
       meaning: '走路循环', tags: ['walk'], when: '走位、展示走路',
       stance: 'locomote', minDist: 'full', maxDist: 'long', switchRule: 'cut',

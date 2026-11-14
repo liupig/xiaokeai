@@ -7,7 +7,7 @@ import type { AssetItem } from '../../api/client';
 import { CAM_SHOTS } from '../../engine/camera';
 import type { StandSlot } from '../../engine/stage';
 import type { CamShotId } from '../../engine/types';
-import { parseMotionCat, stripCatPrefix, type MotionCat } from '../assets/motionMeta';
+import { isMotionRejected, parseMotionCat, stripCatPrefix, type MotionCat } from '../assets/motionMeta';
 import { isFramingCam } from '../performance/camLexicon';
 import { INTENTS, buildMotionCards, type Intent } from '../performance/lexicon';
 
@@ -127,7 +127,7 @@ export function allCamPicks(vmds: { name: string; label: string }[]): CamPick[] 
 }
 
 export function allActions(motions: AssetItem[]): ActionPick[] {
-  const cards = buildMotionCards(motions);
+  const cards = buildMotionCards(motions.filter((m) => !isMotionRejected(m)));
   const byName = new Map(motions.map((m) => [m.name, m]));
   const assets: ActionPick[] = cards.map((c) => {
     const raw = byName.get(c.name);

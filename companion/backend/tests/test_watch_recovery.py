@@ -10,6 +10,8 @@ from app.modules.glance.watch import WatchSession
 
 @pytest.fixture
 def watching(monkeypatch):
+    from app.modules.glance import league_mode
+    monkeypatch.setattr(league_mode, "mode", lambda: "hybrid")
     sit = Situation()
     state = along._State(on=True, character_id=1)
     monkeypatch.setattr(along, "situation", sit)

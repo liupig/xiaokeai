@@ -27,7 +27,7 @@ function reloadShell() {
   void window.companionDesktop?.reload?.();
 }
 
-const { glance, glanceBusy, glanceTip, toggleGlance } = useGlancePower();
+const { glance, glanceOn, glanceBusy, glanceTip, toggleGlance } = useGlancePower();
 
 const tools = computed(() => {
   settings.locale.ui;
@@ -70,7 +70,7 @@ const tools = computed(() => {
       <MocapToolbar />
       <n-tooltip :delay="300">
         <template #trigger>
-          <button class="tool" :class="{ active: glance.along, starting: glance.eyes === 'starting' || glanceBusy }"
+          <button class="tool" :class="{ active: glanceOn, starting: glance.eyes === 'starting' || glanceBusy }"
                   type="button" @click="toggleGlance">
             <XkIcon name="glance" :size="22" />
           </button>

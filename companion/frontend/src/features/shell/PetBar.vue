@@ -20,7 +20,7 @@ const ORB_KEY = 'companion.pet.orb';
 const chat = useChatStore();
 const settings = useSettingsStore();
 const message = useMessage();
-const { glance, glanceBusy, glanceTip, toggleGlance } = useGlancePower();
+const { glance, glanceOn, glanceBusy, glanceTip, toggleGlance } = useGlancePower();
 const text = ref('');
 const listening = ref(false);
 const open = ref(false);
@@ -319,7 +319,7 @@ function toggleMic() {
     </svg>
   </button>
   <button type="button" class="pet-glance" data-pet-hit
-          :class="{ on: glance.along, starting: glance.eyes === 'starting' || glanceBusy }"
+          :class="{ on: glanceOn, starting: glance.eyes === 'starting' || glanceBusy }"
           :style="glanceStyle" :title="glanceTip"
           @click.stop="toggleGlance">
     <XkIcon name="glance" :size="16" />
@@ -349,7 +349,7 @@ function toggleMic() {
       </button>
     </div>
     <div class="ops">
-      <button type="button" :class="{ on: glance.along }" @click="toggleGlance">{{ glanceTip }}</button>
+      <button type="button" :class="{ on: glanceOn }" @click="toggleGlance">{{ glanceTip }}</button>
       <i />
       <button type="button" @click="setShellMode('stage')">{{ t('pet.back') }}</button>
       <i />

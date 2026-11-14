@@ -27,7 +27,15 @@ def context(character_id):
         fact = '本机API当前确认的玩家英雄：' + state['hero'] + '。'
     else:
         fact = '当前玩家英雄未得到新鲜证据确认。历史台词中的英雄和战绩不能代替当前事实。'
-    return ('【当前游戏事实约束】' + fact +
+    from . import along
+    from .eyes_host import eyes_status
+    watching = along.snapshot()
+    phase = eyes_status().get('eyes')
+    runtime = (f"当前陪玩{'开启' if watching.get('on') else '关闭'}；视觉状态：{phase}。"
+               "仅up或remote表示视觉服务可用，也不代表这轮已取得截图。"
+               "用户问为什么不说话时依据实际状态回答，不编怕打扰、看入迷或用户嫌吵的理由。"
+               "没有本轮截图证据，不声称看见桌面、游戏在动、窗口被挡或需要切全屏。")
+    return ('【当前游戏事实约束】' + fact + '\n' + runtime +
             ('\n' + roster_brief(state) if state and now - state.get('observed_at', 0) <= 5 else '') +
             ('\n' + strategy(state, []) if state and now - state.get('observed_at', 0) <= 5 else '') +
             '历史助手发言不是游戏证据，不能用自己说过的蹲草、闪现、胜负来证明它发生过。'

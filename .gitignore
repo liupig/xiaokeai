@@ -132,8 +132,18 @@ companion/assets/motions/*
 !companion/assets/motions/.gitkeep
 !companion/assets/motions/README.txt
 
-# 本地动作试验（系数预览），不进仓库
-companion/motionlab/
+# 本地动作试验（系数预览），不进仓库；Blender 转换管线源码除外
+companion/motionlab/*
+!companion/motionlab/blender_pipeline/
+!companion/motionlab/blender_convert.py
+!companion/motionlab/build_mixamo_pack.py
+!companion/motionlab/build_mixamo_recommended.py
+!companion/motionlab/build_companion_daily.py
+!companion/motionlab/install_blender_pipeline.py
+!companion/motionlab/test_blender_pipeline.py
+!companion/motionlab/validate_mixamo_pack.mjs
+!companion/motionlab/README.md
+companion/tools/
 companion/assets/audio/*
 !companion/assets/audio/.gitkeep
 !companion/assets/audio/README.txt

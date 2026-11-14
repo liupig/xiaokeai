@@ -10,7 +10,7 @@ import { isFramingCam } from '../performance/camLexicon';
 import { useAssetsStore } from '../../stores/assets';
 import { useCharacterStore } from '../../stores/character';
 import {
-  MOTION_CATS, parseMotionCat, playAssetMotion, stripCatPrefix, type MotionCat,
+  MOTION_CATS, isMotionRejected, motionReviewStatus, parseMotionCat, playAssetMotion, stripCatPrefix, type MotionCat,
 } from '../assets/motionMeta';
 import { api } from '../../api/client';
 import { motionTitle, t } from '../../i18n';
@@ -58,7 +58,7 @@ const filteredMorphs = computed(() =>
     ? morphNames.value.filter((n) => n.includes(morphSearch.value.trim()))
     : morphNames.value
 );
-const supportsVmd = computed(() => characters.modelInfo?.supportsVmd ?? false);
+const supportsMotions = computed(() => characters.modelInfo?.supportsVmd ?? false);
 const isLive2D = computed(() => characters.modelInfo?.format === 'live2d');
 const activeTab = ref('motions');
 watch(isLive2D, (enabled) => {
@@ -79,6 +79,17 @@ const catCounts = computed(() => {
   for (const m of assets.motions) c[parseMotionCat(m)] += 1;
   return c;
 });
+const motionIndex = computed(() => groupedMotions.value.findIndex((m) => m.name === currentMotion.value));
+const reviewPosition = computed(() => `${motionIndex.value < 0 ? 0 : motionIndex.value + 1} / ${groupedMotions.value.length}`);
+
+async function playMotionOffset(offset: number) {
+  const list = groupedMotions.value;
+  if (!list.length) return;
+  const current = motionIndex.value;
+  const index = current < 0 ? (offset > 0 ? 0 : list.length - 1) : current + offset;
+  if (index < 0 || index >= list.length) return;
+  await playMotion(list[index].name);
+}
 
 function setCam(id: CamShotId) {
   currentShot.value = id;
@@ -132,6 +143,17 @@ function stopMotion() {
   currentMotion.value = '';
   stage.stopMotion();
 }
+
+async function setReview(m: { id: number; name: string }, status: 'pending' | 'approved' | 'rejected') {
+  await assets.setMotionReviewStatus(m.id, status);
+  if (status === 'rejected' && currentMotion.value === m.name) stopMotion();
+}
+
+async function removeMotion(m: { id: number; name: string; label: string }) {
+  if (!window.confirm(`确定删除动作“${m.label}”及其文件吗？此操作不可撤销。`)) return;
+  if (currentMotion.value === m.name) stopMotion();
+  await assets.remove(m.id, true);
+}
 </script>
 
 <template>
@@ -179,8 +201,8 @@ function stopMotion() {
         <n-tab-pane v-if="isLive2D" name="live2d" tab="Live2D 高级互动">
           <Live2DPanel />
         </n-tab-pane>
-        <n-tab-pane name="motions" :tab="`${t('quick.motions')} (${assets.motions.length})`" :disabled="!supportsVmd">
-          <div v-if="!supportsVmd" class="empty">{{ t('quick.noVmd') }}</div>
+        <n-tab-pane name="motions" :tab="`${t('quick.motions')} (${assets.motions.length})`" :disabled="!supportsMotions">
+          <div v-if="!supportsMotions" class="empty">{{ t('quick.noVmd') }}</div>
           <template v-else>
             <div class="cat-row">
               <n-button v-for="c in MOTION_CATS" :key="c.key" size="tiny"
@@ -194,12 +216,25 @@ function stopMotion() {
               <n-input v-model:value="motionSearch" size="small" :placeholder="t('quick.searchMotion')" clearable />
               <n-button size="small" type="warning" secondary @click="stopMotion">{{ t('quick.stop') }}</n-button>
             </div>
+            <div v-if="groupedMotions.length" class="review-nav">
+              <n-button size="tiny" :disabled="motionIndex <= 0" @click="playMotionOffset(-1)">‹ 上一个</n-button>
+              <span>{{ reviewPosition }}</span>
+              <n-button size="tiny" :disabled="motionIndex >= groupedMotions.length - 1" @click="playMotionOffset(1)">下一个 ›</n-button>
+            </div>
             <div v-if="!groupedMotions.length" class="empty">{{ t('quick.emptyMotion') }}</div>
             <div v-else class="grid">
-              <n-button v-for="m in groupedMotions" :key="m.id" size="small"
-                        :type="currentMotion === m.name ? 'primary' : 'default'"
-                        :quaternary="currentMotion !== m.name"
-                        @click="playMotion(m.name)">{{ settings.locale.reply === 'zh-CN' ? stripCatPrefix(m.label) : motionTitle(m.name, m.label) }}</n-button>
+              <div v-for="m in groupedMotions" :key="m.id" class="motion-item" :class="{ rejected: isMotionRejected(m) }">
+                <n-button size="small" :disabled="isMotionRejected(m)"
+                          :type="currentMotion === m.name ? 'primary' : 'default'"
+                          :quaternary="currentMotion !== m.name"
+                          @click="playMotion(m.name)">{{ settings.locale.reply === 'zh-CN' ? stripCatPrefix(m.label) : motionTitle(m.name, m.label) }}</n-button>
+                <n-button size="tiny" quaternary :type="motionReviewStatus(m) === 'approved' ? 'success' : 'default'"
+                          @click="setReview(m, 'approved')">可用</n-button>
+                <n-button size="tiny" quaternary :type="isMotionRejected(m) ? 'error' : 'default'"
+                          @click="setReview(m, 'rejected')">不可用</n-button>
+                <n-button v-if="isMotionRejected(m)" size="tiny" quaternary type="warning"
+                          @click="removeMotion(m)">删除</n-button>
+              </div>
             </div>
           </template>
         </n-tab-pane>
@@ -304,10 +339,37 @@ function stopMotion() {
   padding-top: 8px;
 }
 
+.motion-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.motion-item.rejected {
+  background: rgba(255, 100, 100, 0.1);
+}
+
+.motion-item.rejected > :first-child {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
 .morph-tools {
   display: flex;
   gap: 6px;
   padding-top: 8px;
+}
+
+.review-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  font-size: 12px;
+  opacity: 0.8;
 }
 
 .cat-row {

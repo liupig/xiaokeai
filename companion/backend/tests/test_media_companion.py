@@ -278,6 +278,8 @@ def test_held_media_point_can_retry_but_never_refreshes_capture_time(monkeypatch
 
 
 def test_live_loop_requeues_a_visual_point_after_cadence_gap(monkeypatch):
+    from app.modules.glance import league_mode
+    monkeypatch.setattr(league_mode, "mode", lambda: "hybrid")
     import threading
     from types import SimpleNamespace
     from app.modules.glance import along, hearing, sense, trace
@@ -305,6 +307,7 @@ def test_live_loop_requeues_a_visual_point_after_cadence_gap(monkeypatch):
     monkeypatch.setattr(along, "_tarot_now", lambda cid: False)
     monkeypatch.setattr(hearing, "ear", SimpleNamespace(set_quiet=lambda value: None))
     monkeypatch.setattr(sense, "collect", lambda **kwargs: next(observations))
+    monkeypatch.setattr(along, "_prepare_direct", lambda offer, _: offer)
     monkeypatch.setattr(service, "interval", lambda: 5)
     monkeypatch.setattr(trace, "mark", lambda item_id, **fields: marks.append((item_id, fields)))
 

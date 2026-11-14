@@ -457,7 +457,7 @@ def read_steer(text: str) -> tuple[str | None, str | None]:
     """从他这句话里读出留意什么、想听多少。没提到的那项返回 None。"""
     compact = re.sub(r"\s+", "", text or "")
     talk = None
-    if any(word in compact for word in ("多说点", "说多点", "多讲点", "多聊聊", "话多一点", "多说一些", "说详细点", "多说两句", "多陪我说说话", "多陪我聊", "多互动", "多说说话")):
+    if any(word in compact for word in ("多说点", "说多点", "多讲点", "多聊聊", "话多一点", "多说一些", "说详细点", "多说两句", "多陪我说说话", "多陪我聊", "多互动", "多说说话", "多多说话", "怎么不说话", "怎么都不说话", "你都不说话")):
         talk = "more"
     elif any(word in compact for word in ("别说了", "不要说", "别说话", "先别说", "安静点", "先安静", "少说点", "少说", "不用说", "别讲了")):
         talk = "quiet"

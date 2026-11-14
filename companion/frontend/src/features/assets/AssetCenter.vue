@@ -208,7 +208,7 @@ async function downloadWork(work: OnlineWork) {
                @keydown.enter="startDownload" />
       <n-button type="primary" @click="startDownload">{{ t('assets.download') }}</n-button>
       <n-upload :custom-request="customUpload" :show-file-list="false"
-                accept=".zip,.rar,.7z,.vmd,.vpd,.vrm,.glb" multiple>
+                accept=".zip,.rar,.7z,.vmd,.vpd,.vrm,.glb,.fbx,.xkmotion" multiple>
         <n-button secondary>{{ t('assets.import') }}</n-button>
       </n-upload>
     </div>

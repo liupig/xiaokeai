@@ -30,8 +30,10 @@ def sniff_kind(path: Path) -> str:
         return ".7z"
     if head.startswith(b"Vocaloid Motion Data"):
         return ".vmd"
+    if head.startswith(b"Kaydara FBX Binary"):
+        return ".fbx"
     suf = path.suffix.lower()
-    if suf in {".zip", ".rar", ".7z", ".vmd", ".vpd", ".vrm", ".glb", ".pmx"}:
+    if suf in {".zip", ".rar", ".7z", ".vmd", ".vpd", ".vrm", ".glb", ".pmx", ".fbx", ".xkmotion"}:
         return suf
     return suf or ""
 
@@ -164,6 +166,8 @@ def classify_extracted(root: Path) -> Dict[str, object]:
         key=lambda p: (len(p.parts), str(p)),
     )
     vmds = list(root.rglob("*.vmd"))
+    fbxs = list(root.rglob("*.fbx"))
+    native_motions = list(root.rglob("*.xkmotion"))
     audio = [p for ext in ("*.wav", "*.mp3", "*.ogg") for p in root.rglob(ext)]
 
     motions: List[Path] = []
@@ -182,7 +186,7 @@ def classify_extracted(root: Path) -> Dict[str, object]:
 
     return {
         "model": pmx_files[0] if pmx_files else (live2d_files[0] if live2d_files else None),
-        "motions": sorted(motions, key=lambda p: p.stat().st_size, reverse=True),
+        "motions": sorted([*motions, *fbxs, *native_motions], key=lambda p: p.stat().st_size, reverse=True),
         "camera_vmds": cameras,
         "expression_vmds": expressions,
         "audio": audio,

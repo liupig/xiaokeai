@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session
 
 from ..db import get_session
-from ..services import review_store
+from ..services import head_review_store, review_store
 
 router = APIRouter(prefix="/api/review", tags=["review"])
 
@@ -24,3 +24,8 @@ def put_cam_review(body: Dict[str, Any],
     if not isinstance(verdicts, dict):
         verdicts = {}
     return review_store.save(session, {str(k): str(v) for k, v in verdicts.items()})
+
+
+@router.put("/head-auto")
+def put_head_auto_review(body: Dict[str, Any]) -> Dict[str, Any]:
+    return head_review_store.save_motion(body)

@@ -38,7 +38,7 @@ def probe() -> bool:
         return _probe_ok
     ok = False
     try:
-        resp = httpx.get(f"{eyes_url()}/api/status", timeout=1.5, trust_env=False)
+        resp = httpx.get(f"{eyes_url()}/api/health", timeout=1.5, trust_env=False)
         ok = resp.status_code == 200
     except Exception:
         ok = False
@@ -58,7 +58,9 @@ def eyes_status() -> dict:
             _phase = "up"
     elif _phase == "starting" and _proc is not None and _proc.poll() is not None:
         _phase = "down"
-        _message = "视觉进程启动失败，请检查视觉环境和显存"
+        _message = f"视觉进程启动失败（退出码 {_proc.returncode}），请查看 eyes-host.log"
+        from ... import talk_log
+        talk_log.write("note", _message)
     elif _phase != "starting":
         _phase = "down"
     return {"eyes": _phase, "message": _message}
@@ -164,6 +166,14 @@ def _warmup(token: int) -> None:
         if token != _token or _phase != "starting":
             return
         if probe():
+            from .vision import uses_local
+            if not uses_local():
+                if token != _token or _phase != "starting":
+                    return
+                bind_running()
+                _phase = "up"
+                _message = ""
+                return
             client = _borrow()
             try:
                 response = client.post(f"{eyes_url()}/api/warmup", timeout=180)
@@ -179,6 +189,8 @@ def _warmup(token: int) -> None:
                     return
                 _message = str(exc)[:160]
                 _phase = "down"
+                from ... import talk_log
+                talk_log.write("note", "视觉模型加载失败：" + (str(exc) or type(exc).__name__))
                 return
             finally:
                 _release(client)
@@ -193,6 +205,8 @@ def _warmup(token: int) -> None:
     if token == _token and _phase == "starting":
         _phase = "down"
         _message = "眼睛没有起来"
+        from ... import talk_log
+        talk_log.write("note", "视觉服务启动超时，请查看 eyes-host.log")
 
 
 def eyes_home() -> Path:
@@ -255,7 +269,7 @@ def _shared_torch(home: Path) -> Path | None:
 
 
 def _log_enabled() -> bool:
-    return (os.environ.get("XIAOKE_EYES_LOG") or "").strip().lower() in {"1", "true", "yes", "on"}
+    return (os.environ.get("XIAOKE_EYES_LOG") or "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _log_path(home: Path) -> Path:
@@ -298,6 +312,9 @@ def ensure() -> str:
         _phase = "starting"
         _message = ""
         _close_log(_log)
+        log_path = _log_path(home)
+        if log_path.is_file() and log_path.stat().st_size > 2 * 1024 * 1024:
+            log_path.replace(log_path.with_suffix(".log.1"))
         _log = open(_log_path(home), "a", encoding="utf-8") if _log_enabled() else None
         output = _log if _log is not None else subprocess.DEVNULL
         env = os.environ.copy()
@@ -315,6 +332,8 @@ def ensure() -> str:
         if path_parts:
             env["PATH"] = os.pathsep.join(path_parts + [env.get("PATH", "")])
         env["PYTHONNOUSERSITE"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUNBUFFERED"] = "1"
         model = home.parent / "models" / "MiniCPM-V-4.7-1B"
         if (model / "config.json").is_file():
             env["MINICPM_V47_MODEL"] = str(model)

@@ -221,6 +221,8 @@ def test_clip_transition_is_not_folded_into_the_current_picture():
 
 
 def test_quiet_watch_still_listens_to_the_video(monkeypatch):
+    from app.modules.glance import league_mode
+    monkeypatch.setattr(league_mode, "mode", lambda: "hybrid")
     from app.modules.glance import along, hearing
     quiet = []
     monkeypatch.setattr(along, "_state", along._State(on=True, speak_locked=True))

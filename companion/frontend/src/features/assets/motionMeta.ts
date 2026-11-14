@@ -4,6 +4,20 @@ import { api, encodeAssetPath, type AssetItem } from '../../api/client';
 import { stage } from '../../engine/stage';
 
 export type MotionCat = 'idle' | 'greet' | 'interact' | 'dance';
+export type MotionReviewStatus = 'pending' | 'approved' | 'rejected';
+
+export function motionReviewStatus(asset: { meta?: string }): MotionReviewStatus {
+  try {
+    const status = JSON.parse(asset.meta || '{}').review_status;
+    return ['pending', 'approved', 'rejected'].includes(status) ? status : 'pending';
+  } catch {
+    return 'pending';
+  }
+}
+
+export function isMotionRejected(asset: { meta?: string }): boolean {
+  return motionReviewStatus(asset) === 'rejected';
+}
 
 export const MOTION_CATS: { key: MotionCat; label: string }[] = [
   { key: 'idle', label: '待机' },
@@ -26,7 +40,7 @@ export function parseMotionCat(m: { label: string; name: string; meta?: string }
   } catch { /* 旧数据 */ }
   const t = `${m.label}${m.name}`.replace(/g[- ]?idle|\(g\)-?idle/ig, ' ');
   if (/待机|待機|闲置|站姿|姿势 Pose|艾尔海森姿势/.test(t)) return 'idle';
-  if (/打招呼|挥手|招手|问好|问候|再见|挨拶|wave|hello|摆手|举手/i.test(t)) return 'greet';
+  if (/打招呼|挥手|招手|问好|问候|再见|挨拶|wave|waving|hello|摆手|举手/i.test(t)) return 'greet';
   if (/互动|比心|飞吻|害羞|思考|托腮|叉腰|点头|摇头|鼓掌|歪头|伸懒腰|坐下|坐姿|说话|鞠躬|卖萌|撩人|比耶|蹲坐|抱膝|摊手|拒绝|郁闷|格挡|捂胸|眨眼|轻拍|病娇|走路|叽里呱啦/.test(t)) {
     return 'interact';
   }
@@ -88,11 +102,12 @@ function pickDanceLibraryBgm(): string | undefined {
   return pick;
 }
 
-/** 播 VMD，若资产绑了 BGM / 镜头则同步开停。舞蹈有专属歌用专属；没有就从曲库随机抽，跟歌停。 */
+/** 播 VMD / Mixamo FBX / xiaoke-motion，若资产绑了 BGM / 镜头则同步开停。 */
 export function playAssetMotion(
   asset: AssetItem,
   opts?: { once?: boolean; holdLast?: boolean; skipCamera?: boolean; onEnded?: () => void },
 ) {
+  if (isMotionRejected(asset)) return Promise.resolve(false);
   const dance = parseMotionCat(asset) === 'dance';
   if (dance) stage.holdDance();
   const bound = dance ? motionBgmUrl(asset) : undefined;

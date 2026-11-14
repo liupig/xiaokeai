@@ -35,7 +35,7 @@ def strategy(state: dict, events: list[str]) -> str:
         lines.append('本轮助攻：积极认可参与和团队贡献，表达同样丰富，不把价值只等同人头；不知道过程就不编控制、保护或开团。')
     else:
         lines.append('闲时语料只作备选：基于本局确认的英雄，聊审美、机制趣味、英雄关系或玩家喜好。'
-                     '先确认安全空档；纯API无法确认交战空档，因此不按定时器主动插入梗。'
+                     '纯API无法确认交战空档，不声称现在安全；久未互动时可接一句简短的英雄话题，不连续讲梗或追问。'
                      '用户未接话不追问、不连续演角色。台词只用核实过的短句，不把自创句子冒充官方。')
         names = ' '.join(str(p.get('hero') or '') for p in state.get('roster', []))
         if '提莫' in names or 'Teemo' in names:

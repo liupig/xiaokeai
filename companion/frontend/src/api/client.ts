@@ -540,7 +540,7 @@ export const api = {
   deleteAsset(id: number, removeFiles = false) {
     return request(`/api/assets/${id}?remove_files=${removeFiles}`, { method: 'DELETE' });
   },
-  updateAsset(id: number, patch: { label?: string; category?: string }) {
+  updateAsset(id: number, patch: { label?: string; category?: string; review_status?: string }) {
     return request<AssetItem>(`/api/assets/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -604,6 +604,13 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ verdicts }),
       });
+  },
+  putHeadAutoReview(name: string, label: string, samples: { combo_id: string; ratio: number; verdict: string }[]) {
+    return request<{ ok: boolean; path: string; count: number }>('/api/review/head-auto', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, label, samples }),
+    });
   },
 
   getSettings() {

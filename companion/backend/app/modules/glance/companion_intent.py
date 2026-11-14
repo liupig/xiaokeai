@@ -32,7 +32,7 @@ class CompanionIntent:
                 self.mode = '安静'
             elif re.search(r'帮我分析|复盘|怎么打|怎么出装|给.*建议', text):
                 self.mode = '讨论'
-            elif re.search(r'聊聊天|陪我聊|可以说话|多说点', text):
+            elif re.search(r'聊聊天|陪我聊|可以说话|多说点|多多说话|怎么(?:都)?不说话|你都不说话', text):
                 self.mode = '陪聊'
 
     def context(self) -> str:

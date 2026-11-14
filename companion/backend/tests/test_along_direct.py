@@ -133,6 +133,8 @@ def test_direct_cadence_has_shorter_hard_limits_without_changing_legacy():
 
 
 def _run_direct_loop(monkeypatch, generated=""):
+    from app.modules.glance import league_mode
+    monkeypatch.setattr(league_mode, "mode", lambda: "hybrid")
     import threading
     from types import SimpleNamespace
     from app.modules.glance import along, hearing, sense
