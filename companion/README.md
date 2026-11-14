@@ -121,7 +121,17 @@ foreach ($port in 8600, 5175) {
 
 ### 本地导入
 
-资产中心 → 本地导入，拖入 zip / rar / pmx / vrm / glb / vmd 文件即可，自动分类入库。Live2D 请先在设置 → 画质开启，再导入包含 `.model3.json`、`.moc3`、贴图及动作资源的完整 ZIP；不要只拖 `.model3.json`。Live2D 使用模型自带动作与物理，不支持 VMD、3D 运镜和全身骨骼动捕。
+资产中心 → 本地导入，拖入 zip / rar / pmx / vrm / glb / vmd / fbx / xkmotion 文件即可，自动分类入库。Mixamo FBX 会按人形骨骼重定向到 PMX / VRM / GLB，水平位移交给站位控制。`.xkmotion` 是小可爱自有的动作格式，保存中立的源骨骼和动画轨道，播放时按当前角色做 A/T-pose 对齐，不依赖某个角色的绑定姿势，也不再读取 FBX。Live2D 请先在设置 → 画质开启，再导入包含 `.model3.json`、`.moc3`、贴图及动作资源的完整 ZIP；不要只拖 `.model3.json`。Live2D 使用模型自带动作与物理，不支持 VMD、Mixamo FBX、3D 运镜和全身骨骼动捕。
+
+### Mixamo 批量转换为自有动作
+
+无需 Blender。转换器与运行时共用 A/T-pose 对齐、骨骼映射和髋部位移缩放逻辑：
+
+```bash
+node scripts/convert_mixamo.mjs
+```
+
+默认读取 `../_dl/mixamo/*.fbx` 和清宵的 PMX 绑定姿势，输出到 `assets/motions/`。可用 `--input`、`--output`、`--model` 指定其他目录或 PMX 模型。每个 `.xkmotion` 都会经过序列化往返校验。
 
 ### 情绪标签协议
 
@@ -131,7 +141,7 @@ LLM 输出内嵌标签驱动表演（后端剥离，不会念出来）：
 |---|---|
 | `[emo:happy/angry/sad/relaxed/neutral]` | 切换表情（可叠加角色卡自定义形态键） |
 | `[act:nod/shake]` | 点头 / 摇头 |
-| `[intent:greet]` | 打招呼（PMX 用过审 VMD；Live2D 用原生动作组；GLB 用内嵌动画或程序化骨骼动作） |
+| `[intent:greet]` | 打招呼（PMX / VRM / GLB 用过审 VMD 或 Mixamo FBX；Live2D 用原生动作组；GLB 也可用内嵌动画） |
 | `[motion:组名:索引]` | 播放模型声明的 Live2D 动作，索引从 0 开始 |
 | `[outfit:表情名:on/off]` | 切换模型声明的装扮 / 表情，支持组合 |
 | `[param:参数ID=数值]` | 调整模型声明范围内的 Live2D 参数 |
@@ -142,8 +152,8 @@ LLM 输出内嵌标签驱动表演（后端剥离，不会念出来）：
 
 - **模型加载后不可见**：确认浏览器支持 WebGL2；开发时若刚升级过依赖，硬刷新（Ctrl+F5）清掉旧的预打包缓存。
 - **高刷新率屏幕物理抽搐**：已内置固定物理步长修正（1/65s 累积推进），无需处理。
-- **VMD 播放报错**：VMD 只适用于 MMD/PMX 模型，VRM/GLB 模型会提示不支持。
-- **动捕无反应**：摄像头需允许浏览器访问；也可用右上角影片按钮选本地 mp4/webm 测试。首次启动会从 CDN 下载 MediaPipe Holistic 模型（约十余 MB）。全身入镜效果最好，半身时腿会回到静止姿势。动捕开启时会暂停 VMD / 闲置动画。
+- **动作播放报错**：VMD 只适用于 MMD/PMX；Mixamo FBX 可重定向到 PMX / VRM / GLB。Live2D 使用模型自带动作，不走这两类文件。
+- **动捕无反应**：摄像头需允许浏览器访问；也可用右上角影片按钮选本地 mp4/webm 测试。首次启动会从 CDN 下载 MediaPipe Holistic 模型（约十余 MB）。全身入镜效果最好，半身时腿会回到静止姿势。动捕开启时会暂停 VMD / Mixamo / 闲置动画。
 - **端口占用**：前端 5175、后端 8600（改端口需同步改 `frontend/vite.config.ts` 里的 `BACKEND`）；被占用时先杀掉残留进程再启动，避免旧进程提供过期代码。
 
 ## 技术栈

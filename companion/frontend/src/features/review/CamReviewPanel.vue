@@ -2,13 +2,15 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { NButton, useMessage } from 'naive-ui';
 import { stage } from '../../engine/stage';
-import { stripCatPrefix } from '../assets/motionMeta';
+import { api } from '../../api/client';
+import { isMotionRejected, motionReviewStatus, stripCatPrefix } from '../assets/motionMeta';
 import { caster } from '../performance/caster';
 import { shots } from '../performance/shotConductor';
 import { useAssetsStore } from '../../stores/assets';
 import { useSettingsStore } from '../../stores/settings';
 import { t } from '../../i18n';
 import { distanceOfShot } from '../performance/grammar';
+import { auditMotionHead } from './autoHeadReview';
 import {
   MOVES, SIZES, STANDS,
   type ActFilter, type ActionPick, type CamPick, type ComboSel, type Verdict,
@@ -33,6 +35,9 @@ const camKeySel = ref('hold');
 const stand = ref(STANDS[0].id);
 const actKey = ref('none');
 const actFilter = ref<ActFilter>('none');
+const autoRunning = ref(false);
+const autoCancel = ref(false);
+const autoProgress = ref('按 16:9 全屏画幅审查；头部累计出画不超过总时长 1/8 即可');
 let playSeq = 0;
 
 const cams = computed(() => allCamPicks(
@@ -86,6 +91,11 @@ function actButton(a: ActionPick) {
 const actionPick = computed(() =>
   actions.value.find((a) => actionKey(a) === actKey.value) ?? noneAct,
 );
+const currentMotionReview = computed(() => {
+  if (actionPick.value.kind !== 'asset') return 'pending';
+  const motion = assets.motions.find((m) => m.name === actionPick.value.name);
+  return motion ? motionReviewStatus(motion) : 'pending';
+});
 
 const sel = computed<ComboSel>(() => ({
   size: size.value,
@@ -107,12 +117,24 @@ const stats = computed(() => {
   }
   return { ok, bad, marked: ok + bad };
 });
+const autoStats = computed(() => {
+  let ok = 0, bad = 0;
+  for (const [key, v] of Object.entries(verdicts.value)) {
+    const parts = key.split('|').map(decodeURIComponent);
+    if (parts[1]?.startsWith('vmd:') && parts[0] !== 'close') continue;
+    if (v === 'ok') ok += 1;
+    else if (v === 'bad') bad += 1;
+  }
+  return { ok, bad };
+});
 
 watch(() => props.show, (v) => {
   shots.reviewLock = v;
   if (v) {
     shots.indexFrom(assets.cameras);
     void hydrate();
+  } else {
+    autoCancel.value = true;
   }
 }, { immediate: true });
 
@@ -136,11 +158,82 @@ async function hydrate() {
 
 onUnmounted(() => {
   shots.reviewLock = false;
+  autoCancel.value = true;
   playSeq += 1;
   window.clearTimeout(saveTimer);
 });
 
+async function startAutoReview(mode: 'all' | 'dance' | 'current' | 'high45' = 'all') {
+  if (autoRunning.value) return;
+  const list = mode === 'current' && actionPick.value.kind === 'asset'
+    ? [actionPick.value]
+    : actions.value.filter((a): a is Extract<ActionPick, { kind: 'asset' }> =>
+      a.kind === 'asset' && (mode !== 'dance' || a.cat === 'dance'));
+  if (!list.length) return;
+  if (!window.confirm(`将自动审查 ${list.length} 个动作，头部累计出画不超过总时长 1/8 即为可用，并覆盖这些动作的镜头组合结果。人工结果已有独立备份。开始吗？`)) return;
+  autoRunning.value = true;
+  autoCancel.value = false;
+  playSeq += 1;
+  stage.stopCamera();
+  stage.stopMotion();
+  let completed = 0;
+  let failed = 0;
+  let written = 0;
+  try {
+    for (const action of list) {
+      if (autoCancel.value) break;
+      const asset = assets.motionByName(action.name);
+      if (!asset) { failed += 1; continue; }
+      autoProgress.value = `${completed + failed + 1} / ${list.length} · ${action.label}`;
+      let result: Awaited<ReturnType<typeof auditMotionHead>>;
+      try {
+        const targetCams = mode === 'high45'
+          ? cams.value.filter((c) => c.kind === 'move' && c.id === 'high45')
+          : cams.value;
+        result = await auditMotionHead(asset, action, targetCams, () => autoCancel.value);
+      } catch (error) {
+        if (autoCancel.value || (error as Error)?.message === 'auto-review-cancelled') throw error;
+        console.warn('动作自动审查失败，继续下一个：', action.name, error);
+        failed += 1;
+        continue;
+      }
+      if (!result.ok) {
+        if (!autoCancel.value) failed += 1;
+        continue;
+      }
+      const next = { ...verdicts.value };
+      for (const stale of result.remove) delete next[stale];
+      Object.assign(next, result.verdicts);
+      verdicts.value = next;
+      saveLocalVerdicts(next);
+      await persistVerdicts(next);
+      await api.putHeadAutoReview(asset.name, action.label, result.samples);
+      written += Object.keys(result.verdicts).length;
+      completed += 1;
+      autoProgress.value = `${completed + failed} / ${list.length} · 已完成 ${completed}，失败 ${failed}，写入 ${written} 格`;
+    }
+    persistOk.value = true;
+    persistHint.value = t('review.wrote');
+    autoProgress.value = `${autoCancel.value ? '已停止' : '自动审查完成'} · 成功 ${completed}，失败 ${failed}，写入 ${written} 格`;
+    message.success(autoProgress.value);
+  } catch (error) {
+    if (autoCancel.value || (error as Error)?.message === 'auto-review-cancelled') {
+      autoProgress.value = `已停止 · 已完成 ${completed} 个动作，结果已保存`;
+    } else {
+      console.error('自动镜头审查失败', error);
+      autoProgress.value = `中断 · 已完成 ${completed} 个动作，结果已保存；失败 ${failed + 1}`;
+      persistOk.value = false;
+      message.error(autoProgress.value);
+    }
+  } finally {
+    autoRunning.value = false;
+    stage.stopMotion();
+    stage.stopCamera();
+  }
+}
+
 function applySel(next: ComboSel, play = true) {
+  if (autoRunning.value) return;
   size.value = next.size;
   camKeySel.value = camKey(next.cam);
   stand.value = next.stand;
@@ -154,7 +247,24 @@ function setFilter(f: ActFilter) {
   if (f === 'none') applySel({ ...sel.value, action: noneAct });
 }
 
+async function setAssetReview(status: 'pending' | 'approved' | 'rejected') {
+  if (actionPick.value.kind !== 'asset') return;
+  const motion = assets.motionByName(actionPick.value.name);
+  if (!motion) return;
+  try {
+    await assets.setMotionReviewStatus(motion.id, status);
+    if (status === 'rejected') {
+      playSeq += 1;
+      stage.stopMotion();
+      step(1, true);
+    }
+  } catch {
+    message.error(t('review.writeFail'));
+  }
+}
+
 async function playCurrent(target: ComboSel = sel.value) {
+  if (autoRunning.value) return;
   const seq = ++playSeq;
   stage.stopCamera();
   stage.stopMotion();
@@ -193,6 +303,7 @@ function wait(ms: number, seq: number) {
 }
 
 function mark(v: Verdict) {
+  if (autoRunning.value) return;
   let next: Record<string, Verdict> = { ...verdicts.value, [id.value]: v };
   if (v === 'ok' || v === 'bad') next = expandCompatOk(next);
   verdicts.value = next;
@@ -246,6 +357,36 @@ function step(dir: 1 | -1, onlyUnset = false) {
   message.info(t('review.noUnset'));
 }
 
+function nearestBad(action: ActionPick): ComboSel | null {
+  const values = SIZES.map((s) => verdicts.value[comboId({ size: s.id, cam: camPick.value, stand: stand.value, action })] || 'unset');
+  const firstOk = values.findIndex((v) => v === 'ok');
+  if (firstOk === 0) return null;
+  const size = firstOk > 0 ? SIZES[firstOk - 1] : SIZES[0];
+  return { size: size.id, cam: camPick.value, stand: stand.value, action };
+}
+
+function showNearestBad() {
+  if (actionPick.value.kind !== 'asset') return;
+  const next = nearestBad(actionPick.value);
+  if (next) applySel(next);
+  else message.info('当前动作从特写开始就可用，没有更近的不可用边界');
+}
+
+function showNextBad() {
+  const list = actions.value.filter((a) => a.kind === 'asset');
+  if (!list.length) return;
+  const current = list.findIndex((a) => actionKey(a) === actKey.value);
+  for (let i = 1; i <= list.length; i++) {
+    const action = list[(current + i + list.length) % list.length];
+    const next = nearestBad(action);
+    if (next) {
+      applySel(next);
+      return;
+    }
+  }
+  message.info('当前运镜和站位下，所有动作从特写开始就可用');
+}
+
 async function copyReport() {
   const text = formatReport(
     verdicts.value,
@@ -291,6 +432,20 @@ function resetVerdicts() {
         {{ t('review.pos', { n: idx + 1, total, acts: actions.length, marked: stats.marked, ok: stats.ok, bad: stats.bad }) }}
       </div>
       <div class="persist" :class="{ ok: persistOk }">{{ persistHint }}</div>
+      <div class="auto-review">
+        <div class="auto-actions">
+          <n-button size="small" type="info" :loading="autoRunning" @click="startAutoReview('all')">全自动审查（头部出镜≤1/8）</n-button>
+          <n-button size="small" type="warning" secondary :disabled="autoRunning"
+                    @click="startAutoReview('dance')">只重审舞蹈</n-button>
+          <n-button size="small" secondary :disabled="autoRunning"
+                    @click="startAutoReview('high45')">重审俯拍25°</n-button>
+          <n-button size="small" secondary :disabled="autoRunning || actionPick.kind !== 'asset'"
+                    @click="startAutoReview('current')">自动审当前动作</n-button>
+          <n-button v-if="autoRunning" size="small" type="warning" secondary @click="autoCancel = true">停止并保留已完成</n-button>
+        </div>
+        <div class="auto-progress">{{ autoProgress }}</div>
+        <div class="auto-progress">有效统计（VMD 每组只计一次）：可用 {{ autoStats.ok }} / 不可用 {{ autoStats.bad }}</div>
+      </div>
 
       <div class="row">
         <span class="lab">{{ t('beat.size') }}</span>
@@ -342,6 +497,22 @@ function resetVerdicts() {
         </template>
       </div>
 
+      <div v-if="actionPick.kind === 'asset'" class="row asset-review">
+        <span class="lab">动作资产</span>
+        <n-button size="tiny" :type="currentMotionReview === 'approved' ? 'success' : 'default'"
+                  :quaternary="currentMotionReview !== 'approved'"
+                  @click="setAssetReview('approved')">可用</n-button>
+        <n-button size="tiny" :type="currentMotionReview === 'rejected' ? 'error' : 'default'"
+                  :quaternary="currentMotionReview !== 'rejected'"
+                  @click="setAssetReview('rejected')">不可用</n-button>
+        <span class="hint">禁用后不会进入镜头审查和自动表演</span>
+      </div>
+
+      <div class="tools">
+        <n-button size="small" type="error" secondary :disabled="actionPick.kind !== 'asset'"
+                  @click="showNearestBad">最近不可用</n-button>
+        <n-button size="small" type="info" secondary @click="showNextBad">下一动作边界</n-button>
+      </div>
       <div class="tools">
         <n-button size="small" type="primary" @click="playCurrent()">{{ t('review.replay') }}</n-button>
         <n-button size="small" secondary @click="step(-1)">{{ t('review.prev') }}</n-button>
@@ -397,6 +568,9 @@ function resetVerdicts() {
 .stats { font-size: 12px; opacity: 0.75; margin-bottom: 4px; }
 .persist { font-size: 11px; opacity: 0.55; margin-bottom: 10px; line-height: 1.4; }
 .persist.ok { opacity: 0.8; color: #8fd9a8; }
+.auto-review { margin-bottom: 10px; padding: 8px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; }
+.auto-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.auto-progress { margin-top: 6px; font-size: 11px; line-height: 1.5; opacity: 0.7; }
 .row {
   display: flex;
   align-items: flex-start;

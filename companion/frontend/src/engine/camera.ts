@@ -7,6 +7,7 @@ function easeInOut(t: number) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }
 
+const DEG25 = Math.PI * 25 / 180;
 const DEG45 = Math.PI / 4;
 const DEG90 = Math.PI / 2;
 /** MMD 单位 → 米（与 Stage.setupMMD 的 0.08 缩放一致） */
@@ -46,7 +47,7 @@ export const CAM_SHOTS: { id: CamShotId; label: string; duration: number }[] = [
   { id: 'threeQ', label: '3/4', duration: 1.0 },
   { id: 'full', label: '全身', duration: 0.9 },
   { id: 'long', label: '远景', duration: 1.1 },
-  { id: 'high45', label: '俯拍45度', duration: 1.3 },
+  { id: 'high45', label: '俯拍25度', duration: 1.3 },
   { id: 'yawL45', label: '左侧45度旋转', duration: 1.4 },
   { id: 'yawR45', label: '右侧45度旋转', duration: 1.4 },
   { id: 'yawL90', label: '左转90度', duration: 1.8 },
@@ -168,7 +169,7 @@ export class CameraRig {
     const from = this.readSph();
     let to: ShotSpherical;
     if (id === 'high45') {
-      to = { ...from, height: from.lookY + from.radius * Math.tan(DEG45) };
+      to = { ...from, height: from.lookY + from.radius * Math.tan(DEG25) };
     } else if (id === 'yawL45') {
       to = { ...from, theta: -DEG45 };
     } else if (id === 'yawR45') {

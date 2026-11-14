@@ -22,12 +22,12 @@ def _safe_name(name: str) -> str:
     return cleaned or uuid.uuid4().hex[:8]
 
 
-def _unique_dest(folder: Path, stem: str) -> Path:
-    dest = folder / f"{stem}.vmd"
+def _unique_dest(folder: Path, stem: str, ext: str = ".vmd") -> Path:
+    dest = folder / f"{stem}{ext}"
     idx = 1
     while dest.exists():
         idx += 1
-        dest = folder / f"{stem}_{idx}.vmd"
+        dest = folder / f"{stem}_{idx}{ext}"
     return dest
 
 
@@ -110,14 +110,10 @@ def import_archive(session: Session, archive: Path, source: str = "local",
         shutil.copy2(bgm, bgm_dest)
         bgm_rel = bgm_dest.relative_to(AUDIO_DIR.parent).as_posix()
 
-    for vmd, meta, motion_label in planned:
-        stem = _safe_name(vmd.stem)
-        dest = MOTIONS_DIR / f"{stem}.vmd"
-        idx = 1
-        while dest.exists():
-            idx += 1
-            dest = MOTIONS_DIR / f"{stem}_{idx}.vmd"
-        shutil.copy2(vmd, dest)
+    for motion, meta, motion_label in planned:
+        stem = _safe_name(motion.stem)
+        dest = _unique_dest(MOTIONS_DIR, stem, motion.suffix.lower())
+        shutil.copy2(motion, dest)
         if bgm_rel and meta.get("category") == "dance":
             meta["bgm"] = bgm_rel
         a = catalog.register_motion(session, dest, source=source,
@@ -152,14 +148,14 @@ def import_archive(session: Session, archive: Path, source: str = "local",
 def import_single_file(session: Session, file: Path, source: str = "local",
                        source_url: str = "", label: str = "",
                        extra_meta: Optional[dict] = None) -> List[Asset]:
-    """导入单个 .vmd / .vrm / .glb 文件。"""
+    """导入单个动作或模型文件。"""
     created: List[Asset] = []
     ext = file.suffix.lower()
-    if ext == ".vmd":
-        if is_camera_vmd(file, label):
+    if ext in (".vmd", ".fbx", ".xkmotion"):
+        if ext == ".vmd" and is_camera_vmd(file, label):
             return _import_camera_file(session, file, source, source_url, label, extra_meta)
         stem = _safe_name(label) if label else _safe_name(file.stem)
-        dest = _unique_dest(MOTIONS_DIR, stem)
+        dest = _unique_dest(MOTIONS_DIR, stem, ext)
         shutil.copy2(file, dest)
         meta = dict(extra_meta or {})
         if meta.get("category") not in catalog.CATEGORY_LABELS:
@@ -202,10 +198,10 @@ def _import_camera_file(session: Session, file: Path, source: str,
 def import_downloaded(session: Session, file: Path, source: str = "local",
                       source_url: str = "", label: str = "",
                       extra_meta: Optional[dict] = None) -> List[Asset]:
-    """下载完成后的统一入口：压缩包解压入库，单个 vmd 直接登记。"""
+    """下载完成后的统一入口：压缩包解压入库，单个动作直接登记。"""
     from .extractor import sniff_kind
     kind = sniff_kind(file) or file.suffix.lower()
-    if kind == ".vmd":
+    if kind in (".vmd", ".fbx", ".xkmotion"):
         return import_single_file(session, file, source, source_url, label, extra_meta)
     if kind == ".vpd":
         from .vpd_to_vmd import convert_file

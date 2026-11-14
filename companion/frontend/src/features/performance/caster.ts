@@ -26,7 +26,7 @@ import {
   groupMorphs,
   idleCards,
 } from './lexicon';
-import { playAssetMotion } from '../assets/motionMeta';
+import { isMotionRejected, playAssetMotion } from '../assets/motionMeta';
 import { applyEmotion, parseEmotionMap } from './emotionMap';
 import { useAssetsStore } from '../../stores/assets';
 import { useCharacterStore } from '../../stores/character';
@@ -78,7 +78,7 @@ export class PerformanceCaster {
   }
 
   indexFrom(motions: AssetItem[], morphNames: string[]) {
-    this.cards = buildMotionCards(motions);
+    this.cards = buildMotionCards(motions.filter((m) => !isMotionRejected(m)));
     this.morphByKind = groupMorphs(morphNames);
     this.idlePool = idleCards(this.cards, false);
     (window as unknown as { __lexicon?: MotionCard[] }).__lexicon = this.cards;
@@ -155,7 +155,7 @@ export class PerformanceCaster {
   playAssetForReview(name: string): boolean {
     this.ensureIndex();
     const raw = useAssetsStore().motions.find((m) => m.name === name);
-    if (!raw) return false;
+    if (!raw || isMotionRejected(raw)) return false;
     const card = this.cards.find((c) => c.name === name);
     void playAssetMotion(raw, { once: !card?.loop, skipCamera: true });
     return true;

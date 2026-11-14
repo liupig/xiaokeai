@@ -307,7 +307,7 @@ export class Orchestrator {
     if (!all.length) return false;
     const approved = all.filter((m) => repertoire.allowsAsset(m.name));
     const dances = approved.length ? approved : all;
-    const norm = (s: string) => s.replace(/\.vmd$/i, '').trim().toLowerCase();
+    const norm = (s: string) => s.replace(/\.(?:vmd|fbx|xkmotion)$/i, '').trim().toLowerCase();
     const bare = (m: { label: string; name: string }) => stripCatPrefix(m.label).trim() || m.name;
     const t = norm(nameOrLabel);
     let motion =
@@ -395,7 +395,7 @@ export class Orchestrator {
     const assets = useAssetsStore();
     const dances = assets.motions.filter((m) => parseMotionCat(m) === 'dance');
     if (!dances.length || !text.trim()) return undefined;
-    const norm = (s: string) => s.replace(/\.vmd$/i, '').trim().toLowerCase();
+    const norm = (s: string) => s.replace(/\.(?:vmd|fbx|xkmotion)$/i, '').trim().toLowerCase();
     const bare = (m: { label: string; name: string }) => stripCatPrefix(m.label).trim() || m.name;
     return this.danceNamedIn(text, dances, bare, norm);
   }
@@ -421,10 +421,10 @@ export class Orchestrator {
 
   private playMotionByName(nameOrLabel: string, opts?: { fullCam?: boolean; once?: boolean }) {
     const assets = useAssetsStore();
-    const target = nameOrLabel.trim().replace(/\.vmd$/i, '');
+    const target = nameOrLabel.trim().replace(/\.(?:vmd|fbx|xkmotion)$/i, '');
     const bare = (m: { label: string }) => stripCatPrefix(m.label).trim();
     const motion =
-      assets.motions.find((m) => m.name === target || m.name === `${target}.vmd`) ??
+      assets.motions.find((m) => m.name === target || m.name === `${target}.vmd` || m.name === `${target}.fbx` || m.name === `${target}.xkmotion`) ??
       assets.motions.find((m) => bare(m) === target) ??
       assets.motions.find((m) => m.name.includes(target) || bare(m).includes(target));
     if (!motion || !repertoire.allowsAsset(motion.name)) return;

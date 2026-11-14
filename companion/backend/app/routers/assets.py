@@ -1,4 +1,5 @@
 """资产接口：列表 / 导入 / 重扫 / 删除。"""
+import json
 import shutil
 import uuid
 from pathlib import Path
@@ -10,7 +11,7 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..models import Asset
 from ..paths import ASSETS_DIR, TMP_DIR
-from ..services import catalog
+from ..services import catalog, motion_review_store
 from ..services.importer import import_downloaded
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
@@ -40,7 +41,7 @@ def rescan(session: Session = Depends(get_session)):
 @router.post("/import")
 async def import_file(file: UploadFile, session: Session = Depends(get_session)):
     suffix = Path(file.filename or "upload").suffix.lower()
-    if suffix not in (".zip", ".rar", ".7z", ".vmd", ".vpd", ".vrm", ".glb"):
+    if suffix not in (".zip", ".rar", ".7z", ".vmd", ".vpd", ".vrm", ".glb", ".fbx", ".xkmotion"):
         raise HTTPException(400, f"不支持的文件类型: {suffix}")
     tmp = TMP_DIR / f"upload_{uuid.uuid4().hex[:8]}{suffix}"
     with open(tmp, "wb") as out:
@@ -74,11 +75,23 @@ def update_asset(asset_id: int, patch: dict,
         asset.label = str(patch["label"])
     if asset.kind == "motion" and patch.get("category"):
         catalog.apply_category(asset, str(patch["category"]))
+    if asset.kind == "motion" and "review_status" in patch:
+        status = str(patch["review_status"])
+        if status not in ("pending", "approved", "rejected"):
+            raise HTTPException(400, "review_status 必须是 pending / approved / rejected")
+        try:
+            meta = json.loads(asset.meta or "{}")
+        except json.JSONDecodeError:
+            meta = {}
+        meta["review_status"] = status
+        asset.meta = json.dumps(meta, ensure_ascii=False)
     if asset.kind == "camera" and patch.get("category"):
         catalog.apply_camera_category(asset, str(patch["category"]))
     session.add(asset)
     session.commit()
     session.refresh(asset)
+    if asset.kind == "motion":
+        motion_review_store.export_review(session)
     return asset
 
 
@@ -94,6 +107,9 @@ def delete_asset(asset_id: int, remove_files: bool = False,
             shutil.rmtree(target.parent, ignore_errors=True)
         else:
             target.unlink(missing_ok=True)
+    is_motion = asset.kind == "motion"
     session.delete(asset)
     session.commit()
+    if is_motion:
+        motion_review_store.export_review(session)
     return {"ok": True}

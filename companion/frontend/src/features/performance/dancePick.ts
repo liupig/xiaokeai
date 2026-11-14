@@ -18,7 +18,7 @@ const YES_RE = /^(好的|好呀|好啊|好吧|可以|行呀|行吧|来吧|跳吧
 let recent: string[] = loadRecent();
 
 function norm(name: string) {
-  return (name || '').replace(/\.vmd$/i, '').trim().toLowerCase();
+  return (name || '').replace(/\.(?:vmd|fbx|xkmotion)$/i, '').trim().toLowerCase();
 }
 
 function loadRecent(): string[] {

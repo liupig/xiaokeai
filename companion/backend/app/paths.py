@@ -274,7 +274,10 @@ def content_found() -> dict[str, bool]:
         "models": MODELS_DIR.is_dir() and (
             any(MODELS_DIR.rglob("*.pmx")) or any(MODELS_DIR.rglob("*.model3.json"))
         ),
-        "motions": MOTIONS_DIR.is_dir() and any(MOTIONS_DIR.rglob("*.vmd")),
+        "motions": MOTIONS_DIR.is_dir() and (
+            any(MOTIONS_DIR.rglob("*.vmd")) or any(MOTIONS_DIR.rglob("*.fbx"))
+            or any(MOTIONS_DIR.rglob("*.xkmotion"))
+        ),
         "cameras": CAMERAS_DIR.is_dir() and any(CAMERAS_DIR.rglob("*.vmd")),
         "music": MUSIC_DIR.is_dir() and any(p.is_file() for p in MUSIC_DIR.rglob("*") if p.suffix.lower() in {".mp3", ".wav", ".m4a", ".ogg", ".flac"}),
         "speech": SPEECH_DIR.is_dir() and any(SPEECH_DIR.iterdir()),

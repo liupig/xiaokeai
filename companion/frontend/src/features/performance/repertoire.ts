@@ -12,7 +12,7 @@ import type { StandSlot } from '../../engine/stage';
 import type { CamShotId } from '../../engine/types';
 import { useAssetsStore } from '../../stores/assets';
 import { useCharacterStore } from '../../stores/character';
-import { playAssetMotion, stripCatPrefix } from '../assets/motionMeta';
+import { isMotionRejected, playAssetMotion, stripCatPrefix } from '../assets/motionMeta';
 import { INTENT_LABEL, MOVES, SIZES, STANDS } from '../review/camReview';
 import { buildCamCards } from './camLexicon';
 import { distanceOfShot, type Distance } from './grammar';
@@ -149,6 +149,28 @@ function camOf(raw: string): Pick<ApprovedBeat, 'camKind' | 'camMove' | 'vmdName
   return null;
 }
 
+function cameraAngleGroup(beat: ApprovedBeat): 'front' | 'yaw45' | 'yaw90' {
+  if (beat.camMove === 'yawL45' || beat.camMove === 'yawR45') return 'yaw45';
+  if (beat.camMove === 'yawL90' || beat.camMove === 'yawR90') return 'yaw90';
+  return 'front';
+}
+
+function pickCameraWeighted(top: { b: ApprovedBeat; s: number }[]): ApprovedBeat | null {
+  const weights = { front: 0.7, yaw45: 0.2, yaw90: 0.1 };
+  const groups = new Map<keyof typeof weights, { b: ApprovedBeat; s: number }[]>();
+  for (const item of top) {
+    const group = cameraAngleGroup(item.b);
+    groups.set(group, [...(groups.get(group) ?? []), item]);
+  }
+  const total = [...groups].reduce((sum, [group]) => sum + weights[group], 0);
+  let roll = Math.random() * total;
+  for (const [group, items] of groups) {
+    roll -= weights[group];
+    if (roll <= 0) return items[Math.floor(Math.random() * items.length)]?.b ?? null;
+  }
+  return top[0]?.b ?? null;
+}
+
 export class Repertoire {
   beats: ApprovedBeat[] = [];
   loaded = false;
@@ -162,7 +184,7 @@ export class Repertoire {
 
   async load() {
     const assets = useAssetsStore();
-    this.cards = buildMotionCards(assets.motions);
+    this.cards = buildMotionCards(assets.motions.filter((m) => !isMotionRejected(m)));
     const cardBy = new Map(this.cards.map((c) => [c.name, c]));
     const camBy = new Map(buildCamCards(assets.cameras).map((c) => [c.name, c]));
     const remote = await api.getCamReview();
@@ -172,8 +194,7 @@ export class Repertoire {
       const parsed = parseBeatId(id);
       if (!parsed) continue;
       const cam = camOf(parsed.cam);
-      if (!cam) continue;
-      if (cam.camKind === 'vmd' && cam.vmdName && !assets.cameras.some((c) => c.name === cam.vmdName)) continue;
+      if (!cam || cam.camKind === 'vmd') continue;
       let actionKind: ApprovedBeat['actionKind'] = 'none';
       let builtin: 'nod' | 'shake' | undefined;
       let assetName: string | undefined;
@@ -311,8 +332,7 @@ export class Repertoire {
     });
     scored.sort((a, c) => c.s - a.s);
     const top = scored.filter((x) => x.s >= scored[0].s - 8);
-    const hit = top[Math.floor(Math.random() * top.length)]?.b ?? null;
-    return hit;
+    return pickCameraWeighted(top);
   }
 
   drop(id: string) {

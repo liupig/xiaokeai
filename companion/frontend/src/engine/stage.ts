@@ -12,6 +12,7 @@ import { IdleAnimator } from './idle';
 import { Lipsync } from './lipsync';
 import { GLB_BONES, GLB_MORPHS, MMD_BONES, MMD_MORPHS } from './mappings';
 import { MotionPlayer } from './motion';
+import { isMotionRejected } from '../features/assets/motionMeta';
 import { StandController, type StandSlot } from './stand';
 import type { ActionKey, Avatar, BoneKey, CamPreset, CamShotId, EmotionKey, QualityOptions, TouchZone } from './types';
 
@@ -319,6 +320,7 @@ export class Stage {
   /** 开物理之前的姿势。初始化或步进失败时拉回来，避免骨骼停在被拉大的位置。 */
   private mmdPose: { bone: THREE.Bone; pos: THREE.Vector3; quat: THREE.Quaternion }[] = [];
   private modelKind = '';
+  private headAuditActive = false;
   private phyAcc = 0;
   private disposed = false;
   /** 每次拆掉画布加一，旧的渲染循环看到对不上就停 */
@@ -969,7 +971,7 @@ export class Stage {
     // 非 MMD 模型的灯光基准
     this.lightBase = { key: 1.8, rim: 1.0, amb: 0.9 };
     this.applyLights();
-    return this.finishSetup(root, url, ext, false);
+    return this.finishSetup(root, url, ext, true);
   }
 
   private externalController: ExternalStageController | null = null;
@@ -1014,16 +1016,16 @@ export class Stage {
     // 动捕校准必须用 T-pose 世界坐标；摆臂之后再采集会把下垂写进参考方向
     this.emit('onTPose', mmd, null);
 
-    // 手臂预先放到自然姿势，避免布料从 T-pose 大幅甩动
+    // 先保留 T-pose 作为 Mixamo 重定向基准，再放低手臂。
+    this.motion.attach(mmd);
     for (const [key, rig] of [['leftUpperArm', av.armL], ['rightUpperArm', av.armR]] as const) {
       const b = av.bone(key);
       if (b) b.rotation[rig.axis] = av.base(b)[rig.axis] + rig.down;
     }
     mmd.updateMatrixWorld(true);
 
-    // 必须在手臂摆好之后 attach：停止动作时恢复的是这里记录的姿势，
-    // 若记录的是 T-pose，恢复后闲置动画会瞬间拉回自然位、把挂饰链抽飞
-    this.motion.attach(mmd);
+    // 停止动作恢复自然姿势，避免从 T-pose 瞬间拉回把挂饰链抽飞。
+    this.motion.captureInitialPose();
     this.motion.onPhysicsReset = () => this.physics?.reset();
     this.rememberMmdPose(mmd);
     const info = this.finishSetup(mmd, url, 'pmx', true);
@@ -1197,6 +1199,7 @@ export class Stage {
     this.scene.add(root);
     this.modelRoot = root;
     this.modelKind = format;
+    if (format !== 'pmx') this.motion.attach(root, format, this.vrm);
     // 保持当前站位（换模型不强制回中心）
     root.position.x = this.stand.x;
     root.position.y = this.petMode ? this.stand.y : 0;
@@ -1683,9 +1686,10 @@ export class Stage {
       const { useAssetsStore } = await import('../stores/assets');
       const { api } = await import('../api/client');
       const assets = useAssetsStore();
+      const candidates = assets.motions.filter((m) => !isMotionRejected(m));
       const walk =
-        assets.motions.find((m) => /^walk\.vmd$/i.test(m.name)) ??
-        assets.motions.find((m) =>
+        candidates.find((m) => /^walk\.vmd$/i.test(m.name)) ??
+        candidates.find((m) =>
           /走路|walk/i.test(`${m.label}${m.name}`) && !/挥手|wave|cute/i.test(`${m.label}${m.name}`));
       if (!walk || !this.modelRoot) return;
       const url = api.assetUrl(walk);
@@ -1764,6 +1768,34 @@ export class Stage {
 
   get threeCamera() {
     return this.camera;
+  }
+
+  get cameraHeadY() {
+    return this.camRig.headY;
+  }
+
+  async sampleMotionHead(
+    url: string,
+    standX: number,
+    onSample: (points: THREE.Vector3[], dt: number, time: number, duration: number) => void,
+  ): Promise<boolean> {
+    if (!this.modelRoot || this.headAuditActive) return false;
+    const root = this.modelRoot;
+    const oldX = this.stand.x;
+    const oldPosition = root.position.clone();
+    const oldRotation = root.rotation.clone();
+    this.headAuditActive = true;
+    try {
+      this.stand.x = standX;
+      root.position.x = standX;
+      return await this.motion.sampleHead(url, onSample);
+    } finally {
+      this.stand.x = oldX;
+      root.position.copy(oldPosition);
+      root.rotation.copy(oldRotation);
+      root.updateMatrixWorld(true);
+      this.headAuditActive = false;
+    }
   }
 
   get threeScene() {
@@ -1983,8 +2015,8 @@ export class Stage {
       this.notePetSpot(dt);
     }
 
-    this.stand.update(dt, this.modelRoot);
-    if (!this.petMode) {
+    if (!this.headAuditActive) this.stand.update(dt, this.modelRoot);
+    if (!this.petMode && !this.headAuditActive) {
       this.camRig.focusX = this.stand.x;
       this.camRig.update(dt);
       if (!this.camRig.driving) {
@@ -1998,7 +2030,7 @@ export class Stage {
     }
     for (const s of this.platformSpin) s.obj.rotation.y += s.speed * dt;
 
-    if (this.avatar) {
+    if (this.avatar && !this.headAuditActive) {
       const av = this.avatar;
       av.beginFrame();
 

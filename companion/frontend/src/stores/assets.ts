@@ -35,6 +35,8 @@ export const useAssetsStore = defineStore('assets', {
     async remove(id: number, removeFiles = false) {
       await api.deleteAsset(id, removeFiles);
       await this.refresh();
+      const { repertoire } = await import('../features/performance/repertoire');
+      await repertoire.load().catch(() => {});
     },
     async startDownload(url: string, category = '') {
       const { task_id } = await api.createDownload(url, category);
@@ -49,6 +51,12 @@ export const useAssetsStore = defineStore('assets', {
     async setMotionCategory(id: number, category: string) {
       await api.updateAsset(id, { category });
       await this.refresh();
+    },
+    async setMotionReviewStatus(id: number, status: 'pending' | 'approved' | 'rejected') {
+      await api.updateAsset(id, { review_status: status });
+      await this.refresh();
+      const { repertoire } = await import('../features/performance/repertoire');
+      await repertoire.load().catch(() => {});
     },
     pollTask(taskId: string) {
       const timer = setInterval(async () => {

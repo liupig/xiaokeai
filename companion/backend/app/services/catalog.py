@@ -23,7 +23,7 @@ _LABEL_PREFIX_RE = re.compile(r"^\[(?:待机|打招呼|互动|舞蹈|特写|环�
 
 _CATEGORY_KEYWORDS = {
     "idle": ("待机", "待機", "闲置", "站立待机", "站姿", "idle pose", "breath", "姿势 pose", "艾尔海森姿势"),
-    "greet": ("打招呼", "挥手", "招手", "问好", "问候", "挨拶", "wave", "hello",
+    "greet": ("打招呼", "挥手", "招手", "问好", "问候", "挨拶", "wave", "waving", "hello",
               "再见", "手を振る", "挥手再见", "摆手", "举手"),
     "interact": ("互动", "比心", "飞吻", "害羞", "思考", "托腮", "叉腰", "点头",
                  "摇头", "鼓掌", "指向", "歪头", "伸懒腰", "坐下", "坐姿", "说话",
@@ -69,11 +69,27 @@ def apply_category(asset: Asset, category: str) -> None:
     asset.label = f"[{cn}] {base}" if cn not in base else base
 
 
+def manifest_category(file: Path) -> str:
+    manifest = file.parent / "manifest.json"
+    if not manifest.is_file():
+        return ""
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        for motion in data.get("motions", []):
+            if motion.get("file") == file.name:
+                category = motion.get("category") or ""
+                return category if category in CATEGORY_LABELS else ""
+    except (OSError, json.JSONDecodeError, TypeError):
+        pass
+    return ""
+
+
 def recategorize_all(session: Session) -> int:
-    """按文件名/标签重新归纳已有动作。返回更新条数。"""
+    """优先按动作包清单分类，没有清单时按文件名/标签归纳。"""
     n = 0
     for asset in session.exec(select(Asset).where(Asset.kind == "motion")).all():
-        cat = classify_motion(f"{strip_category_prefix(asset.label)} {asset.name}")
+        file = ASSETS_DIR / (asset.path or "")
+        cat = manifest_category(file) or classify_motion(f"{strip_category_prefix(asset.label)} {asset.name}")
         old = ""
         try:
             old = json.loads(asset.meta or "{}").get("category") or ""
@@ -229,6 +245,38 @@ MOTION_LABELS = {
     "sharing-the-world.vmd": "Sharing The World",
     "dance.vmd": "示例舞蹈",
     "walk.vmd": "走路",
+    "idle-breathing.fbx": "呼吸待机（Mixamo）",
+    "wave.fbx": "挥手（Mixamo）",
+    "nod-yes.fbx": "点头（Mixamo）",
+    "clap-standing.fbx": "站立鼓掌（Mixamo）",
+    "walk-unarmed-forward.fbx": "向前走（Mixamo）",
+    "idle-breathing.xkmotion": "呼吸待机（Mixamo）",
+    "wave.xkmotion": "挥手（Mixamo）",
+    "nod-yes.xkmotion": "点头（Mixamo）",
+    "clap-standing.xkmotion": "站立鼓掌（Mixamo）",
+    "walk-unarmed-forward.xkmotion": "向前走（Mixamo）",
+    "Breathing_Idle.vmd": "呼吸待机",
+    "Happy_Idle.vmd": "开心待机",
+    "Sad_Idle.vmd": "低落待机",
+    "Sitting_Idle_3.vmd": "坐姿呼吸待机",
+    "Standing_Idle_02.vmd": "站立张望待机",
+    "Clapping.vmd": "站立鼓掌",
+    "Standing_Greeting.vmd": "站立问好",
+    "Thankful.vmd": "感谢",
+    "Thinking.vmd": "思考",
+    "Talking_2.vmd": "交谈手势",
+    "Agreeing_2.vmd": "赞同点头",
+    "Shaking_Head_No.vmd": "摇头否定",
+    "Happy_Hand_Gesture.vmd": "开心招手",
+    "Laughing.vmd": "开心大笑",
+    "Yawn.vmd": "打哈欠",
+    "Blow_A_Kiss.vmd": "飞吻",
+    "Look_Around_2.vmd": "好奇张望",
+    "Listening_To_Music.vmd": "听音乐",
+    "Macarena_Dance.vmd": "Macarena",
+    "Gangnam_Style.vmd": "江南 Style",
+    "Chicken_Dance.vmd": "小鸡舞",
+    "Salsa_Dancing_5.vmd": "Salsa 双人步",
 }
 
 MODEL_LABELS = {
@@ -325,7 +373,8 @@ def register_model(session: Session, file: Path, source: str = "local",
 def register_motion(session: Session, file: Path, source: str = "local",
                     source_url: str = "", label: str = "",
                     meta: Optional[dict] = None) -> Optional[Asset]:
-    if file.suffix.lower() != ".vmd":
+    ext = file.suffix.lower()
+    if ext not in (".vmd", ".fbx", ".xkmotion"):
         return None
     name = file.name
     existing = _get_by_name(session, "motion", name)
@@ -341,7 +390,7 @@ def register_motion(session: Session, file: Path, source: str = "local",
     asset = Asset(
         kind="motion", name=name,
         label=display,
-        path=_rel(file), fmt="vmd",
+        path=_rel(file), fmt=ext.lstrip("."),
         size=file.stat().st_size, source=source, source_url=source_url,
         meta=json.dumps(meta, ensure_ascii=False),
     )
@@ -436,10 +485,12 @@ def scan_all(session: Session) -> List[Asset]:
             if a and a.id is None:
                 created.append(a)
     # 动作
-    for f in MOTIONS_DIR.glob("*.vmd"):
-        a = register_motion(session, f)
-        if a and a.id is None:
-            created.append(a)
+    for pattern in ("*.vmd", "*.fbx", "*.xkmotion"):
+        for f in MOTIONS_DIR.rglob(pattern):
+            category = manifest_category(f)
+            a = register_motion(session, f, meta={"category": category} if category else None)
+            if a and a.id is None:
+                created.append(a)
     created.extend(ensure_builtin_cameras(session))
     for f in CAMERAS_DIR.glob("*.vmd"):
         a = register_camera(session, f)
