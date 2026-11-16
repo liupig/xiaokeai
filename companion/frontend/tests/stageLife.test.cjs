@@ -19,9 +19,11 @@ function fixture() {
   const deps = {
     vue: { reactive: x => x },
     '../../engine/stage': { stage },
-    '../../stores/settings': { useSettingsStore: () => ({ quality: { background_color: '#111', stage_show: true } }) },
+    '../../stores/settings': { useSettingsStore: () => ({ modules: { journey: false }, quality: { background_color: '#111', stage_show: true } }) },
     '../shell/mode': { isPetShell: false },
     '../../stores/character': { useCharacterStore: () => character },
+    '../../api/client': { api: { journeyEvent: async () => ({}) } },
+    '../journey/session': { notifyJourney: () => {} },
   };
   const source = fs.readFileSync(require('node:path').join(__dirname, '../src/features/life/stageLife.ts'), 'utf8');
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;

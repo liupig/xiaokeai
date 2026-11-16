@@ -195,6 +195,7 @@ export const useSettingsStore = defineStore('settings', {
         glance: mods?.glance === true,
         live_douyin: mods?.live_douyin === true,
         live: mods?.live === true,
+        journey: mods?.journey !== false,
       };
       this.live = normalizeLive((data as { live?: unknown }).live);
       const vision = (data as { vision?: { provider?: string; generator?: string; base_url?: string; api_key?: string; model?: string } }).vision;
