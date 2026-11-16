@@ -180,6 +180,16 @@ def test_key_rotation_and_removal_are_applied(monkeypatch, isolated):
         instance.ensure({"api_key": ""})
 
 
+def test_text_runtime_does_not_probe_visual_capability(monkeypatch, isolated):
+    """普通文字轮次只读功能开关，不能同步触碰视觉运行时。"""
+    import sys
+
+    instance, _harness = setup_runtime(monkeypatch)
+    sys.modules.pop("app.modules.glance.eyes_host", None)
+    instance.ensure({"api_key": "test"})
+    assert "app.modules.glance.eyes_host" not in sys.modules
+
+
 @pytest.mark.parametrize("termination", ["close", "timeout", "invalid"])
 def test_async_consumer_termination_cancels_worker(monkeypatch, termination):
     entered, cancelled, done = threading.Event(), threading.Event(), threading.Event()

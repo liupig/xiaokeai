@@ -66,6 +66,16 @@ def eyes_status() -> dict:
     return {"eyes": _phase, "message": _message}
 
 
+def cached_status() -> dict:
+    """Return the last known state without touching the network or filesystem.
+
+    Chat prompt assembly calls this while visual companionship is off.  A
+    status label must never make an ordinary text turn wait for the local eyes
+    service health-check timeout.
+    """
+    return {"eyes": _phase, "message": _message}
+
+
 def _listeners(port: int) -> list[int]:
     try:
         raw = subprocess.check_output(["netstat", "-ano", "-p", "tcp"], text=True, errors="replace")
