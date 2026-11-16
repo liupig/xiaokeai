@@ -72,6 +72,14 @@ async def import_character(file: UploadFile, session: Session = Depends(get_sess
     session.add(char)
     session.commit()
     session.refresh(char)
+    # Card canon stays untouched; shared-time interactions are enabled by default.
+    try:
+        from ..modules.flags import enabled
+        if enabled(session, 'journey'):
+            from ..modules.journey.service import configure
+            configure(char.id, 'full', explicit=False)
+    except Exception as exc:
+        print(f'[journey] import mode skipped: {exc}')
     if is_png:
         avatar_name = f"char_{char.id}.png"
         (AVATARS_DIR / avatar_name).write_bytes(data)
@@ -168,6 +176,11 @@ def delete_character(char_id: int, session: Session = Depends(get_session)):
         session.delete(cursor)
     session.delete(char)
     session.commit()
+    try:
+        from ..modules.journey.service import reset
+        reset(char_id)
+    except Exception as exc:
+        print(f'[journey] character cleanup skipped: {exc}')
     avatar = AVATARS_DIR / f"char_{char_id}.png"
     if avatar.is_file():
         try:

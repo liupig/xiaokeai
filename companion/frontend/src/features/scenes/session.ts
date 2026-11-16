@@ -8,6 +8,7 @@ import { shots } from '../performance/shotConductor';
 import { featureOn, replyLang } from '../../i18n';
 import { LOCAL_SCENES, scenePool, type LocalSceneCard } from './catalog';
 import { noteSceneTookBg } from '../keepsake/session';
+import { stageLife } from '../life/stageLife';
 
 const RECENT_KEY = 'companion.scenes.recent';
 const MEM_KEY = 'companion.scene.mem';
@@ -182,6 +183,7 @@ export async function ensureScene(opts?: {
   const settings = useSettingsStore();
   if (!settings.modules.scenes || !featureOn('scenes', settings.locale.reply)) return null;
   await loadSceneCards();
+  if (stageLife.active) return sceneSession.current;
   const pool = sceneSession.cards.length ? sceneSession.cards : LOCAL_SCENES;
   const id = opts?.characterId || currentCharacterId();
   if (opts?.fresh) {
@@ -212,8 +214,9 @@ export async function restoreOrRotateScene(opts: {
   forceFresh?: boolean;
 }): Promise<{ card: LocalSceneCard | null; rotated: boolean }> {
   const settings = useSettingsStore();
-  if (!settings.modules.scenes) return { card: null, rotated: false };
+  if (!settings.modules.scenes || stageLife.active) return { card: null, rotated: false };
   await loadSceneCards();
+  if (stageLife.active) return { card: null, rotated: false };
   const pool = sceneSession.cards.length ? sceneSession.cards : LOCAL_SCENES;
   const id = opts.characterId || currentCharacterId();
   const mem = readMem(id);
@@ -226,6 +229,7 @@ export async function restoreOrRotateScene(opts: {
       seedBackground: settings.quality.background_image || '',
       fresh: !!opts.forceFresh,
     });
+    if (stageLife.active || currentCharacterId() !== id) return { card: null, rotated: false };
     const full = localOf(remote.card);
     if (full) {
       sceneSession.current = full;
@@ -240,6 +244,7 @@ export async function restoreOrRotateScene(opts: {
     /* 接口失败时用本地记忆兜底，避免进页没有景 */
   }
 
+  if (stageLife.active || currentCharacterId() !== id) return { card: null, rotated: false };
   if (opts.forceFresh) {
     const next = pickFresh(pool);
     pickScene(next);

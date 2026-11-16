@@ -4,6 +4,7 @@ import { NButton, NDrawer, NDrawerContent } from 'naive-ui';
 import { api } from '../../api/client';
 import { useCharacterStore } from '../../stores/character';
 import { useSettingsStore } from '../../stores/settings';
+import { leaveLifeStage } from '../life/stageLife';
 import { t } from '../../i18n';
 import { applySceneStage, restoreSettingsStage, sceneSession } from '../scenes/session';
 import {
@@ -45,6 +46,7 @@ async function drop(id: number) {
 function useAsBg(url: string) {
   const u = mediaUrl(url);
   if (!u) return;
+  leaveLifeStage();
   if (!keepsakeSession.bgOverride && !isKeepsakeBgUrl(settings.quality.background_image)) {
     keepsakeSession.bgPrev = settings.quality.background_image || '';
   }

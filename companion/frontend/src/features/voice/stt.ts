@@ -171,8 +171,8 @@ export class SpeechInput {
   private gotUtterance = false;
   private closing = false;
   private queued: Float32Array | null = null;
-  private utteranceTimer: ReturnType<typeof setTimeout> | null = null;
-  private sliceTimer: ReturnType<typeof setInterval> | null = null;
+  private utteranceTimer: number | null = null;
+  private sliceTimer: number | null = null;
   private ring: Float32Array[] = [];
   private ringSamples = 0;
   private echoFloor = 0.008;

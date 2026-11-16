@@ -7,9 +7,10 @@ $labPage = Join-Path $labRoot 'frontend\dist\live-lab.html'
 if ($Rebuild -or -not (Test-Path -LiteralPath $labPage)) {
     Push-Location (Join-Path $labRoot 'frontend')
     try {
+        $env:COMPANION_LIVE_LAB = '1'
         & npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw '前端构建失败。' }
-    } finally { Pop-Location }
+    } finally { Remove-Item Env:COMPANION_LIVE_LAB -ErrorAction SilentlyContinue; Pop-Location }
 }
 $labUrl = "http://127.0.0.1:$Port/live-lab.html"
 Write-Host "直播彩排：$labUrl"

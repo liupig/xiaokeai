@@ -9,6 +9,7 @@ __all__ = [
     "CoinError",
     "balance",
     "grant_talk",
+    "grant_reward",
     "heartbeat",
     "pay",
     "preview",
@@ -44,6 +45,10 @@ def wish():
 def grant_talk(prompt: str, reply: str, billed: int = 0) -> None:
     """对话产生的金币。放进账本进程就返回，不挡住这轮语音。"""
     ledger.enqueue("grant_talk", [prompt or "", reply or "", int(billed or 0)])
+
+
+def grant_reward(reward_id: str, amount_milli: int):
+    return ledger.call("grant_reward", [str(reward_id), int(amount_milli)], timeout=2)
 
 _PURSE = {
     "zh-CN": "对方钱包里现在有 {n} 枚金币。问到有多少钱、多少金币、余额，只说这个数，不要把许愿落下的枚数加总。没问就不要提。",

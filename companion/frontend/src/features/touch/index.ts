@@ -12,6 +12,8 @@ import { speechPlayer } from '../voice/tts';
 import { decideTouch } from './decide';
 import { pickLine, touchBrief } from './lines';
 import { commitTouch, liveZone, loadTouch, recentSpeech, saveTouch } from './memory';
+import { api } from '../../api/client';
+import { notifyJourney } from '../journey/session';
 
 const sessions = new Map<number, number>();
 let lastTap = 0;
@@ -120,6 +122,9 @@ function react(zone: TouchZone, now: number) {
     spoken,
   });
   saveTouch(id, mem);
+  if (roll.bondDelta > 0 && useSettingsStore().modules.journey) {
+    void api.journeyEvent(id, 'touch', 'comfortable_touch').then(notifyJourney).catch(() => {});
+  }
   if (roll.pose) stage.director.playTouch(roll.pose);
   if (!spoken) return;
   const brief = touchBrief(lang, {

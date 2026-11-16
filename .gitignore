@@ -233,3 +233,6 @@ companion/package-lock.json
 !/minicpm-o-demo/v47/README.md
 !/minicpm-o-demo/v47/static/
 /minicpm-o-demo/v47/logs/
+
+# 本地美术检查、截图和测试输出，不是运行或打包资源。
+/companion/artifacts/

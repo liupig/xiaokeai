@@ -7,7 +7,7 @@ from ..services import settings_store
 
 MODULE_KEYS = (
     "memory", "scenes", "rewrite", "keepsake", "tarot", "tavern", "codewatch", "touch",
-    "harness", "glance", "live_douyin", "live", "play", "sight",
+    "harness", "glance", "live_douyin", "live", "play", "sight", "journey",
 )
 # 缺省都开。dsh 内核在 requirements 里，克隆后装环境就能用。
 # glance 默认关：不开就不截屏，也不把「看一眼」写进技能目录。

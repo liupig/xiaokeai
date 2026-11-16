@@ -28,9 +28,14 @@ def context(character_id):
     else:
         fact = '当前玩家英雄未得到新鲜证据确认。历史台词中的英雄和战绩不能代替当前事实。'
     from . import along
-    from .eyes_host import eyes_status
     watching = along.snapshot()
-    phase = eyes_status().get('eyes')
+    if watching.get('on'):
+        from .eyes_host import eyes_status
+        phase = eyes_status().get('eyes')
+    else:
+        # Pure text chat must not synchronously probe a local vision service.
+        from .eyes_host import cached_status
+        phase = cached_status().get('eyes')
     runtime = (f"当前陪玩{'开启' if watching.get('on') else '关闭'}；视觉状态：{phase}。"
                "仅up或remote表示视觉服务可用，也不代表这轮已取得截图。"
                "用户问为什么不说话时依据实际状态回答，不编怕打扰、看入迷或用户嫌吵的理由。"

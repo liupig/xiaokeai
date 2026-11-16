@@ -12,8 +12,16 @@ import time
 _IDLE_SEC = 60
 
 
+def _wallet():
+    try:
+        from .coin_new import coins_box
+    except ImportError:
+        from . import coins_box
+    return coins_box
+
+
 def _ops():
-    from . import coins_box
+    coins_box = _wallet()
 
     return {
         "heartbeat": coins_box.heartbeat,
@@ -22,6 +30,10 @@ def _ops():
         "idle_compact": coins_box.idle_compact,
         "balance": coins_box.balance,
         "pay": coins_box.pay,
+        "purchase": getattr(coins_box, "purchase", lambda *_: (_ for _ in ()).throw(coins_box.CoinError("upgrade_required"))),
+        "purchase_supported": lambda: callable(getattr(coins_box, "purchase", None)),
+        "grant_reward": getattr(coins_box, "grant_reward", lambda *_: (_ for _ in ()).throw(coins_box.CoinError("upgrade_required"))),
+        "reward_supported": lambda: callable(getattr(coins_box, "grant_reward", None)),
         "redeem": coins_box.redeem,
         "wish": coins_box.wish,
         "preview": coins_box.preview,
@@ -40,7 +52,7 @@ def _idle(box) -> None:
 
 def main() -> None:
     ops = _ops()
-    from . import coins_box
+    coins_box = _wallet()
 
     threading.Thread(target=_idle, args=(coins_box,), daemon=True, name="ledger-idle").start()
     for line in sys.stdin:

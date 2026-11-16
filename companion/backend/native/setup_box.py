@@ -124,7 +124,7 @@ def main() -> None:
     try:
         setup(
             ext_modules=cythonize(
-                [Extension("app.services.coins_box", ["native/sealed/coins_box.py"])],
+                [Extension("app.services.coin_new.coins_box", ["native/sealed/coins_box.py"])],
                 compiler_directives={"language_level": "3"},
                 build_dir="native/sealed/c",
             ),

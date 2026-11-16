@@ -83,6 +83,23 @@ const LINES: Record<ReplyLang, Record<string, string[]>> = {
     'waist.cover': ['[emo:relaxed]손 치워.'],
     'hand.fond': ['[emo:happy]손은 잡아도 돼.'],
   },
+  ru: {
+    'head.fond': ['[emo:relaxed]Мм, здесь можно.', '[emo:happy]Только аккуратно.'],
+    'head.shy': ['[emo:relaxed]Только по голове.'],
+    'head.bored': ['[emo:relaxed]Пригладишь меня.'],
+    'head.disdain': ['[emo:angry]Убери руку.'],
+    'face.shy': ['[emo:relaxed]Лицо не надо.'],
+    'face.dodge': ['[emo:relaxed]Не тычь.'],
+    'face.disdain': ['[emo:angry]Хватит.'],
+    'chest.shy': ['[emo:relaxed]Серьёзно?'],
+    'chest.cover': ['[emo:angry]Убери руки.', '[emo:relaxed]Не сюда.'],
+    'chest.dodge': ['[emo:relaxed]Нет.'],
+    'chest.bored': ['[emo:relaxed]Скучно.'],
+    'chest.disdain': ['[emo:angry]Ты закончил?'],
+    'chest.fond': ['[emo:happy]…Аккуратно.'],
+    'waist.cover': ['[emo:relaxed]Убери руки.'],
+    'hand.fond': ['[emo:happy]За руку можно.'],
+  },
 };
 
 const ZONE_NAME: Record<ReplyLang, Record<TouchZone, string>> = {
@@ -90,6 +107,7 @@ const ZONE_NAME: Record<ReplyLang, Record<TouchZone, string>> = {
   en: { head: 'head', face: 'face', chest: 'chest', waist: 'waist', hand: 'hand' },
   ja: { head: '頭', face: '顔', chest: '胸', waist: '腰', hand: '手' },
   ko: { head: '머리', face: '얼굴', chest: '가슴', waist: '허리', hand: '손' },
+  ru: { head: 'голова', face: 'лицо', chest: 'грудь', waist: 'талия', hand: 'рука' },
 };
 
 const TONE_NAME: Record<ReplyLang, Record<TouchTone, string>> = {
@@ -108,6 +126,10 @@ const TONE_NAME: Record<ReplyLang, Record<TouchTone, string>> = {
   ko: {
     fond: '다정', shy: '수줍음', dodge: '피함', cover: '가림', play: '장난',
     bored: '질림', numb: '무딤', ignore: '못 본 척', disdain: '차가움',
+  },
+  ru: {
+    fond: 'нежность', shy: 'смущение', dodge: 'уклонение', cover: 'прикрывается', play: 'игра',
+    bored: 'скука', numb: 'оцепенение', ignore: 'игнорирование', disdain: 'холод',
   },
 };
 
@@ -150,6 +172,13 @@ function span(ms: number, lang: ReplyLang) {
     if (h < 36) return `${h}시간`;
     return `${Math.round(h / 24)}일`;
   }
+  if (lang === 'ru') {
+    if (min < 2) return 'только что';
+    if (min < 60) return `${min} мин`;
+    const h = Math.round(min / 60);
+    if (h < 36) return `${h} ч`;
+    return `${Math.round(h / 24)} дн`;
+  }
   if (min < 2) return '刚刚';
   if (min < 60) return `${min}分钟`;
   const h = Math.round(min / 60);
@@ -182,6 +211,13 @@ function hourName(hour: number, lang: ReplyLang) {
     if (noon) return '한낮';
     if (afternoon) return '오후';
     return '저녁';
+  }
+  if (lang === 'ru') {
+    if (late) return 'поздняя ночь';
+    if (morning) return 'утро';
+    if (noon) return 'полдень';
+    if (afternoon) return 'день';
+    return 'вечер';
   }
   if (late) return '深夜';
   if (morning) return '早上';
@@ -228,6 +264,14 @@ export function touchBrief(lang: ReplyLang, fact: {
       `친밀 ${bond}/100. 안 지 ${span(fact.knownMs, lang)}. 비운 시간 ${span(fact.idleMs, lang)}. 이번 자리 ${span(fact.sessionMs, lang)}.`,
       `시간: ${hourName(fact.hour, lang)}. 같은 곳을 ${fact.streak}번째. 선: ${fact.boundary || 'free'}.`,
       last ? `반복하지 마: ${last}` : '',
+    ].filter(Boolean).join('\n');
+  }
+  if (lang === 'ru') {
+    return [
+      `Место касания: ${zone}. Текущее отношение: ${tone}. Не меняй его.`,
+      `Близость ${bond}/100. Знакомы ${span(fact.knownMs, lang)}. Без общения ${span(fact.idleMs, lang)}. В этой сессии ${span(fact.sessionMs, lang)}.`,
+      `Время: ${hourName(fact.hour, lang)}. Это ${fact.streak}-е касание того же места. Граница: ${fact.boundary || 'free'}.`,
+      last ? `Не повторяй: ${last}` : '',
     ].filter(Boolean).join('\n');
   }
   return [

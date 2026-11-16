@@ -58,7 +58,7 @@ async function onVideoFile(e: Event) {
         <XkIcon name="film" :size="22" />
       </button>
     </template>
-    用视频文件测试动捕
+    从视频开始捕捉
   </n-tooltip>
   <input ref="fileInput" type="file" accept="video/*" hidden @change="onVideoFile" />
 </template>

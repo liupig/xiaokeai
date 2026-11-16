@@ -1,5 +1,11 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { MMDLoader, MMDPhysics } from 'three-stdlib';
 import type { VRM } from '@pixiv/three-vrm';
 
@@ -19,6 +25,7 @@ import type { ActionKey, Avatar, BoneKey, CamPreset, CamShotId, EmotionKey, Qual
 export type { StandSlot };
 
 const PHY_STEP = 1 / 65; // MMDPhysics 内部最小步长
+const MAX_PHY_STEPS = 4;
 /** PMX 从 MMD 单位（约 8cm）换成米。物理库假定缩放是 1，会临时改掉它。 */
 const MMD_MODEL_SCALE = 0.08;
 
@@ -288,6 +295,10 @@ export class Stage {
   onModelReady: ((info: ModelInfo) => void) | null = null;
 
   private renderer!: THREE.WebGLRenderer;
+  private composer: EffectComposer | null = null;
+  private fxaaPass: ShaderPass | null = null;
+  private outputPass: OutputPass | null = null;
+  private environmentTarget: THREE.WebGLRenderTarget | null = null;
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
   private controls!: OrbitControls;
@@ -428,7 +439,7 @@ export class Stage {
     this.host = container;
     this.petMode = document.documentElement.classList.contains('is-pet');
     if (this.petMode) void this.preloadPetSpot();
-    const cap = this.petMode ? 1 : this.quality.pixelRatioCap;
+    const cap = this.petMode ? Math.min(2, this.quality.pixelRatioCap) : this.quality.pixelRatioCap;
     const dpr = fitPixelRatio(cap, container.clientWidth, container.clientHeight);
     this.renderer = new THREE.WebGLRenderer({
       antialias: !this.petMode,
@@ -440,6 +451,10 @@ export class Stage {
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     if (this.petMode) {
       this.renderer.setClearColor(0x000000, 0);
       this.renderer.domElement.style.background = 'transparent';
@@ -449,6 +464,13 @@ export class Stage {
     this.scene = new THREE.Scene();
     this.scene.background = this.petMode ? null : new THREE.Color(0x141420);
     this.scene.fog = this.petMode ? null : new THREE.Fog(0x141420, 6, 14);
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const room = new RoomEnvironment();
+    this.environmentTarget = pmrem.fromScene(room, 0.04);
+    this.scene.environment = this.environmentTarget.texture;
+    this.scene.environmentIntensity = 0.45;
+    room.dispose();
+    pmrem.dispose();
 
     this.camera = new THREE.PerspectiveCamera(
       30, container.clientWidth / container.clientHeight, 0.1, 50);
@@ -461,11 +483,31 @@ export class Stage {
     this.controls.maxDistance = 8;
 
     this.camRig = new CameraRig(this.camera, this.controls);
+    if (this.petMode) {
+      this.composer = new EffectComposer(this.renderer);
+      this.composer.addPass(new RenderPass(this.scene, this.camera));
+      this.fxaaPass = new ShaderPass(FXAAShader);
+      this.composer.addPass(this.fxaaPass);
+      this.outputPass = new OutputPass();
+      this.composer.addPass(this.outputPass);
+      this.applyPixelRatio();
+    }
 
     // 灯光：主光 + 环境光 + 蓝色轮廓光
     // 环境光用中性白，避免给贴图罩上色偏；氛围感交给轮廓光
     this.keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
     this.keyLight.position.set(1.2, 2.2, 2.5);
+    this.keyLight.castShadow = true;
+    this.keyLight.shadow.mapSize.set(this.petMode ? 1024 : 2048, this.petMode ? 1024 : 2048);
+    this.keyLight.shadow.camera.left = -2.4;
+    this.keyLight.shadow.camera.right = 2.4;
+    this.keyLight.shadow.camera.top = 2.4;
+    this.keyLight.shadow.camera.bottom = -2.4;
+    this.keyLight.shadow.camera.near = 0.1;
+    this.keyLight.shadow.camera.far = 8;
+    this.keyLight.shadow.camera.updateProjectionMatrix();
+    this.keyLight.shadow.bias = -0.00015;
+    this.keyLight.shadow.normalBias = 0.015;
     this.scene.add(this.keyLight);
     this.ambient = new THREE.AmbientLight(0xffffff, 0.9);
     this.scene.add(this.ambient);
@@ -480,6 +522,7 @@ export class Stage {
     );
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.position.y = -0.08;
+    this.ground.receiveShadow = true;
     this.scene.add(this.ground);
     if (this.petMode) this.ground.visible = false;
 
@@ -492,6 +535,7 @@ export class Stage {
       this.camera.updateProjectionMatrix();
       this.applyPixelRatio();
       this.renderer.setSize(w, h);
+      this.syncPostProcessingSize(w, h);
       if (this.petMode) this.layoutPetDesk();
     };
     window.addEventListener('resize', this.onResize);
@@ -533,8 +577,17 @@ export class Stage {
     if (!this.renderer || !this.host) return;
     const w = this.host.clientWidth || window.innerWidth;
     const h = this.host.clientHeight || window.innerHeight;
-    const cap = this.petMode ? 1 : this.quality.pixelRatioCap;
-    this.renderer.setPixelRatio(fitPixelRatio(cap, w, h));
+    const cap = this.petMode ? Math.min(2, this.quality.pixelRatioCap) : this.quality.pixelRatioCap;
+    const dpr = fitPixelRatio(cap, w, h);
+    this.renderer.setPixelRatio(dpr);
+    this.composer?.setPixelRatio(dpr);
+    this.syncPostProcessingSize(w, h);
+  }
+
+  private syncPostProcessingSize(w: number, h: number) {
+    this.composer?.setSize(w, h);
+    const dpr = this.renderer.getPixelRatio();
+    this.fxaaPass?.uniforms.resolution.value.set(1 / Math.max(1, w * dpr), 1 / Math.max(1, h * dpr));
   }
 
   private applyLights() {
@@ -822,6 +875,12 @@ export class Stage {
     }
 
     this.scene.add(g);
+    g.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (mesh.isMesh && mesh.material instanceof THREE.MeshStandardMaterial) {
+        mesh.receiveShadow = true;
+      }
+    });
   }
 
   /**
@@ -845,6 +904,7 @@ export class Stage {
       return;
     }
     const url = imageUrl || '';
+    window.dispatchEvent(new CustomEvent('xiaokeai:stage-background', { detail: url }));
     if (url) {
       if (url === this.bgUrl) return;
       this.bgUrl = url;
@@ -872,6 +932,10 @@ export class Stage {
     // 地面颜色跟随背景：稍微提亮一点做出台面层次
     this.ground.visible = true;
     this.ground.material.color.copy(c).lerp(new THREE.Color(0xffffff), 0.08);
+  }
+
+  getBackgroundUrl() {
+    return this.bgUrl || '';
   }
 
   private dropBackgroundTex() {
@@ -1197,6 +1261,13 @@ export class Stage {
   private finishSetup(root: THREE.Object3D, url: string, format: string,
                       supportsVmd: boolean): ModelInfo {
     this.scene.add(root);
+    root.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      mesh.castShadow = materials.some((mat) => !mat.transparent || mat.opacity >= 0.95);
+      mesh.receiveShadow = true;
+    });
     this.modelRoot = root;
     this.modelKind = format;
     if (format !== 'pmx') this.motion.attach(root, format, this.vrm);
@@ -1854,7 +1925,7 @@ export class Stage {
 
   /** 屏幕坐标是否落在人物身上 */
   hitsAvatar(clientX: number, clientY: number) {
-    const hit = this.petHitBody();
+    const hit = this.bodyCapsule();
     if (!hit) return false;
     return distToSeg(clientX, clientY, hit.ax, hit.ay, hit.bx, hit.by) <= hit.r;
   }
@@ -1982,6 +2053,9 @@ export class Stage {
   /** 停掉渲染循环并丢掉 WebGL 上下文。透明全屏窗口不丢掉的话，GPU 进程会一直留着旧画布。 */
   private releaseGl() {
     this.loopGen += 1;
+    // Invalidate pending texture loads and force the new scene to reload its backdrop.
+    this.bgSeq += 1;
+    this.bgUrl = '';
     if (this.onResize) window.removeEventListener('resize', this.onResize);
     if (this.onVis) document.removeEventListener('visibilitychange', this.onVis);
     this.onResize = null;
@@ -1992,6 +2066,14 @@ export class Stage {
       try { this.disposePlatform(); } catch { /* */ }
     }
     try { this.controls?.dispose(); } catch { /* */ }
+    try { this.fxaaPass?.dispose(); } catch { /* */ }
+    try { this.outputPass?.dispose(); } catch { /* */ }
+    try { this.composer?.dispose(); } catch { /* */ }
+    this.composer = null;
+    this.fxaaPass = null;
+    this.outputPass = null;
+    try { this.environmentTarget?.dispose(); } catch { /* */ }
+    this.environmentTarget = null;
     const gl = this.renderer;
     if (!gl) return;
     try { gl.forceContextLoss(); } catch { /* */ }
@@ -2045,14 +2127,16 @@ export class Stage {
         this.director.update(av, dt, actionActive);
       }
 
-      // 物理：累积真实时间，攒够一个物理步长才推进一次（高刷屏防加速）
+      // 固定步长补帧并保留余量；补步上限防止低性能设备陷入追帧。
       if (this.physics) {
         this.phyAcc += dt;
-        if (this.phyAcc >= PHY_STEP) {
-          const step = Math.min(this.phyAcc, 1 / 30);
-          this.phyAcc = 0;
-          this.stepMmdPhysics(step);
+        let steps = 0;
+        while (this.physics && this.phyAcc >= PHY_STEP && steps < MAX_PHY_STEPS) {
+          this.phyAcc -= PHY_STEP;
+          this.stepMmdPhysics(PHY_STEP);
+          steps += 1;
         }
+        if (steps === MAX_PHY_STEPS && this.phyAcc >= PHY_STEP) this.phyAcc %= PHY_STEP;
       }
       this.keepMmdModelScale();
 
@@ -2062,13 +2146,18 @@ export class Stage {
 
     this.emit('onFrame', dt);
 
-    if (this.renderer) this.renderer.render(this.scene, this.camera);
+    if (this.renderer) this.renderScene();
   };
+
+  private renderScene() {
+    if (this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
+  }
 
   /** 当场再渲一帧后导出 JPEG，不改主循环的 preserveDrawingBuffer。 */
   async captureStill(maxW = 1280): Promise<Blob> {
     if (!this.renderer) throw new Error('舞台未初始化');
-    this.renderer.render(this.scene, this.camera);
+    this.renderScene();
     const src = this.renderer.domElement;
     const scale = Math.min(1, maxW / Math.max(src.width, 1));
     const w = Math.max(1, Math.round(src.width * scale));

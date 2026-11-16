@@ -20,6 +20,7 @@ export const coins = reactive({
 });
 
 export const userCenterOpen = ref(false);
+export const lifePanelOpen = ref(false);
 
 export function openUserCenter() {
   userCenterOpen.value = true;

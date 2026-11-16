@@ -60,7 +60,7 @@ export const useSettingsStore = defineStore('settings', {
       stage_show: true, stage_color: '#232342', stage_glow: '#5b5bd6', stage_style: 'classic',
       stage_texture: '', stage_opacity: 1, live2d_enabled: false,
     },
-    modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, tavern: true, codewatch: true, touch: true, harness: true, glance: false, live_douyin: false, live: false, play: true },
+    modules: { memory: true, scenes: true, rewrite: true, keepsake: true, tarot: true, tavern: true, codewatch: true, touch: true, harness: true, glance: false, live_douyin: false, live: false, play: true, journey: true },
     live: defaultLive(),
     vision: { provider: 'minicpm' as 'minicpm' | 'openai', generator: 'chat' as 'chat' | 'minicpm', base_url: '', api_key: '', model: '' },
     memory: { embedder: 'auto' as 'auto' | 'local' | 'doubao' | 'qwen' | 'openai' | 'gemini' },
@@ -195,6 +195,7 @@ export const useSettingsStore = defineStore('settings', {
         glance: mods?.glance === true,
         live_douyin: mods?.live_douyin === true,
         live: mods?.live === true,
+        journey: mods?.journey !== false,
       };
       this.live = normalizeLive((data as { live?: unknown }).live);
       const vision = (data as { vision?: { provider?: string; generator?: string; base_url?: string; api_key?: string; model?: string } }).vision;
@@ -325,8 +326,11 @@ export const useSettingsStore = defineStore('settings', {
     },
     /** 情境开着时只认这场戏的背景，避免刷新先套设置再切情境。 */
     async applyStageLook() {
+      const { stageLife, refreshLifeStage } = await import('../features/life/stageLife');
+      if (stageLife.active) { refreshLifeStage(); return; }
       try {
         const { keepsakeSession } = await import('../features/keepsake/session');
+        if (stageLife.active) { refreshLifeStage(); return; }
         if (keepsakeSession.bgOverride) {
           stage.setBackground(this.quality.background_color, keepsakeSession.bgOverride);
           return;
@@ -335,10 +339,12 @@ export const useSettingsStore = defineStore('settings', {
       if (this.modules.scenes) {
         try {
           const { sceneSession, applySceneStage } = await import('../features/scenes/session');
+          if (stageLife.active) { refreshLifeStage(); return; }
           if (sceneSession.current) applySceneStage(sceneSession.current);
         } catch { /* 情境未装则保持当前舞台 */ }
         return;
       }
+      if (stageLife.active) { refreshLifeStage(); return; }
       stage.setBackground(this.quality.background_color, this.quality.background_image);
       stage.setStagePlatform({
         show: this.quality.stage_show,
