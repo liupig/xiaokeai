@@ -2,7 +2,7 @@
 export class Lipsync {
   private mode: 'off' | 'sine' | 'analyser' = 'off';
   private analyser: AnalyserNode | null = null;
-  private data: Uint8Array | null = null;
+  private data: Uint8Array<ArrayBuffer> | null = null;
   private smooth = 0;
 
   /** 开/关正弦波说话模式（无真实音频时的模拟口型） */

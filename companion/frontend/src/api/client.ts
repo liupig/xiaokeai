@@ -520,6 +520,54 @@ export function encodeAssetPath(rel: string): string {
     .join('/');
 }
 
+export type JourneyMode = 'full' | 'memories' | 'fixed';
+export interface JourneyThread {
+  id: string;
+  character_id: number;
+  text: string;
+  source_id: string;
+  created: number;
+  due: number;
+  last_recalled: number;
+  status: 'open' | 'done';
+}
+export interface JourneyState {
+  character_id: number;
+  mode: JourneyMode;
+  known_since: number;
+  known_days: number;
+  summary: string;
+  memory_count: number;
+  chapter: { id: string; number: number; progress: number; floor: number; next_at: number | null; next_id: string | null };
+  ai_level: { level: number; xp: number; floor: number; next_at: number };
+  affection: { value: number; stage: string; number: number; floor: number; next_at: number | null; path: 'card' | 'romance' };
+  inner_story: { value: number; unlocked_count: number; total: number; entries: { id: string; at: number; title: string; text: string; unlocked: boolean }[] };
+  gifts: { item_id: string; item_name: string | null; price: number; affection: number; created: number; count: number }[];
+  preferences: { id: string; name: string }[];
+  autonomy: { self_note: string; preference_reason: string; current_mood: string; personal_value: string; revision: number; forming: boolean; error: string; retry_at: number };
+  rules: { memories_per_day: number; activities_per_day: number; gift_xp_repeat: number[]; gift_affection_repeat: number[] };
+  rewards: { id: string; kind: string; title: string; text: string; coin: number; created: number; claimed: number }[];
+  returns: { id: string; item_id: string; name: string; icon: string; text: string; created: number }[];
+  sets: { id: string; name: string; items: string[]; coin: number; complete: boolean; unlocked: boolean; owned: number }[];
+  coin_granted_now: { id: string; title: string; coin: number }[];
+  threads: JourneyThread[];
+  recorded?: boolean;
+  reward?: JourneyReward;
+}
+export interface JourneyReward {
+  affection_gained: number;
+  ai_xp_gained: number;
+  level_up: boolean;
+  new_level: number;
+  affection_stage_up: boolean;
+  affection_stage: string;
+  inner_unlocked: string[];
+  preference_matched?: boolean;
+  return_gift?: { id: string; name: string; icon: string; text: string } | null;
+  first_of_kind?: boolean;
+  item_id?: string;
+}
+
 export const api = {
   assetUrl(asset: AssetItem): string {
     const url = `/assets/${encodeAssetPath(asset.path)}`;
@@ -805,6 +853,49 @@ export const api = {
   },
   deleteEpisode(characterId: number, episodeId: string) {
     return request(`/api/modules/memory/episodes/${characterId}/${encodeURIComponent(episodeId)}`, { method: 'DELETE' });
+  },
+
+  journeyState(characterId: number) {
+    return request<JourneyState>(`/api/modules/journey/${characterId}`, { signal: AbortSignal.timeout(8000) });
+  },
+  journeyMode(characterId: number, mode: JourneyMode) {
+    return request<JourneyState>('/api/modules/journey/mode', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, mode }),
+    });
+  },
+  journeySummary(characterId: number, summary: string) {
+    return request<JourneyState>('/api/modules/journey/summary', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, summary }),
+    });
+  },
+  journeyPath(characterId: number, path: 'card' | 'romance') {
+    return request<JourneyState>('/api/modules/journey/path', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, path }),
+    });
+  },
+  journeyEvent(characterId: number, kind: 'activity' | 'touch', sourceId: string) {
+    return request<JourneyState>('/api/modules/journey/events', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, kind, source_id: sourceId }),
+    });
+  },
+  journeyThread(characterId: number, text: string, dueDays = 7) {
+    return request<JourneyThread>('/api/modules/journey/threads', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_id: characterId, text, due_days: dueDays }),
+    });
+  },
+  journeyThreadDone(characterId: number, threadId: string) {
+    return request<JourneyState>(`/api/modules/journey/threads/${encodeURIComponent(threadId)}/done?character_id=${characterId}`, { method: 'PUT' });
+  },
+  journeyThreadDelete(characterId: number, threadId: string) {
+    return request(`/api/modules/journey/threads/${encodeURIComponent(threadId)}?character_id=${characterId}`, { method: 'DELETE' });
+  },
+  journeyReset(characterId: number) {
+    return request(`/api/modules/journey/${characterId}`, { method: 'DELETE' });
   },
 
   listScenes() {
@@ -1185,11 +1276,13 @@ export const api = {
   async streamChat(characterId: number, text: string,
                    onEvent: (ev: ChatEvent) => void, signal?: AbortSignal,
                    morphs: string[] = [],
-                   mode: 'user' | 'continue' | 'proactive' | 'goodbye' | 'welcome' | 'codewatch' | 'touch' | 'along' = 'user',
+                   mode: 'user' | 'life' | 'continue' | 'proactive' | 'goodbye' | 'welcome' | 'codewatch' | 'touch' | 'along' = 'user',
                    extra: ChatExtra = {},
                    live2d: Record<string, unknown> = {}) {
+    const { lifeChatContext } = await import('../features/life/stageLife');
     const body = {
       character_id: characterId, text, morphs, live2d, mode,
+      life_context: lifeChatContext(characterId, mode === 'life'),
       scene_id: extra.scene_id || '',
       scene_text: extra.scene_text || '',
       scene_title: extra.scene_title || '',

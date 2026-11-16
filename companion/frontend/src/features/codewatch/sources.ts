@@ -27,9 +27,9 @@ export function loadPicked(): CodewatchSourceId[] {
   }
 }
 
-export function savePicked(ids: CodewatchSourceId[]) {
+export function savePicked(ids: CodewatchSourceId[]): CodewatchSourceId[] {
   const ok = DESKS.map((d) => d.id).filter((id) => ids.includes(id));
-  const picked = ok.length ? ok : ['cursor'];
+  const picked: CodewatchSourceId[] = ok.length ? ok : ['cursor'];
   try {
     localStorage.setItem(PICK_KEY, JSON.stringify(picked));
   } catch { /* */ }

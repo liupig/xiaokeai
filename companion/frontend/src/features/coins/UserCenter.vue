@@ -4,8 +4,9 @@ import { NDrawer, NDrawerContent, NQrCode, NSlider, useMessage } from 'naive-ui'
 import { api, type CoinPreview } from '../../api/client';
 import { t } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
-import { coins, onCoinDelta, userCenterOpen } from './session';
+import { coins, onCoinDelta, userCenterOpen, lifePanelOpen } from './session';
 import { beginWish, wishUi } from '../wish';
+import LifePanel from '../life/LifePanel.vue';
 
 type Tab = 'receive' | 'send' | 'cash';
 type PayStep = 'edit' | 'review' | 'done';
@@ -244,6 +245,7 @@ watch(hours, () => {
 </script>
 
 <template>
+  <LifePanel v-model:show="lifePanelOpen" />
   <n-drawer :show="userCenterOpen" :width="400" placement="right"
             show-mask="transparent" to="body"
             @update:show="(v: boolean) => userCenterOpen = v">
@@ -255,6 +257,8 @@ watch(hours, () => {
         <div class="mine">{{ mineText }}</div>
         <p class="hint">{{ t('user.tokenHint') }}</p>
       </header>
+
+      <button type="button" class="primary" @click="lifePanelOpen = true; userCenterOpen = false">我们的空间 · 心意与布置</button>
 
       <section class="wish">
         <div class="wish-title">{{ t('user.wish') }}</div>

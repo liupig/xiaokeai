@@ -1,3 +1,4 @@
+import { setLifeCharacter } from '../features/life/stageLife';
 import { defineStore } from 'pinia';
 import { api, type CharacterItem } from '../api/client';
 import { stage, type ModelInfo } from '../engine/stage';
@@ -80,6 +81,7 @@ export const useCharacterStore = defineStore('character', {
       speechPlayer.stop();
       stage.stopMotion();
       this.currentId = id;
+      setLifeCharacter(id);
       writeSavedId(id);
       try {
         const { tarotLayerOn } = await import('../features/tarot/gate');

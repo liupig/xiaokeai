@@ -106,7 +106,7 @@ export async function closeCodewatch() {
 }
 
 export async function setPicked(id: CodewatchSourceId) {
-  const cur = codewatchLive.picked.includes(id)
+  const cur: CodewatchSourceId[] = codewatchLive.picked.includes(id)
     ? codewatchLive.picked.filter((x) => x !== id)
     : [...codewatchLive.picked, id];
   codewatchLive.picked = savePicked(cur);

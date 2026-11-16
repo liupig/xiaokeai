@@ -111,7 +111,7 @@ def _lang(session: Session) -> str:
 
 def _after(cid: int, session: Session, token: tuple) -> dict:
     """出手已经落定就返回。不再等模型润色台词，那一下会把入座和出手都卡住。"""
-    del session, token
+    del token
     with _LOCK:
         table = _TABLES.get(cid)
         if table is None:

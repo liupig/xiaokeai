@@ -9,6 +9,7 @@ import { useGlancePower } from '../glance/power';
 import { t } from '../../i18n';
 import { setShellMode } from '../shell/mode';
 import CoinPill from '../coins/CoinPill.vue';
+import { lifePanelOpen } from '../coins/session';
 
 type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake' | 'log';
 
@@ -55,6 +56,7 @@ const tools = computed(() => {
         <XkIcon name="chevron" :size="12" class="chev" />
       </div>
       <CoinPill />
+      <button type="button" class="life-entry glass" @click="lifePanelOpen = true" aria-label="打开我们的空间"><img :src="'/assets/life/flower.png'" alt="" /><span>我们的空间</span></button>
     </div>
     <button v-if="collapsed" class="collapse-toggle glass" type="button" @click.stop="collapsed = false" aria-label="展开导航"><XkIcon name="expand" :size="20" /></button>
     <div v-else class="toolbar glass">
@@ -109,6 +111,9 @@ const tools = computed(() => {
 
 <style scoped>
 .update-tool { position: relative; }
+.life-entry { pointer-events:auto; border:1px solid #f2d1a832; color:#f6e2c4; padding:7px 12px; border-radius:12px; cursor:pointer; font:inherit; font-size:12px; }
+.life-entry:hover { background:rgba(170,120,91,.3); }
+.life-entry img { width:18px; height:18px; object-fit:contain; vertical-align:middle; margin-right:5px; }
 .update-tool.has-update { color: #c4afff; }
 .update-tool i { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: #bd9bff; box-shadow: 0 0 6px #bd9bff80; }
 .topbar {

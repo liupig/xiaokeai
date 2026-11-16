@@ -31,7 +31,7 @@ DEFAULTS: Dict[str, Any] = {
                 "stage_show": True, "stage_color": "#232342", "stage_glow": "#5b5bd6",
                 "stage_style": "classic", "stage_texture": "", "stage_opacity": 1.0,
                 "live2d_enabled": False},
-    "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "tavern": True, "codewatch": True, "touch": True, "harness": True, "glance": False, "live_douyin": False, "live": False, "play": True, "sight": True},
+    "modules": {"memory": True, "scenes": True, "rewrite": True, "keepsake": True, "tarot": True, "tavern": True, "codewatch": True, "touch": True, "harness": True, "glance": False, "live_douyin": False, "live": False, "play": True, "sight": True, "journey": True},
     "live": {"douyin": {"room": "", "push_secret": ""}},
     "locale": {"ui": "zh-CN", "reply": "zh-CN", "reply_mode": "fixed"},
     "memory": {"embedder": "auto"},

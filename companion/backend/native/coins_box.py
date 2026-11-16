@@ -26,6 +26,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple
 
 from cryptography.exceptions import InvalidSignature
@@ -35,7 +36,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from ..paths import DATA_DIR, DB_PATH
+from app.paths import DATA_DIR, DB_PATH
 
 # 下面八行由打包脚本按两把编译密钥和两把封账密钥填上。源码里是空的，自己编译盖不上章。
 _PUB = ""  # STAMP_PUB
@@ -99,8 +100,45 @@ _MAGIC_V2 = b"XK2"
 _SEAL = DATA_DIR / "wallet.seal"
 _KNOT = DATA_DIR / "wallet.knot"
 _KNOT_MAGIC = b"XK4"
+_JOURNAL = DATA_DIR / "wallet.pending"
+_JOURNAL_MAGIC = b"XKJ1"
 _DB = DB_PATH
 _LOCK = threading.Lock()
+_LOCK_FILE = DATA_DIR / 'wallet.lock'
+
+
+@contextmanager
+def _wallet_lock(wait: bool = True):
+    """Serialize all wallet reads and writes across ledger processes."""
+    _LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(_LOCK_FILE, 'a+b') as handle:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b'\0')
+            handle.flush()
+        deadline = time.monotonic() + (10 if wait else 0)
+        while True:
+            try:
+                handle.seek(0)
+                if os.name == 'nt':
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise CoinError('busy')
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            if os.name == 'nt':
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 _ADDR = re.compile(r"^[0-9a-f]{64}$")
 _OUT = re.compile(r"^[0-9a-f]{64}:[0-9]{1,3}$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
@@ -122,8 +160,6 @@ _TIERS = (
     (2 * _HOUR, 20),
     (4 * _HOUR, 30),
     (8 * _HOUR, 50),
-    (16 * _HOUR, 80),
-    (24 * _HOUR, 120),
 )
 
 
@@ -247,9 +283,9 @@ def _tenths(streak_ms: int) -> int:
     for limit, tenths in _TIERS:
         if streak_ms < limit:
             return tenths
-    over = streak_ms - 24 * _HOUR
-    blocks = over // (12 * _HOUR)
-    return 120 + blocks * 40
+    # Long-running background sessions must not turn the wallet into an
+    # unbounded faucet. Eight hours reaches the daily ceiling (5x).
+    return 50
 
 
 _GPU_AT = 0.0
@@ -728,12 +764,55 @@ def _publish(state: Dict[str, Any]) -> None:
         "q": binds[1],
         "r": rings[1],
     }
+    # Durable intent precedes the first change to any witness. If a process is
+    # killed between writes, the next locked reader completes this exact write.
+    journal = {
+        "state": state, "knot": knot, "gen": gen,
+        "shares": [share.hex() for share in shares], "binds": binds, "rings": rings,
+    }
+    _replace(_JOURNAL, _seal_with(_canon(journal).encode(), _JOURNAL_MAGIC))
     _write_slots(gen, shares, binds, rings)
     _replace(_KNOT, _seal_with(
         json.dumps(knot, separators=(",", ":"), sort_keys=True).encode(),
         _KNOT_MAGIC,
     ))
     _replace(_SEAL, _seal(json.dumps(state, separators=(",", ":"), sort_keys=True).encode()))
+    _JOURNAL.unlink(missing_ok=True)
+
+
+def _recover_publish() -> None:
+    if not _JOURNAL.exists():
+        return
+    try:
+        payload = _unseal_with(_JOURNAL.read_bytes(), _JOURNAL_MAGIC)
+        if payload is None:
+            raise CoinError('bad_chain')
+        journal = json.loads(payload)
+        state, knot = journal['state'], journal['knot']
+        gen = int(journal['gen'])
+        shares = [bytes.fromhex(value) for value in journal['shares']]
+        binds, rings = list(journal['binds']), list(journal['rings'])
+        if len(shares) != 6 or len(binds) != 6 or len(rings) != 6 or any(len(share) != 32 for share in shares):
+            raise CoinError('bad_chain')
+        if int(state['_wgen']) != gen or int(knot['g']) != gen or not _key_ok(state) or not _links_ok(state):
+            raise CoinError('bad_chain')
+        digest = _digest(state)
+        if knot['d'] != digest.hex():
+            raise CoinError('bad_chain')
+        for index in range(6):
+            nxt = shares[(index + 1) % 6]
+            if binds[index] != _bind(index, gen, digest, shares[index], nxt):
+                raise CoinError('bad_chain')
+            if rings[index] != hashlib.sha256(shares[index] + nxt).hexdigest():
+                raise CoinError('bad_chain')
+        _write_slots(gen, shares, binds, rings)
+        _replace(_KNOT, _seal_with(_canon(knot).encode(), _KNOT_MAGIC))
+        _replace(_SEAL, _seal(_canon(state).encode()))
+        _JOURNAL.unlink(missing_ok=True)
+    except CoinError:
+        raise
+    except (OSError, KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise CoinError('bad_chain') from exc
 
 
 def _seal_with(payload: bytes, magic: bytes) -> bytes:
@@ -763,6 +842,7 @@ def _unseal_with(blob: bytes, magic: bytes) -> Optional[bytes]:
 
 
 def _read() -> Optional[Dict[str, Any]]:
+    _recover_publish()
     try:
         blob = _SEAL.read_bytes()
     except OSError:
@@ -991,7 +1071,7 @@ def grant_talk(prompt: str, reply: str, billed: int = 0) -> Dict[str, Any]:
     if tokens <= 0:
         tokens = _estimate_tokens(prompt) + _estimate_tokens(reply)
     tokens = max(0, min(tokens, _TOKEN_CAP))
-    with _LOCK:
+    with _LOCK, _wallet_lock():
         now = _now_ms()
         state, folded = _load(now)
         left = int(state.get("token_left") or 0) + tokens
@@ -1059,7 +1139,7 @@ def _wish_throws() -> tuple:
 def wish() -> Dict[str, Any]:
     """Mint one wish. Returns the whole-coin drop and the three thrown props."""
     _official()
-    with _LOCK:
+    with _LOCK, _wallet_lock():
         now = _now_ms()
         state, _folded = _load(now)
         used = _wish_used(state, now)
@@ -1189,7 +1269,7 @@ def _import(state: Dict[str, Any], parsed: Dict[str, Any], now: int) -> int:
 
 def heartbeat() -> Dict[str, Any]:
     _official()
-    with _LOCK:
+    with _LOCK, _wallet_lock():
         now = _now_ms()
         state, folded = _load(now)
         gained, dirty = _tick(state, now)
@@ -1201,7 +1281,7 @@ def heartbeat() -> Dict[str, Any]:
 def compact() -> bool:
     """链超长时收成一块快照。余额和已花票号不变，只删掉更早的明细。"""
     _official()
-    with _LOCK:
+    with _LOCK, _wallet_lock():
         now = _now_ms()
         state, folded = _load(now)
         if not folded:
@@ -1216,26 +1296,32 @@ def idle_compact() -> bool:
     if not _LOCK.acquire(blocking=False):
         return False
     try:
-        now = _now_ms()
-        state = _open()
-        if not _fold(state, now, _IDLE_FOLD_AT):
-            return False
-        _publish(state)
-        return True
+        try:
+            with _wallet_lock(wait=False):
+                now = _now_ms()
+                state = _open()
+                if not _fold(state, now, _IDLE_FOLD_AT):
+                    return False
+                _publish(state)
+                return True
+        except CoinError as exc:
+            if exc.code == 'busy':
+                return False
+            raise
     finally:
         _LOCK.release()
 
 
 def balance() -> int:
     _official()
-    with _LOCK:
+    with _LOCK, _wallet_lock():
         return _balance(_open())
 
 
 def pay(recipient: str, amount_milli: int) -> Dict[str, Any]:
     _official()
     recipient = (recipient or "").strip().lower()
-    with _LOCK:
+    with _LOCK, _wallet_lock():
         now = _now_ms()
         state, _folded = _load(now)
         note = _transfer(state, recipient, int(amount_milli), now)
@@ -1245,10 +1331,54 @@ def pay(recipient: str, amount_milli: int) -> Dict[str, Any]:
         return out
 
 
+def purchase(order_id: str, amount_milli: int) -> Dict[str, Any]:
+    """Idempotent burn. The receipt lives in the sealed state across folds."""
+    _official()
+    order_id = str(order_id or '').lower()
+    amount = int(amount_milli)
+    if not re.fullmatch(r'[0-9a-f]{32}', order_id) or amount <= 0:
+        raise CoinError('bad_order')
+    with _LOCK, _wallet_lock():
+        now = _now_ms()
+        state, _ = _load(now)
+        receipts = state.setdefault('purchase_receipts', {})
+        previous = receipts.get(order_id)
+        if previous is not None:
+            if int(previous) != amount:
+                raise CoinError('order_conflict')
+            return _view(state, 0)
+        _transfer(state, BURN, amount, now)
+        receipts[order_id] = amount
+        _write(state)
+        return _view(state, 0)
+
+
+def grant_reward(reward_id: str, amount_milli: int) -> Dict[str, Any]:
+    """Idempotent gameplay reward minted by the sealed wallet, not by the UI."""
+    _official()
+    reward_id = str(reward_id or '').lower()
+    amount = int(amount_milli)
+    if not re.fullmatch(r'[a-z0-9][a-z0-9:_-]{2,119}', reward_id) or amount <= 0:
+        raise CoinError('bad_order')
+    with _LOCK, _wallet_lock():
+        now = _now_ms()
+        state, _ = _load(now)
+        receipts = state.setdefault('reward_receipts', {})
+        previous = receipts.get(reward_id)
+        if previous is not None:
+            if int(previous) != amount:
+                raise CoinError('order_conflict')
+            return _view(state, 0)
+        _mint(state, amount, now)
+        receipts[reward_id] = amount
+        _write(state)
+        return _view(state, amount)
+
+
 def redeem(note_text: str) -> Dict[str, Any]:
     _official()
     parsed = _unpack_tx(note_text)
-    with _LOCK:
+    with _LOCK, _wallet_lock():
         now = _now_ms()
         state, _folded = _load(now)
         got = _import(state, parsed, now)

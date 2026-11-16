@@ -40,6 +40,21 @@ def test_tavern_is_a_module_and_defaults_on():
     assert "tavern" not in _DEFAULT_OFF
 
 
+def test_start_returns_a_table_without_discarding_the_database_session(monkeypatch):
+    from app.modules.tavern import board, habits, router
+
+    monkeypatch.setattr(router, "_guard", lambda _session: None)
+    monkeypatch.setattr(board, "load", lambda _cid: {})
+    monkeypatch.setattr(habits, "observe", lambda *args: None)
+    try:
+        view = router.start(router.StartIn(character_id=918, her_name="清宵"), object())
+        assert view["phase"] in ("act", "name")
+        assert view["board"] == {}
+        assert 918 in router._TABLES
+    finally:
+        router._TABLES.pop(918, None)
+
+
 def test_deck_is_twenty_with_two_wilds():
     deck = build_deck()
     assert len(deck) == 20

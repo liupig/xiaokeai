@@ -337,7 +337,7 @@ export class Orchestrator {
     } else if (freshTag && intent === 'switch') {
       motion = tagged;
     } else {
-      motion = sampleDance(dances, (m) => m.name, intent) ?? motion;
+      motion = sampleDance(dances, (m) => m.name, intent === 'named' ? 'open' : intent) ?? motion;
     }
     if (!motion) {
       const beat = repertoire.pick({ dancing: true, allowWalk: true, preferStand: stage.standSlot, varyCam: true });
@@ -401,10 +401,10 @@ export class Orchestrator {
   }
 
   /** 用户话里点到的舞名。最长的名字优先，避免短词误撞。 */
-  private danceNamedIn(
+  private danceNamedIn<T extends { label: string; name: string }>(
     ask: string,
-    dances: { label: string; name: string }[],
-    bare: (m: { label: string; name: string }) => string,
+    dances: T[],
+    bare: (m: T) => string,
     norm: (s: string) => string,
   ) {
     const text = ask || '';

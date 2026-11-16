@@ -198,11 +198,6 @@ def glance_on() -> bool:
         return False
 
 
-def visual_available() -> bool:
-    from ..glance.eyes_host import capability
-    return bool(capability()["available"])
-
-
 def sync_skills(home: Optional[Path] = None, *, glance: bool = False) -> Path:
     """把仓库里的技能抄到这次运行的 home。正文变了就覆盖，别的文件不动。
 
@@ -553,7 +548,14 @@ class Runtime:
             # dsh 把整段写完才发 assistant/message。本地先拆 text_delta，第一句才能先开口。
             from .stream_tap import tap_base
             base_url = tap_base(upstream) if upstream else None
-            watch = glance_on() or visual_available()
+            # Whether the visual skill is exposed is a product setting, not a
+            # hardware discovery decision.  The old ``or visual_available()``
+            # path synchronously imported and inspected the local vision stack
+            # on every ordinary text turn (especially while glance was off),
+            # adding roughly 1.5–2 seconds before the request even left the
+            # machine.  The glance startup/request path remains responsible for
+            # reporting a missing or unavailable vision environment.
+            watch = glance_on()
             profile = _profile_patch(glance=watch)
             launch = (model, base_url, effort, cap,
                       hashlib.sha256(api_key.encode()).hexdigest(),
