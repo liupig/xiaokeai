@@ -29,6 +29,8 @@ from .modules.live.router import router as live_router
 from .modules.live.lab_router import router as live_lab_router
 from .modules.play.router import router as play_router
 from .modules.sight.router import router as sight_router
+from .modules.life.router import router as life_router
+from .modules.journey.router import router as journey_router
 from .services import catalog
 from .services import asr as asr_svc
 from .services import review_store
@@ -70,6 +72,8 @@ app.include_router(live_router)
 app.include_router(live_lab_router)
 app.include_router(play_router)
 app.include_router(sight_router)
+app.include_router(life_router)
+app.include_router(journey_router)
 
 
 @app.get('/api/releases/latest')

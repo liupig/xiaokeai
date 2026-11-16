@@ -1,3 +1,4 @@
+import { stageLife } from '../features/life/stageLife';
 import { defineStore } from 'pinia';
 import { api } from '../api/client';
 import { caster } from '../features/performance/caster';
@@ -19,6 +20,7 @@ import { alignVoice, promptPack, replyLang, voiceLang } from '../i18n';
 import { ensureScene, sceneExtra, restoreOrRotateScene, maybeAutoRotateScene, nextAutoRotateAt, sceneSession, spokenWelcome } from '../features/scenes/session';
 import { refreshMemory } from '../features/memory/session';
 import { refreshCoinsSoon } from '../features/coins/session';
+import { refreshJourneySoon } from '../features/journey/session';
 import type { ChatExtra } from '../api/client';
 
 /** 口型 / 眨眼等由系统占用的基础形态键，不暴露给 LLM */
@@ -143,7 +145,7 @@ function sidecarFallback(
     return localLine('proactive', '[emo:happy][intent:tease]还在吗？我这边还想听你再说两句呢～');
   }
   if (mode === 'welcome') {
-    if (sceneSession.current) return spokenWelcome(sceneSession.current);
+    if (sceneSession.current && !stageLife.active) return spokenWelcome(sceneSession.current);
     const lastUser = [...messages].reverse().find((m) => m.role === 'user' && m.content.trim());
     if (lastUser) {
       return localLine('welcome_back', '[emo:relaxed][intent:tease]哟，又进来了。刚才那茬还没聊完呢。');
@@ -161,6 +163,13 @@ function visitContext(): string {
 
 function liveScenePack(extra: ChatExtra = {}): ChatExtra {
   if (!useSettingsStore().modules.scenes) return extra;
+  if (stageLife.active) {
+    const clean = { ...extra };
+    for (const key of Object.keys(clean) as (keyof ChatExtra)[]) {
+      if (key.startsWith('scene_')) delete clean[key];
+    }
+    return clean;
+  }
   return { ...sceneExtra(sceneSession.current), ...extra };
 }
 
@@ -492,7 +501,7 @@ export const useChatStore = defineStore('chat', {
       }
       this.applyVoice();
       const chars = useCharacterStore();
-      if (settings.modules.scenes && chars.currentId) {
+      if (settings.modules.scenes && chars.currentId && !stageLife.active) {
         const need = sceneSession.characterId !== chars.currentId || !sceneSession.current;
         const { rotated } = need
           ? await restoreOrRotateScene({
@@ -530,7 +539,7 @@ export const useChatStore = defineStore('chat', {
         return;
       }
       this.openSession();
-      if (settings.modules.scenes && sceneSession.current) {
+      if (settings.modules.scenes && sceneSession.current && !stageLife.active) {
         await this.replayOpening({ ...sceneExtra(sceneSession.current), scene_resume: '1' });
       } else {
         await this.sidecarChat('welcome', visitContext());
@@ -558,6 +567,11 @@ export const useChatStore = defineStore('chat', {
     },
     async onSceneRotateDue() {
       const chars = useCharacterStore();
+      if (!useSettingsStore().modules.scenes || !chars.currentId) { clearSceneRotate(); return; }
+      if (stageLife.active) {
+        sceneRotateTimer = setTimeout(() => { void this.onSceneRotateDue(); }, 30000);
+        return;
+      }
       if (useSettingsStore().modules.tarot) {
         const { tarotLive } = await import('../features/tarot/gate');
         if (tarotLive.value) {
@@ -565,7 +579,7 @@ export const useChatStore = defineStore('chat', {
           return;
         }
       }
-      if (!chars.currentId || this.sending || speechPlayer.streamOpen) {
+      if (!chars.currentId || this.sending || speechPlayer.streamOpen || stageLife.active) {
         this.armSceneRotate();
         return;
       }
@@ -573,7 +587,7 @@ export const useChatStore = defineStore('chat', {
         characterId: chars.currentId,
         lastChatAt: this.lastUserChatAt(),
       });
-      if (rotated) {
+      if (rotated && !stageLife.active) {
         await this.replayOpening(sceneExtra(rotated));
       }
       this.armSceneRotate();
@@ -631,14 +645,14 @@ export const useChatStore = defineStore('chat', {
         }
       }
       if (sessionClosed || this.sending || speechPlayer.streamOpen) return;
-      if (useSettingsStore().modules.scenes) {
+      if (useSettingsStore().modules.scenes && !stageLife.active) {
         const chars = useCharacterStore();
         if (chars.currentId && !speechPlayer.isSpeaking()) {
           const rotated = await maybeAutoRotateScene({
             characterId: chars.currentId,
             lastChatAt: this.lastUserChatAt(),
           });
-          if (rotated) {
+          if (rotated && !stageLife.active) {
             await this.replayOpening(sceneExtra(rotated));
             return;
           }
@@ -741,7 +755,7 @@ export const useChatStore = defineStore('chat', {
       this.messages = [];
       resetSession();
     },
-      async send(text: string, opts: { fromHold?: boolean; scripted?: boolean; tarotRole?: string; fromVoice?: boolean; hideUser?: boolean; localLine?: string } = {}) {
+      async send(text: string, opts: { fromHold?: boolean; scripted?: boolean; tarotRole?: string; fromVoice?: boolean; hideUser?: boolean; localLine?: string; mode?: 'user' | 'life' } = {}) {
       let input = text.trim();
       if (!input) return 'empty';
       let tarotLock = false;
@@ -887,7 +901,7 @@ export const useChatStore = defineStore('chat', {
           return;
         }
         if (ev.type === 'meta') {
-          refreshCoinsSoon();
+          refreshCoinsSoon(); refreshJourneySoon(chars.currentId);
           if (ev.user_id) {
             const u = [...this.messages].reverse().find((m) => m.role === 'user' && !m.id);
             if (u) u.id = ev.user_id;
@@ -920,13 +934,15 @@ export const useChatStore = defineStore('chat', {
             emitLocal(quiet, onEvent);
           } else {
             const capabilities = chars.modelInfo?.format === 'live2d' ? live2dStage.capabilities : {};
-            await api.streamChat(chars.currentId, input, onEvent, controller.signal, morphs, 'user', liveScenePack(), capabilities);
+            await api.streamChat(chars.currentId, input, onEvent, controller.signal, morphs, opts.mode || 'user', liveScenePack(), capabilities);
           }
         } catch (e) {
           if (!controller.signal.aborted) this.lastError = String(e);
         }
         window.clearTimeout(streamTimeout);
-        if (apiKeyMissing && !assistant.content && !controller.signal.aborted) {
+        if (apiKeyMissing && opts.mode === 'life' && !assistant.content && !controller.signal.aborted) {
+          this.lastError = '生活互动需要可用的对话模型，未使用固定角色台词代替。';
+        } else if (apiKeyMissing && !assistant.content && !controller.signal.aborted) {
           const { useAssetsStore } = await import('./assets');
           const names = useAssetsStore().motions.map((m) => m.name);
           orchestrator.allowLocalSpeech();
@@ -1055,7 +1071,7 @@ export const useChatStore = defineStore('chat', {
           return;
         }
         if (ev.type === 'meta') {
-          refreshCoinsSoon();
+          refreshCoinsSoon(); refreshJourneySoon(chars.currentId);
           if (ev.message_id) assistant.id = ev.message_id;
           return;
         }
@@ -1135,7 +1151,7 @@ export const useChatStore = defineStore('chat', {
           return;
         }
         if (ev.type === 'meta') {
-          refreshCoinsSoon();
+          refreshCoinsSoon(); refreshJourneySoon(chars.currentId);
           if (ev.message_id) assistant.id = ev.message_id;
           return;
         }
@@ -1225,7 +1241,7 @@ export const useChatStore = defineStore('chat', {
           return;
         }
         if (ev.type === 'meta') {
-          refreshCoinsSoon();
+          refreshCoinsSoon(); refreshJourneySoon(chars.currentId);
           if (ev.message_id) assistant.id = ev.message_id;
           if (ev.topic_id) assistant.topicId = String(ev.topic_id);
           return;
@@ -1281,7 +1297,7 @@ export const useChatStore = defineStore('chat', {
           return;
         }
         if (ev.type === 'meta') {
-          refreshCoinsSoon();
+          refreshCoinsSoon(); refreshJourneySoon(chars.currentId);
           if (ev.message_id) assistant.id = ev.message_id;
           return;
         }
@@ -1352,7 +1368,7 @@ export const useChatStore = defineStore('chat', {
     async replayOpening(extra?: ChatExtra) {
       const settings = useSettingsStore();
       let pack = extra || {};
-      if (settings.modules.scenes && !pack.scene_id && !pack.scene_text && !pack.scene_title) {
+      if (settings.modules.scenes && !stageLife.active && !pack.scene_id && !pack.scene_text && !pack.scene_title) {
         const card = sceneSession.current || await ensureScene();
         pack = sceneExtra(card);
       }
@@ -1446,7 +1462,7 @@ export const useChatStore = defineStore('chat', {
           return;
         }
         if (ev.type === 'meta') {
-          refreshCoinsSoon();
+          refreshCoinsSoon(); refreshJourneySoon(chars.currentId);
           if (ev.message_id) lastA.id = ev.message_id;
           return;
         }

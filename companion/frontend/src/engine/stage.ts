@@ -845,6 +845,7 @@ export class Stage {
       return;
     }
     const url = imageUrl || '';
+    window.dispatchEvent(new CustomEvent('xiaokeai:stage-background', { detail: url }));
     if (url) {
       if (url === this.bgUrl) return;
       this.bgUrl = url;
@@ -872,6 +873,10 @@ export class Stage {
     // 地面颜色跟随背景：稍微提亮一点做出台面层次
     this.ground.visible = true;
     this.ground.material.color.copy(c).lerp(new THREE.Color(0xffffff), 0.08);
+  }
+
+  getBackgroundUrl() {
+    return this.bgUrl || '';
   }
 
   private dropBackgroundTex() {
@@ -1854,7 +1859,7 @@ export class Stage {
 
   /** 屏幕坐标是否落在人物身上 */
   hitsAvatar(clientX: number, clientY: number) {
-    const hit = this.petHitBody();
+    const hit = this.bodyCapsule();
     if (!hit) return false;
     return distToSeg(clientX, clientY, hit.ax, hit.ay, hit.bx, hit.by) <= hit.r;
   }
@@ -1982,6 +1987,9 @@ export class Stage {
   /** 停掉渲染循环并丢掉 WebGL 上下文。透明全屏窗口不丢掉的话，GPU 进程会一直留着旧画布。 */
   private releaseGl() {
     this.loopGen += 1;
+    // Invalidate pending texture loads and force the new scene to reload its backdrop.
+    this.bgSeq += 1;
+    this.bgUrl = '';
     if (this.onResize) window.removeEventListener('resize', this.onResize);
     if (this.onVis) document.removeEventListener('visibilitychange', this.onVis);
     this.onResize = null;

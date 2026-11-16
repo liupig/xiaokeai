@@ -35,6 +35,7 @@ import DrawCard from './features/draw/DrawCard.vue';
 import { startCoins } from './features/coins/session';
 import { availableRelease, checkUpdate, CURRENT_VERSION, DEFAULT_DOWNLOADS, ignore, UPDATE_URL } from './features/update/updateService';
 import type { ReleaseInfo } from './features/update/updateService';
+import JourneyToasts from './features/journey/JourneyToasts.vue';
 
 const QuickPanel = defineAsyncComponent(() => import('./features/hud/QuickPanel.vue'));
 const update = ref<ReleaseInfo | null>(null);
@@ -222,6 +223,7 @@ onUnmounted(() => window.removeEventListener('xiaokeai:update', onUpdate));
                          @update:show="(v: boolean) => setPanel('keepsake', v)" />
         <TranscriptPanel :show="activePanel === 'log'"
                          @update:show="(v: boolean) => setPanel('log', v)" />
+        <JourneyToasts v-if="settings.modules.journey !== false" />
       </div>
     </n-message-provider>
   </n-config-provider>

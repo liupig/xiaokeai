@@ -888,7 +888,7 @@ watch(() => settings.modules.live_douyin, (on) => {
   }
 }, { immediate: true });
 
-async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'tavern' | 'codewatch' | 'touch' | 'harness' | 'glance' | 'live_douyin' | 'live' | 'play', on: boolean) {
+async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'tavern' | 'codewatch' | 'touch' | 'harness' | 'glance' | 'live_douyin' | 'live' | 'play' | 'journey', on: boolean) {
   const prev = settings.modules[key];
   settings.modules[key] = on;
   try {
@@ -1041,6 +1041,11 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
             <n-switch :value="settings.modules.touch" @update:value="(v: boolean) => toggleMod('touch', v)" />
           </div>
           <p class="hint">{{ t('set.mod.touch') }}</p>
+          <div class="switch-row">
+            <span>{{ t('mod.journey') }}</span>
+            <n-switch :value="settings.modules.journey" @update:value="(v: boolean) => toggleMod('journey', v)" />
+          </div>
+          <p class="hint">{{ t('set.mod.journey') }}</p>
           <div class="switch-row">
             <span>{{ t('mod.harness') }}</span>
             <n-switch :value="settings.modules.harness" @update:value="(v: boolean) => toggleMod('harness', v)" />

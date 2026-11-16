@@ -294,6 +294,12 @@ def step_copy_online_runtime(dist_dir: Path, py: Path) -> None:
 
 def step_encrypt_app(dist_dir: Path, py: Path) -> None:
     print("\n[4/8] 加密后端源码（编译为 .pyc，删除 .py）")
+    check = subprocess.run(
+        [str(venv_python()), "-c", "from app.services.coin_new import coins_box; assert callable(getattr(coins_box, 'purchase', None)); assert callable(getattr(coins_box, 'grant_reward', None))"],
+        cwd=str(BACKEND), capture_output=True, text=True,
+    )
+    if check.returncode:
+        raise SystemExit("金币账本扩展缺少消费或奖励接口，请关闭占用该扩展的程序后运行 backend/native/setup_box.py 重新编译，再打包。")
     dest = dist_dir / "app"
     if dest.exists():
         shutil.rmtree(dest)
@@ -928,6 +934,16 @@ def step_copy_payload(dist_dir: Path) -> None:
         print("  ok assets/wish")
     else:
         print("  skip assets/wish（没有许愿贴图）")
+
+    life = COMPANION / "assets" / "life"
+    if life.is_dir():
+        robocopy(life, dist_dir / "assets" / "life")
+        print("  ok assets/life")
+
+    journey = COMPANION / "assets" / "journey"
+    if journey.is_dir():
+        robocopy(journey, dist_dir / "assets" / "journey")
+        print("  ok assets/journey")
 
     # The launcher points COMPANION_ROOT at pack A's exe directory. Spoken
     # commands (tarot, cut, put the cards away) read locales from there. Without

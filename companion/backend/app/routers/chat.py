@@ -35,6 +35,7 @@ class ChatRequest(BaseModel):
     morphs: List[str] = []
     live2d: Dict[str, Any] = {}
     mode: str = "user"
+    life_context: Dict[str, Any] = {}
     scene_id: str = ""
     scene_text: str = ""
     scene_title: str = ""
@@ -97,11 +98,12 @@ def _after_reply(cid: int, mode: str, user: str, text: str, prompt: str, tokens:
         hooks.schedule_after_reply(cid, mode, user, text)
     except Exception:
         pass
-    try:
-        from ..services.coins import grant_talk
-        grant_talk(prompt, text, tokens)
-    except Exception:
-        pass
+    if mode != "life":
+        try:
+            from ..services.coins import grant_talk
+            grant_talk(prompt, text, tokens)
+        except Exception:
+            pass
 
 
 def _msg_out(m: ChatMessage) -> Dict[str, Any]:
@@ -139,6 +141,7 @@ def _prompt_history(rows: List[ChatMessage]) -> List[Dict[str, str]]:
 
 @router.post("")
 async def chat(req: ChatRequest, request: Request, session: Session = Depends(get_session)):
+    request_t0 = time.perf_counter()
     conf = settings_store.get_all(session)
     lang = resolve_turn(conf, req.text or "", (req.mode or "user").lower())
     loc = dict(conf.get("locale") or {})
@@ -176,7 +179,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     ).all()
     history: List[Dict[str, str]] = _prompt_history(history_rows)
     mode = (req.mode or "user").lower()
-    sidecar = mode in ("continue", "proactive", "goodbye", "welcome", "codewatch", "touch", "along")
+    sidecar = mode in ("life", "continue", "proactive", "goodbye", "welcome", "codewatch", "touch", "along")
     if not sidecar and not req.reroll:
         history.append({"role": "user", "content": req.text})
 
@@ -346,6 +349,36 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     if hint:
         messages = messages + [{"role": "system", "content": hint}]
     messages = hooks.after_messages(session, req.character_id, mode, messages, extra)
+    # Prepare independent life contexts concurrently. Exact wallet reads are only
+    # relevant in a life scene/interaction or when the user is talking about value;
+    # putting ledger IPC on every ordinary chat delayed the SSE response by up to 30s.
+    life_jobs = []
+    life_job_names = []
+    if mode in ('user', 'life', 'continue', 'proactive'):
+        from ..modules.life.service import awareness_context
+        life_ctx = req.life_context if isinstance(req.life_context, dict) else {}
+        value_topic = bool(re.search(r'金币|余额|钱包|价格|价钱|贵|便宜|买得起|多少钱|coin|wallet|balance|price', req.text or '', re.I))
+        life_topic = bool(re.search(r'家里|住宅|房子|小屋|布置|家具|车库|汽车|车辆|出门|餐桌|吃|喝|礼物|心意|回忆|home|house|car|meal|food|gift', req.text or '', re.I))
+        detailed_life = bool(life_ctx.get('active') or life_ctx.get('interaction') or mode == 'life' or value_topic or life_topic)
+        include_balance = bool(life_ctx.get('active') or life_ctx.get('interaction') or mode == 'life' or value_topic)
+        life_jobs.append(asyncio.to_thread(
+            awareness_context, req.character_id, life_ctx,
+            include_balance=include_balance, detailed=detailed_life))
+        life_job_names.append('awareness')
+    if mode == 'user' and module_on(session, 'memory'):
+        from ..modules.life.service import meal_context, memory_context
+        life_jobs.extend([
+            asyncio.to_thread(meal_context, req.character_id, req.text or ''),
+            asyncio.to_thread(memory_context, req.character_id, req.text or ''),
+        ])
+        life_job_names.extend(['meal', 'memory'])
+    if life_jobs:
+        results = await asyncio.gather(*life_jobs, return_exceptions=True)
+        for name, note in zip(life_job_names, results):
+            if isinstance(note, Exception):
+                print(f'[life] {name} context unavailable: {type(note).__name__}')
+            elif note:
+                messages.append({'role': 'system', 'content': note})
     if mode == "touch" and module_on(session, "touch"):
         from ..modules.touch.speak import hint_for as touch_hint
         messages = messages + [{"role": "system", "content": touch_hint(req.text or "")}]
@@ -358,6 +391,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         "codewatch": "proactive",
         "touch": "proactive",
         "along": "proactive",
+        "life": "proactive",
     }.get(mode, "body")
     body_cmd = dx["body_cmd"]
     delayed_sec = 0 if sidecar else dx["delayed_sec"]
@@ -392,11 +426,9 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     )
     if use_harness:
         print(f"[harness] 这一轮走技能目录 model={hconf.get('model') or ''}")
-        from ..modules.glance.eyes_host import capability as visual_capability
-        cap = visual_capability()
         messages += [{"role": "system", "content":
             f"【宿主能力】游戏启动：{'可用' if module_on(session, 'play') else '已关闭'}。"
-            f"视觉：{cap['message']}。可用时按用户意图按需启动，不要求一起看的固定口令。"
+            "视觉：按用户意图按需启动，实际可用性在启动时确认，不要求一起看的固定口令。"
             "单次看屏幕不会自动变成持续陪看；只说想玩游戏不会自动打开视觉。"
             "天气、金价、新闻、版本等公共信息走联网查询，不能因为说了看一下就截图。"}]
     harness_brief = host_brief(messages, groups.get("dance") or []) if use_harness else ""
@@ -409,6 +441,12 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     harness_on = module_on(session, "harness")
     play_enabled = module_on(session, "play")
     # 流开始前放开这条连接。生成器里再碰会话，会把库锁挂到整段语音结束。
+    if module_on(session, 'journey'):
+        try:
+            from ..modules.journey.autonomy import schedule_if_needed
+            schedule_if_needed(session, req.character_id)
+        except Exception as exc:
+            print(f'[journey] autonomy schedule skipped: {exc}')
     session.commit()
     session.close()
     if use_harness:
@@ -418,13 +456,19 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         if purse:
             wish_note = f"{wish_note}\n\n{purse}".strip() if wish_note else purse
 
+    preflight_ms = int((time.perf_counter() - request_t0) * 1000)
+    if preflight_ms > 250:
+        print(f"[chat-latency] slow preflight={preflight_ms}ms mode={mode} cid={req.character_id}")
+
     async def event_stream():
         turn_cancel = threading.Event()
         full_text = ""
         linked_topic = ""
         billed_tokens = 0
         dropped = False
-        t0 = time.perf_counter()
+        # End-to-end clock starts when /api/chat was entered, not after all
+        # database/context preparation has already finished.
+        t0 = request_t0
         llm_ms = speech_ms = None
         if mode == "user":
             from ..modules.glance.along import note_user
@@ -974,7 +1018,8 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
             release_user_turn()
             talk_log.write(
                 "chat",
-                f"模型 {llm_ms if llm_ms is not None else '-'}ms · "
+                f"准备 {preflight_ms}ms · "
+                f"首字 {llm_ms if llm_ms is not None else '-'}ms · "
                 f"开口 {speech_ms if speech_ms is not None else '-'}ms · "
                 f"整轮 {int((time.perf_counter()-t0)*1000)}ms",
                 character_id=req.character_id,
@@ -1125,6 +1170,11 @@ def clear_history(character_id: int, session: Session = Depends(get_session)):
     ).all():
         session.delete(row)
     session.commit()
+    try:
+        from ..modules.journey.service import forget_chat_threads
+        forget_chat_threads(character_id)
+    except Exception as exc:
+        print(f'[journey] history cleanup skipped: {exc}')
     from ..modules.harness.service import invalidate_history
     invalidate_history(character_id)
     return {"ok": True}

@@ -25,6 +25,7 @@ MODULES_OFF = {
     "tarot": False, "tavern": False, "codewatch": False, "touch": False,
     "harness": False, "glance": False, "live_douyin": False, "live": False,
     "play": False,
+    "journey": False,
 }
 
 

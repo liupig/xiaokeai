@@ -30,6 +30,14 @@ def before_messages(
             out = inject_memory(character_id, out)
         except Exception as exc:
             print(f"[memory] inject failed: {exc}")
+    if enabled(session, "journey") and not tarot_isolate:
+        from .journey.service import prompt_context
+        try:
+            note = prompt_context(character_id, mode)
+            if note:
+                out = out + [{"role": "system", "content": note}]
+        except Exception as exc:
+            print(f"[journey] context failed: {exc}")
     if enabled(session, "rewrite") and extra.get("variation"):
         from .rewrite.service import inject_variation
         hint = str(extra.get("variation") or "")
@@ -127,6 +135,13 @@ def schedule_after_reply(
         pass
     if not (user_text or "").strip() or not (assistant_text or "").strip():
         return
+    if enabled(session, "journey"):
+        try:
+            from .journey.service import after_reply
+            after_reply(character_id, mode, user_text, assistant_text,
+                        capture_threads=enabled(session, 'memory'))
+        except Exception as exc:
+            print(f"[journey] reply event failed: {exc}")
     from .memory.worker import tick
     try:
         tick(character_id)
