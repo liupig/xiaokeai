@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { NButton, NInput, NInputNumber, NSwitch, useMessage } from 'naive-ui';
+import { computed, onBeforeUnmount, ref } from 'vue';
+import { NButton, NInput, NInputNumber, NSelect, NSwitch, useMessage } from 'naive-ui';
 import { api } from '../../api/client';
 import { t } from '../../i18n';
 import { useCharacterStore } from '../../stores/character';
+import { useChatStore } from '../../stores/chat';
 import { useSettingsStore } from '../../stores/settings';
-import { LIVE_FEATURES } from './config';
+import { speechPlayer } from '../voice/tts';
+import { LIVE_FEATURES, normalizeLive } from './config';
 import { liveDesk, pullLiveDesk } from './session';
 import { douyinFeed, startDouyinFeed } from './douyinFeed';
 
@@ -14,8 +16,21 @@ const characters = useCharacterStore();
 const message = useMessage();
 const busy = ref(false);
 const rehearsalText = ref('');
+const audit = ref<null | {
+  events: number; turns: number; acks: Record<string, number>;
+  source_to_turn_avg_sec: number; source_to_turn_max_sec: number; model_failures: number;
+}>(null);
+const qrBusy = ref(false);
+const qrImage = ref('');
+const qrState = ref('');
+let qrKey = '';
+let qrTimer = 0;
 
 const live = computed(() => settings.live);
+const biliModeOptions = computed(() => [
+  { label: t('live.desk.biliOpen'), value: 'open' },
+  { label: t('live.desk.biliWeb'), value: 'web' },
+]);
 const missingText = computed(() => liveDesk.missing.map((key) => t(`live.block.${key}`)).join('、'));
 const showBadge = computed(() => settings.modules.live && liveDesk.aiLabel && liveDesk.onAir);
 const segmentLabel = computed(() => t(`live.seg.${liveDesk.segment.id}`));
@@ -54,6 +69,9 @@ async function air(on: boolean) {
     if (!on) {
       await api.liveOff();
     } else {
+      // 模式切换只中止当前个人语音，不清空个人聊天、记忆或角色设置。
+      useChatStore().cancelStream();
+      speechPlayer.onUserBargeIn();
       const data = await api.liveOn(characters.currentId || 0);
       if (data.ok === false) {
         message.warning(missingText.value || t('live.desk.needAck'));
@@ -81,6 +99,53 @@ async function bili(on: boolean) {
   }
 }
 
+async function pollBiliQr() {
+  if (!qrKey || !qrBusy.value) return;
+  try {
+    const data = await api.liveBiliQrPoll(qrKey);
+    qrState.value = data.state;
+    if (data.state === 'done') {
+      if (data.live) settings.live = normalizeLive(data.live);
+      qrBusy.value = false;
+      qrKey = '';
+      message.success(t('live.desk.biliLoginDone'));
+      await bili(true);
+      return;
+    }
+    if (data.state === 'expired') {
+      qrBusy.value = false;
+      qrKey = '';
+      return;
+    }
+    qrTimer = window.setTimeout(pollBiliQr, 2000);
+  } catch (err) {
+    qrBusy.value = false;
+    qrKey = '';
+    message.error(String(err));
+  }
+}
+
+async function startBiliQr() {
+  if (qrBusy.value) return;
+  qrBusy.value = true;
+  qrState.value = 'waiting';
+  qrImage.value = '';
+  try {
+    const data = await api.liveBiliQrCreate();
+    qrKey = data.qrcode_key;
+    qrImage.value = data.image;
+    qrTimer = window.setTimeout(pollBiliQr, 1000);
+  } catch (err) {
+    qrBusy.value = false;
+    message.error(String(err));
+  }
+}
+
+onBeforeUnmount(() => {
+  qrBusy.value = false;
+  window.clearTimeout(qrTimer);
+});
+
 async function douyin() {
   busy.value = true;
   try {
@@ -106,6 +171,12 @@ async function inject() {
   } catch (err) {
     message.error(String(err));
   }
+}
+
+async function loadAudit() {
+  if (!liveDesk.sessionId) return;
+  try { audit.value = await api.liveMetrics(liveDesk.sessionId); }
+  catch (err) { message.error(String(err)); }
 }
 
 const biliUp = computed(() => (
@@ -156,6 +227,19 @@ function yuan(n: number) {
         · 播放失败 {{ liveDesk.processing.playbackFailures }}
       </p>
     </details>
+    <details v-if="liveDesk.sessionId" @toggle="loadAudit">
+      <summary>{{ t('live.audit.title') }}</summary>
+      <p class="hint">{{ liveDesk.sessionId }}</p>
+      <template v-if="audit">
+        <p class="hint">{{ t('live.audit.latency', {
+          events: audit.events, turns: audit.turns,
+          avg: audit.source_to_turn_avg_sec, max: audit.source_to_turn_max_sec,
+        }) }}</p>
+        <p class="hint">{{ t('live.audit.receipts', {
+          completed: audit.acks.completed || 0, failed: audit.acks.failed || 0, models: audit.model_failures,
+        }) }}</p>
+      </template>
+    </details>
     <div v-if="live.features.commands" class="cues">
       <button v-for="act in ['nod', 'heart', 'greet', 'bow', 'stretch']" :key="act" type="button" @click="cue(act)">
         {{ t(`live.act.${act}`) }}
@@ -171,11 +255,25 @@ function yuan(n: number) {
     <details open>
       <summary>{{ t('live.desk.platforms') }}</summary>
       <p class="label">{{ t('live.desk.bili') }}</p>
-      <NInput v-model:value="live.bilibili.access_key_id" :placeholder="t('live.desk.biliId')" size="small" />
-      <NInput v-model:value="live.bilibili.access_key_secret" type="password" show-password-on="click"
-              :placeholder="t('live.desk.biliSecret')" size="small" />
-      <NInputNumber v-model:value="live.bilibili.app_id" :min="0" size="small" :placeholder="t('live.desk.biliApp')" />
-      <NInput v-model:value="live.bilibili.code" :placeholder="t('live.desk.biliCode')" size="small" />
+      <NSelect v-model:value="live.bilibili.mode" :options="biliModeOptions" size="small" />
+      <template v-if="live.bilibili.mode === 'web'">
+        <NInput v-model:value="live.bilibili.room_id" :placeholder="t('live.desk.biliRoom')" size="small" />
+        <NInput v-model:value="live.bilibili.cookie" type="password" show-password-on="click"
+                :placeholder="t('live.desk.biliCookie')" size="small" />
+        <p class="hint">{{ t('live.desk.biliCookieHint') }}</p>
+        <NButton size="tiny" :loading="qrBusy" @click="startBiliQr">{{ t('live.desk.biliLogin') }}</NButton>
+        <div v-if="qrImage" class="qr-login">
+          <img :src="qrImage" :alt="t('live.desk.biliLogin')" />
+          <p class="hint">{{ t(`live.desk.biliQr.${qrState}`) }}</p>
+        </div>
+      </template>
+      <template v-else>
+        <NInput v-model:value="live.bilibili.access_key_id" :placeholder="t('live.desk.biliId')" size="small" />
+        <NInput v-model:value="live.bilibili.access_key_secret" type="password" show-password-on="click"
+                :placeholder="t('live.desk.biliSecret')" size="small" />
+        <NInputNumber v-model:value="live.bilibili.app_id" :min="0" size="small" :placeholder="t('live.desk.biliApp')" />
+        <NInput v-model:value="live.bilibili.code" :placeholder="t('live.desk.biliCode')" size="small" />
+      </template>
       <p class="hint">{{ liveDesk.bilibili.error || liveDesk.bilibili.anchor || t(`live.bili.${liveDesk.bilibili.state}`) }}</p>
       <NButton size="tiny" :loading="busy" @click="bili(!biliUp)">
         {{ biliUp ? t('live.desk.biliStop') : t('live.desk.biliStart') }}
@@ -286,7 +384,7 @@ function yuan(n: number) {
 .desk {
   position: absolute;
   left: 12px;
-  top: 64px;
+  top: 156px;
   z-index: 16;
   color: rgba(255, 255, 255, 0.92);
 }
@@ -307,7 +405,7 @@ function yuan(n: number) {
 
 .desk {
   width: min(320px, calc(100vw - 28px));
-  max-height: calc(100vh - 96px);
+  max-height: calc(100vh - 180px);
   overflow: auto;
   padding: 12px;
   border-radius: 16px;
@@ -360,10 +458,28 @@ header, .row, .switch {
 .warn { color: #ffd27a; }
 .label { margin-top: 8px; }
 
+.qr-login {
+  width: 190px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #fff;
+  color: #222;
+  text-align: center;
+}
+
+.qr-login img { display: block; width: 174px; height: 174px; }
+
 summary {
   cursor: pointer;
   font-size: 13px;
   letter-spacing: 0.06em;
+}
+
+@media (max-width: 720px) {
+  .pill,
+  .desk { top: 124px; }
+
+  .desk { max-height: calc(100vh - 148px); }
 }
 
 details { display: flex; flex-direction: column; gap: 6px; }

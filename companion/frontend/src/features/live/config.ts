@@ -2,14 +2,17 @@
 export const LIVE_FEATURES = [
   'bilibili', 'douyin', 'scheduler', 'reply', 'gifts', 'audience', 'rundown',
   'idle', 'budget', 'watchdog', 'ai_label', 'content_gate', 'ritual', 'rehearsal',
-  'commands', 'interrupt',
+  'commands', 'interrupt', 'auto_dance', 'auto_games',
 ] as const;
 
 export type LiveFeature = typeof LIVE_FEATURES[number];
 
 export interface LiveConfig {
   douyin: { room: string; push_secret: string; room_id: string };
-  bilibili: { access_key_id: string; access_key_secret: string; app_id: number; code: string };
+  bilibili: {
+    mode: 'open' | 'web'; room_id: string; cookie: string;
+    access_key_id: string; access_key_secret: string; app_id: number; code: string;
+  };
   features: Record<LiveFeature, boolean>;
   compliance: {
     strict: boolean;
@@ -34,10 +37,10 @@ export interface LiveConfig {
 
 export function defaultLive(): LiveConfig {
   const features = {} as Record<LiveFeature, boolean>;
-  for (const key of LIVE_FEATURES) features[key] = key !== 'rehearsal';
+  for (const key of LIVE_FEATURES) features[key] = !['rehearsal', 'auto_dance', 'auto_games'].includes(key);
   return {
     douyin: { room: '', push_secret: '', room_id: '' },
-    bilibili: { access_key_id: '', access_key_secret: '', app_id: 0, code: '' },
+    bilibili: { mode: 'open', room_id: '', cookie: '', access_key_id: '', access_key_secret: '', app_id: 0, code: '' },
     features,
     compliance: {
       strict: true, ack_voice: false, ack_model: false, ack_bgm: false, bgm_licensed: false,
@@ -76,13 +79,16 @@ export function normalizeLive(raw: unknown): LiveConfig {
     room_id: String(douyin.room_id || ''),
   };
   base.bilibili = {
+    mode: bili.mode === 'web' ? 'web' : 'open',
+    room_id: String(bili.room_id || ''),
+    cookie: String(bili.cookie || ''),
     access_key_id: String(bili.access_key_id || ''),
     access_key_secret: String(bili.access_key_secret || ''),
     app_id: Math.max(0, Math.round(num(bili.app_id, 0))),
     code: String(bili.code || ''),
   };
   for (const key of LIVE_FEATURES) {
-    base.features[key] = key in feats ? !!feats[key] : key !== 'rehearsal';
+    base.features[key] = key in feats ? !!feats[key] : !['rehearsal', 'auto_dance', 'auto_games'].includes(key);
   }
   base.compliance = {
     strict: comp.strict !== false && comp.strict !== 0,

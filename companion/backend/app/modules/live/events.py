@@ -2,10 +2,16 @@
 from __future__ import annotations
 
 import time
+import re
 from dataclasses import dataclass, field
 
 SPEAKABLE = frozenset({"comment", "gift", "superchat", "guard", "follow"})
 PRIORITY_KINDS = frozenset({"gift", "superchat", "guard"})
+_EMOTE_ONLY = re.compile(r"^(?:\[[^\]\n]{1,48}\]\s*)+$")
+
+
+def emote_only(text: str) -> bool:
+    return bool(_EMOTE_ONLY.fullmatch(str(text or "").strip()))
 
 
 @dataclass

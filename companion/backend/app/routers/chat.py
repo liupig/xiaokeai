@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlmodel import Session, select
+from sqlmodel import Session, select, or_
 
 from ..db import get_session
 from ..models import Asset, Character, ChatMessage
@@ -32,6 +32,10 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 class ChatRequest(BaseModel):
     character_id: int
     text: str
+    channel: str = "personal"
+    viewer_id: str = ""
+    viewer_name: str = ""
+    live_session_id: str = ""
     morphs: List[str] = []
     live2d: Dict[str, Any] = {}
     mode: str = "user"
@@ -142,6 +146,7 @@ def _prompt_history(rows: List[ChatMessage]) -> List[Dict[str, str]]:
 @router.post("")
 async def chat(req: ChatRequest, request: Request, session: Session = Depends(get_session)):
     request_t0 = time.perf_counter()
+    live_channel = (req.channel or "personal").lower() == "live"
     conf = settings_store.get_all(session)
     lang = resolve_turn(conf, req.text or "", (req.mode or "user").lower())
     loc = dict(conf.get("locale") or {})
@@ -172,16 +177,18 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     persona = compose_persona(char) if char else ""
     user_persona = compose_user_persona(conf.get("user_persona"))
 
-    history_rows = session.exec(
-        select(ChatMessage)
-        .where(ChatMessage.character_id == req.character_id)
-        .order_by(ChatMessage.id.desc()).limit(HISTORY_FETCH)
-    ).all()
+    history_query = select(ChatMessage).where(ChatMessage.character_id == req.character_id)
+    if live_channel:
+        history_query = history_query.where(ChatMessage.kind == "live")
+    else:
+        history_query = history_query.where(or_(ChatMessage.kind.is_(None), ChatMessage.kind != "live"))
+    history_rows = session.exec(history_query.order_by(ChatMessage.id.desc()).limit(HISTORY_FETCH)).all()
     history: List[Dict[str, str]] = _prompt_history(history_rows)
     mode = (req.mode or "user").lower()
     sidecar = mode in ("life", "continue", "proactive", "goodbye", "welcome", "codewatch", "touch", "along")
+    viewer_text = f"{req.viewer_name or '观众'}：{req.text}" if live_channel else req.text
     if not sidecar and not req.reroll:
-        history.append({"role": "user", "content": req.text})
+        history.append({"role": "user", "content": viewer_text})
 
     groups: Dict[str, List[str]] = {"idle": [], "greet": [], "interact": [], "dance": []}
     for a in session.exec(select(Asset).where(Asset.kind == "motion")).all():
@@ -249,6 +256,10 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 "这些标签不会念出来，正文保持自然口语。"
             ),
         })
+    if live_channel:
+        from ..modules.live.director import _PUBLIC_RULES
+
+        messages.insert(0, {"role": "system", "content": _PUBLIC_RULES})
     # 扮演期间的消息落库标记为 rp：留在聊天历史里，但不进长期记忆抽取
     rp_now = prompt_stack.overlay_active(req.character_id)
 
@@ -290,8 +301,8 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     user_row_id: Optional[int] = None
     if not sidecar and not req.reroll:
         user_row = ChatMessage(
-            character_id=req.character_id, role="user", content=req.text,
-            kind="rp" if isolate else "qa")
+            character_id=req.character_id, role="user", content=viewer_text,
+            kind="live" if live_channel else ("rp" if isolate else "qa"))
         session.add(user_row)
         session.commit()
         session.refresh(user_row)
@@ -412,6 +423,8 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         "touch": "aside",
         "along": "proactive",
     }.get(mode, "rp" if isolate else "qa")
+    if live_channel:
+        msg_kind = "live"
 
     from ..modules.harness.brief import host_brief
     from ..modules.harness.service import harness_llm, turn_uses_harness
@@ -1035,8 +1048,8 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
             saved_text = full_text
             saved_kind = msg_kind
             saved_cid = req.character_id
-            saved_mode = mode
-            saved_user = req.text if not sidecar else ""
+            saved_mode = "live" if live_channel else mode
+            saved_user = viewer_text if not sidecar else ""
             saved_prompt = "\n".join(str(item.get("content") or "") for item in messages)
             saved_tokens = billed_tokens
 
@@ -1105,10 +1118,15 @@ async def chat_ingress(req: IngressRequest, session: Session = Depends(get_sessi
 
 @router.get("/history/{character_id}")
 def history(character_id: int, limit: int = 50,
+            channel: str = "personal",
             session: Session = Depends(get_session)):
+    query = select(ChatMessage).where(ChatMessage.character_id == character_id)
+    if (channel or "personal").lower() == "live":
+        query = query.where(ChatMessage.kind == "live")
+    else:
+        query = query.where(or_(ChatMessage.kind.is_(None), ChatMessage.kind != "live"))
     rows = session.exec(
-        select(ChatMessage).where(ChatMessage.character_id == character_id)
-        .order_by(ChatMessage.id.desc()).limit(limit)
+        query.order_by(ChatMessage.id.desc()).limit(limit)
     ).all()
     return [_msg_out(m) for m in reversed(rows)]
 

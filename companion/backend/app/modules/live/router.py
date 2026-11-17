@@ -19,6 +19,13 @@ from .host import host
 router = APIRouter(prefix="/api/modules/live", tags=["modules-live"])
 
 
+def _journal():
+    from ...paths import DATA_DIR
+    from .journal import LiveJournal
+
+    return LiveJournal(DATA_DIR / "live-journal.sqlite3")
+
+
 class OnBody(BaseModel):
     character_id: int = 0
 
@@ -27,6 +34,7 @@ class AckBody(BaseModel):
     turn_id: str = ""
     outcome: Literal["completed", "displayed", "interrupted", "failed"] = "completed"
     player_id: str = Field(default="", max_length=80)
+    text: str = Field(default="", max_length=500)
 
 
 class ClaimBody(BaseModel):
@@ -44,6 +52,10 @@ class RehearsalBody(BaseModel):
 
 class CueBody(BaseModel):
     act: str = ""
+
+
+class QrPollBody(BaseModel):
+    qrcode_key: str = Field(min_length=1, max_length=128)
 
 
 def _guard(session: Session) -> None:
@@ -91,7 +103,7 @@ def off_air(session: Session = Depends(get_session)) -> dict:
 @router.post("/ack")
 def ack(body: AckBody, session: Session = Depends(get_session)) -> dict:
     _guard(session)
-    return {"ok": host.ack(body.turn_id, body.outcome, body.player_id)}
+    return {"ok": host.ack(body.turn_id, body.outcome, body.player_id, body.text)}
 
 
 @router.post("/claim")
@@ -119,6 +131,35 @@ def bili_start(session: Session = Depends(get_session)) -> dict:
 def bili_stop(session: Session = Depends(get_session)) -> dict:
     _guard(session)
     return host.stop_bilibili()
+
+
+@router.post("/bilibili/login/qrcode")
+def bili_login_qrcode(session: Session = Depends(get_session)) -> dict:
+    _guard(session)
+    try:
+        from .bili.login import create_qrcode
+
+        return {"ok": True, **create_qrcode()}
+    except Exception as exc:
+        raise HTTPException(400, str(exc)[:180]) from exc
+
+
+@router.post("/bilibili/login/poll")
+def bili_login_poll(body: QrPollBody, session: Session = Depends(get_session)) -> dict:
+    _guard(session)
+    try:
+        from .bili.login import poll_qrcode
+
+        result = poll_qrcode(body.qrcode_key)
+        if result.get("state") != "done":
+            return {"ok": True, **result}
+        cookie = str(result.pop("cookie") or "")
+        merged = _save(session, {"bilibili": {
+            "mode": "web", "cookie": cookie, "room_id": str(result.get("room_id") or ""),
+        }})
+        return {"ok": True, **result, "live": merged}
+    except Exception as exc:
+        raise HTTPException(400, str(exc)[:180]) from exc
 
 
 @router.post("/budget/reset")
@@ -154,3 +195,22 @@ def cue(body: CueBody, session: Session = Depends(get_session)) -> dict:
     if not feature_on(host.cfg(), "commands"):
         raise HTTPException(404, "commands off")
     return {"ok": bool(host.push_cue(body.act))}
+
+
+@router.get("/sessions")
+def live_sessions(limit: int = 20, session: Session = Depends(get_session)) -> dict:
+    _guard(session)
+    return {"sessions": _journal().sessions(limit)}
+
+
+@router.get("/sessions/{session_id}/trace")
+def live_trace(session_id: str, after: int = 0, limit: int = 500,
+               session: Session = Depends(get_session)) -> dict:
+    _guard(session)
+    return {"session_id": session_id, "trace": _journal().trace(session_id, after, limit)}
+
+
+@router.get("/sessions/{session_id}/metrics")
+def live_metrics(session_id: str, session: Session = Depends(get_session)) -> dict:
+    _guard(session)
+    return _journal().metrics(session_id)
