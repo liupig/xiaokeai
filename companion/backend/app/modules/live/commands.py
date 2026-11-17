@@ -21,12 +21,15 @@ _ACTS: tuple[tuple[str, tuple[str, ...], str], ...] = (
 
 _ALLOWED = {act for act, _words, _line in _ACTS}
 _SONG = re.compile(r"点歌[:：\s]*[《]?([^》\n]{1,20})")
+_DANCE_REQUEST = re.compile(r"跳个|跳一|跳段|跳舞|来一段|来一支|倒是跳|跳呀|跳起来")
 
 
 def match_act(text: str) -> str:
     raw = (text or "").strip()
     if not raw or len(raw) > _MAX:
         return ""
+    if _DANCE_REQUEST.search(raw):
+        return "dance"
     for act, words, _line in _ACTS:
         if any(word in raw for word in words):
             return act

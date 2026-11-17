@@ -7,7 +7,7 @@ from collections import deque
 
 from .commands import match_act, match_song
 from .config import batch_window, feature_on, song_titles, user_cooldown
-from .events import PRIORITY_KINDS, SPEAKABLE, LiveEvent, clip_event
+from .events import PRIORITY_KINDS, SPEAKABLE, LiveEvent, clip_event, emote_only
 from .selection import select_comments, topic_key
 
 _GUESS = re.compile(r"^\s*(\d{1,2})\s*$")
@@ -65,6 +65,9 @@ class LiveQueue:
             self._seen.append(key)
             self._seen_set.add(key)
         if ev.kind == "comment":
+            # 表情仍留在弹幕板上，但不单独消耗一次模型调用和口播。
+            if emote_only(ev.content):
+                return False
             if now - self._topic_at.get(topic_key(ev.content), float("-inf")) < 12:
                 return False
             wait = user_cooldown(cfg)
@@ -147,6 +150,13 @@ class LiveQueue:
             return item, number
         return None
 
+    def take_comment(self, predicate) -> LiveEvent | None:
+        for item in list(self._items):
+            if item.kind == "comment" and predicate(item.content):
+                self._items = deque(other for other in self._items if other is not item)
+                return item
+        return None
+
     def take_batch(self, now: float, cfg: dict) -> list[LiveEvent] | None:
         if not feature_on(cfg, "reply"):
             return None
@@ -156,9 +166,14 @@ class LiveQueue:
         size = int(cfg["pace"]["batch_size"])
         window = batch_window(cfg)
         oldest = min(item.ts for item in comments)
+        # 人少时不凑满一批，也不等完整聚合窗口。
+        if len(comments) <= 2:
+            window = min(window, 0.5)
         if len(comments) < size and now - oldest < window:
             return None
         picked = select_comments(comments, now, size, self._replied)
+        if not picked:
+            return None
         topics = {topic_key(item.content) for item in picked if item.kind == "comment"}
         drop = set(map(id, picked))
         self._items = deque(item for item in self._items if id(item) not in drop

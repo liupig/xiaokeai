@@ -20,6 +20,7 @@ export interface LiveLine {
 
 export const liveDesk = reactive({
   onAir: false,
+  sessionId: '',
   missing: [] as string[],
   segment: { id: 'chat', left: 0 },
   budget: { spent_cny: 0, cap_cny: 30, tokens: 0, tripped: false, estimated: true },
@@ -36,6 +37,14 @@ export const liveDesk = reactive({
   processing: { accepted: 0, duplicate: 0, expired: 0, overflow: 0, playbackFailures: 0, generating: false },
   error: '',
   action: '',
+  reply: null as null | {
+    id: string; text: string; at: number;
+    sources: Array<{ nickname: string; content: string; kind: string }>;
+  },
+  replies: [] as Array<{
+    id: string; text: string; at: number;
+    sources: Array<{ nickname: string; content: string; kind: string }>;
+  }>,
   boardOpen: true,
   deskOpen: false,
 });
@@ -47,7 +56,17 @@ let holdUntil = 0;
 let bound = false;
 const playerId = crypto.randomUUID();
 let playbackAbort: AbortController | null = null;
-let pendingAck: { id: string; outcome: 'completed' | 'displayed' | 'interrupted' | 'failed' } | null = null;
+let pendingAck: { id: string; outcome: 'completed' | 'displayed' | 'interrupted' | 'failed'; text?: string } | null = null;
+
+type LiveReply = NonNullable<typeof liveDesk.reply>;
+
+function noteLiveReply(reply: LiveReply) {
+  const index = liveDesk.replies.findIndex((item) => item.id === reply.id);
+  if (index >= 0) liveDesk.replies[index] = reply;
+  else liveDesk.replies.push(reply);
+  liveDesk.replies = liveDesk.replies.slice(-6);
+  liveDesk.reply = reply;
+}
 
 function busy() {
   const chat = useChatStore();
@@ -66,10 +85,49 @@ async function speak(turn: { id: string; text: string; cue: string; act?: string
   await flushAck();
 }
 
+async function speakOriginal(turn: {
+  id: string; sources?: Array<{ nickname: string; content: string }>;
+}) {
+  const sources = turn.sources || [];
+  if (!sources.length) {
+    pendingAck = { id: turn.id, outcome: 'failed' };
+    return;
+  }
+  const chat = useChatStore();
+  const primary = sources.length === 1 ? sources[0] : null;
+  const input = primary ? primary.content : sources.map((s) => `${s.nickname}：${s.content}`).join('\n');
+  const ticket = speechPlayer.playbackTicket();
+  const timer = window.setInterval(() => {
+    const latest = [...chat.liveMessages].reverse().find((m) => m.role === 'assistant');
+    if (latest?.content) noteLiveReply({ id: turn.id, text: latest.content, at: Date.now(), sources });
+  }, 120);
+  try {
+    const result = await chat.send(input, {
+      channel: 'live', viewerId: primary ? '' : 'group',
+      viewerName: primary?.nickname || '', liveSessionId: liveDesk.sessionId,
+    });
+    if (result !== 'sent') {
+      pendingAck = { id: turn.id, outcome: 'failed' };
+      return;
+    }
+    const outcome = await speechPlayer.playbackResult(ticket);
+    const latest = [...chat.liveMessages].reverse().find((m) => m.role === 'assistant');
+    const text = latest?.fullContent || latest?.content || '';
+    noteLiveReply({ id: turn.id, text: latest?.content || text, at: Date.now(), sources });
+    pendingAck = { id: turn.id, outcome, text };
+  } catch (err) {
+    liveDesk.error = String(err);
+    pendingAck = { id: turn.id, outcome: 'failed' };
+  } finally {
+    window.clearInterval(timer);
+    await flushAck();
+  }
+}
+
 async function flushAck() {
   const ack = pendingAck;
   if (!ack) return;
-  await api.liveAck(ack.id, ack.outcome, playerId);
+  await api.liveAck(ack.id, ack.outcome, playerId, ack.text || '');
   if (pendingAck === ack) pendingAck = null;
 }
 
@@ -81,6 +139,9 @@ export async function pullLiveDesk() {
     const characters = useCharacterStore();
     const data = await api.liveDesk(busy() ? 1 : 0, characters.currentId || 0);
     liveDesk.onAir = !!data.on_air;
+    const nextSessionId = data.session_id || '';
+    if (nextSessionId !== liveDesk.sessionId) liveDesk.replies = [];
+    liveDesk.sessionId = nextSessionId;
     if (!liveDesk.onAir) playbackAbort?.abort();
     liveDesk.missing = data.missing || [];
     liveDesk.segment = { id: data.segment?.id || 'chat', left: Number(data.segment?.left || 0) };
@@ -126,10 +187,17 @@ export async function pullLiveDesk() {
     };
     liveDesk.error = '';
     const turn = data.turn;
-    if (turn?.id && turn.text && turn.id !== lastSpoken && (turn.interrupt || !busy())) {
+    if (turn?.id && turn.text && turn.delivery !== 'original_chat' && turn.id !== liveDesk.reply?.id) {
+      noteLiveReply({
+        id: turn.id, text: turn.text, at: Date.now(), sources: turn.sources || [],
+      });
+    }
+    const originalChat = turn?.delivery === 'original_chat';
+    if (turn?.id && (turn.text || originalChat) && turn.id !== lastSpoken && (turn.interrupt || !busy())) {
       if (!(await api.liveClaim(turn.id, playerId)).ok) return;
       lastSpoken = turn.id;
-      void speak(turn).catch((err) => { liveDesk.error = String(err); });
+      if (originalChat) void speakOriginal(turn).catch((err) => { liveDesk.error = String(err); });
+      else void speak(turn).catch((err) => { liveDesk.error = String(err); });
     }
   } catch (err) {
     liveDesk.error = err instanceof Error ? err.message : String(err);
@@ -141,7 +209,7 @@ export async function pullLiveDesk() {
 export function startLiveLoop() {
   if (timer) return;
   void pullLiveDesk();
-  timer = setInterval(() => { void pullLiveDesk(); }, 1500);
+  timer = setInterval(() => { void pullLiveDesk(); }, 500);
 }
 
 export function stopLiveLoop() {

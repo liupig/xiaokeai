@@ -13,8 +13,14 @@ export async function playLiveTurn(turn: LiveTurn, signal?: AbortSignal): Promis
   const text = turn.text.trim();
   if (!text || signal?.aborted) return 'interrupted';
   if (turn.interrupt) speechPlayer.onUserBargeIn();
-  if (turn.cue === 'dance' || turn.act === 'dance') orchestrator.beginTurn('跳一支舞');
-  else if (turn.act) orchestrator.beginTurn(text);
+  const wantsDance = turn.cue === 'dance' || turn.act === 'dance';
+  if (wantsDance) {
+    // 把原始弹幕交给选舞器：这样“跳个极乐净土”能按名字命中，而不是只说话不跳。
+    const ask = turn.sources?.map((source) => source.content).filter(Boolean).join('；')
+      || turn.text || '跳一支舞';
+    orchestrator.beginTurn(ask);
+    orchestrator.handle({ type: 'dance', value: '' });
+  } else if (turn.act) orchestrator.beginTurn(text);
   else orchestrator.beginContinue('proactive');
   orchestrator.allowLocalSpeech();
   const ticket = speechPlayer.playbackTicket();

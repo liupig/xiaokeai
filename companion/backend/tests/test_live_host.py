@@ -50,10 +50,8 @@ def test_queue_cools_down_one_viewer_and_lets_gifts_cut_in():
     assert queue.offer(LiveEvent("bilibili", "gift", "乙", "送出 小电视×1", gift="小电视", count=1, msg_id="g1", ts=now + 1), now + 1, cfg)
     jumped = queue.take_priority(cfg)
     assert [item.nickname for item in jumped] == ["乙"]
-    assert queue.take_batch(now + 1, cfg) is None
-    batch = queue.take_batch(now + 20, cfg)
-    assert batch is not None
-    assert batch[0].content == "第一句"
+    # 人少时不等完整聚合窗口，礼物之后能马上接住已有弹幕。
+    assert queue.take_batch(now + 1, cfg)[0].content == "第一句"
 
 
 def test_guess_and_wish_and_song_gate():
@@ -69,7 +67,9 @@ def test_guess_and_wish_and_song_gate():
     assert pool.pop()["text"] == "明天天晴"
     cfg = _cfg()
     assert all(sid != "dance" for sid, _sec in segments(cfg))
+    assert all(sid != "game" for sid, _sec in segments(cfg))
     cfg["compliance"]["bgm_licensed"] = True
+    cfg["features"]["auto_dance"] = True
     cfg["songs"] = "自作的歌\n另一首"
     assert song_titles(cfg) == ["自作的歌", "另一首"]
     assert any(sid == "dance" for sid, _sec in segments(cfg))

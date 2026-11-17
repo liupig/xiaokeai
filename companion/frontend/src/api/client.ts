@@ -109,6 +109,10 @@ export interface TalkLogLine {
 }
 
 export interface ChatExtra {
+  channel?: 'personal' | 'live';
+  viewer_id?: string;
+  viewer_name?: string;
+  live_session_id?: string;
   scene_id?: string;
   scene_text?: string;
   scene_title?: string;
@@ -1218,11 +1222,11 @@ export const api = {
       body: JSON.stringify({ turn_id: turnId, player_id: playerId }),
     });
   },
-  liveAck(turnId: string, outcome: 'completed' | 'displayed' | 'interrupted' | 'failed' = 'completed', playerId = '') {
+  liveAck(turnId: string, outcome: 'completed' | 'displayed' | 'interrupted' | 'failed' = 'completed', playerId = '', text = '') {
     return request<{ ok: boolean }>('/api/modules/live/ack', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ turn_id: turnId, outcome, player_id: playerId }),
+      body: JSON.stringify({ turn_id: turnId, outcome, player_id: playerId, text }),
     });
   },
   liveBiliStart() {
@@ -1230,6 +1234,27 @@ export const api = {
   },
   liveBiliStop() {
     return request<{ ok: boolean }>('/api/modules/live/bilibili/stop', { method: 'POST' });
+  },
+  liveBiliQrCreate() {
+    return request<{ ok: boolean; qrcode_key: string; image: string; expires_in: number }>(
+      '/api/modules/live/bilibili/login/qrcode', { method: 'POST' },
+    );
+  },
+  liveBiliQrPoll(qrcodeKey: string) {
+    return request<{
+      ok: boolean; state: 'waiting' | 'scanned' | 'expired' | 'done';
+      room_id?: string; anchor?: string; live?: unknown; error?: string;
+    }>('/api/modules/live/bilibili/login/poll', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ qrcode_key: qrcodeKey }),
+    });
+  },
+  liveMetrics(sessionId: string) {
+    return request<{
+      session_id: string; events: number; comments: number; turns: number;
+      acks: Record<string, number>; model_failures: number;
+      source_to_turn_avg_sec: number; source_to_turn_max_sec: number;
+    }>(`/api/modules/live/sessions/${encodeURIComponent(sessionId)}/metrics`);
   },
   liveRehearsal(content: string) {
     return request<{ ok: boolean }>('/api/modules/live/rehearsal', {
@@ -1282,6 +1307,10 @@ export const api = {
     const { lifeChatContext } = await import('../features/life/stageLife');
     const body = {
       character_id: characterId, text, morphs, live2d, mode,
+      channel: extra.channel || 'personal',
+      viewer_id: extra.viewer_id || '',
+      viewer_name: extra.viewer_name || '',
+      live_session_id: extra.live_session_id || '',
       life_context: lifeChatContext(characterId, mode === 'life'),
       scene_id: extra.scene_id || '',
       scene_text: extra.scene_text || '',

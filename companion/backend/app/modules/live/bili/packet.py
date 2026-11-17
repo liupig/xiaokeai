@@ -10,6 +10,7 @@ OP_NOTIFY = 5
 OP_AUTH = 7
 OP_AUTH_REPLY = 8
 PROTO_JSON = 0
+PROTO_BROTLI = 3
 PROTO_ZLIB = 2
 _HEADER = 16
 _MAX = 1_048_576
@@ -47,6 +48,18 @@ def unpack_packets(buf: bytes) -> tuple[list[tuple[int, bytes]], bytes]:
             try:
                 inner = zlib.decompress(body)
             except zlib.error:
+                continue
+            nested, _rest = unpack_packets(inner)
+            packets.extend(nested)
+            continue
+        if proto == PROTO_BROTLI:
+            try:
+                import brotli
+
+                inner = brotli.decompress(body)
+            except ImportError as exc:
+                raise RuntimeError("缺少 brotli 依赖，无法读取 B 站压缩弹幕") from exc
+            except brotli.error:
                 continue
             nested, _rest = unpack_packets(inner)
             packets.extend(nested)

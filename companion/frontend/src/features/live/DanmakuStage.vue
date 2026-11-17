@@ -72,6 +72,15 @@ onUnmounted(() => {
       <button type="button" class="close" :aria-label="t('live.douyin.close')" @click="closeBoard">×</button>
     </header>
     <p v-if="liveOn && liveDesk.action" class="chip">{{ t(`live.act.${liveDesk.action}`) }}</p>
+    <template v-if="liveOn">
+      <article v-for="reply in liveDesk.replies" :key="reply.id" class="ai-reply">
+        <span>{{ t('live.reply.ai') }}</span>
+        <small v-if="reply.sources.length">
+          {{ t('live.reply.to', { names: reply.sources.slice(0, 2).map(s => s.nickname).join('、') }) }}
+        </small>
+        <p>{{ reply.text }}</p>
+      </article>
+    </template>
     <div ref="scroller" class="list">
       <p v-if="!lines.length" class="empty">{{ douyinFeed.error || t('live.douyin.waiting') }}</p>
       <p v-for="item in lines" :key="item.seq" class="row" :class="item.kind">
@@ -108,7 +117,7 @@ onUnmounted(() => {
 }
 
 .board {
-  width: min(196px, calc(100vw - 36px));
+  width: min(236px, calc(100vw - 36px));
   display: flex;
   flex-direction: column;
   padding: 6px 8px 7px;
@@ -202,4 +211,35 @@ header {
 .row.gift b { color: #ffe0a3; }
 .row.like b { color: #ffc0d6; }
 .row.follow b { color: #b7efd0; }
+
+.ai-reply {
+  margin: 5px 0 4px;
+  padding: 6px 7px;
+  border-left: 2px solid rgba(196, 181, 253, 0.9);
+  border-radius: 3px 8px 8px 3px;
+  background: rgba(116, 91, 176, 0.18);
+}
+
+.ai-reply > span {
+  display: block;
+  color: #ddd6fe;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.ai-reply small {
+  display: block;
+  margin-top: 2px;
+  color: rgba(230, 230, 250, 0.62);
+  font-size: 10px;
+}
+
+.ai-reply p {
+  margin: 4px 0 0;
+  color: #fff;
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
 </style>

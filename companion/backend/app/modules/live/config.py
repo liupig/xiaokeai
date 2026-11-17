@@ -20,15 +20,20 @@ FEATURE_KEYS = (
     "rehearsal",
     "commands",
     "interrupt",
+    "auto_dance",
+    "auto_games",
 )
 
-_FEATURE_DEFAULT_OFF = frozenset({"rehearsal"})
+_FEATURE_DEFAULT_OFF = frozenset({"rehearsal", "auto_dance", "auto_games"})
 
 
 def default_live() -> dict[str, Any]:
     return {
         "douyin": {"room": "", "push_secret": "", "room_id": ""},
         "bilibili": {
+            "mode": "open",
+            "room_id": "",
+            "cookie": "",
             "access_key_id": "",
             "access_key_secret": "",
             "app_id": 0,
@@ -132,6 +137,9 @@ def normalize(raw: Any) -> dict[str, Any]:
     for key in ("fallback_base_url", "fallback_model", "fallback_api_key"):
         budget[key] = str(budget.get(key) or "").strip()
     bili = base["bilibili"]
+    bili["mode"] = "web" if bili.get("mode") == "web" else "open"
+    bili["room_id"] = str(bili.get("room_id") or "").strip()
+    bili["cookie"] = str(bili.get("cookie") or "").strip()[:16384]
     bili["access_key_id"] = str(bili.get("access_key_id") or "").strip()
     bili["access_key_secret"] = str(bili.get("access_key_secret") or "").strip()
     bili["code"] = str(bili.get("code") or "").strip()

@@ -27,6 +27,10 @@ fastembed>=0.5.0,<1
 websockets>=12
 # 抖音直播页的调试通道。和上面的 websockets 不是同一个包。
 websocket-client>=1.8
+# B 站网页直播间信息流的 proto=3 Brotli 压缩包。
+brotli>=1.1
+# 用户主动扫码登录 B 站时，在本地生成二维码，不经过第三方二维码服务。
+qrcode>=8
 # dsh 内核。2026-10-22 PyPI 上的最新版。SDK 会带上同版本的 runtime，
 # 可执行文件在 site-packages/deepseek_harness_runtime/runtime/ 里，打 A 包时跟着运行时走。
 deepseek-harness-sdk==0.2.1rc2
