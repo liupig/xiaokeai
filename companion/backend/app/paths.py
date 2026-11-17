@@ -25,7 +25,23 @@ def _detect() -> tuple[Path, Path, Path]:
     packed = os.environ.get("COMPANION_ROOT")
     if packed:
         root = Path(packed).resolve()
-        return root, root / "data", root / "web"
+        # Tests and maintenance subprocesses often use COMPANION_ROOT only to
+        # isolate a temporary app.  Real release launchers always have this
+        # runtime; explicit COMPANION_DATA remains available for packed tests.
+        if not (root / "runtime" / "python.exe").is_file() and not os.environ.get("COMPANION_DATA"):
+            return root, root / "data", root / "web"
+        from .user_data import default_data_home, prepare_default_data, prepare_user_data
+        data_home = Path(os.environ.get("COMPANION_DATA") or default_data_home()).resolve()
+        try:
+            status = prepare_user_data(root, root / "data", data_home)
+            print(f"[user-data] {status}: {data_home}")
+        except Exception as exc:
+            fallback = data_home.parent / f"default-{root.name}"
+            print(f"[user-data] import failed: {exc}", file=sys.stderr)
+            print(f"[user-data] using package defaults; old data was not changed: {fallback}", file=sys.stderr)
+            prepare_default_data(root / "data", fallback)
+            data_home = fallback
+        return root, data_home, root / "web"
     here = Path(__file__).resolve().parent  # .../app
     pack_root = here.parent
     if (pack_root / "runtime" / "python.exe").is_file():

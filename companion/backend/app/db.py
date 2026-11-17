@@ -3,6 +3,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from .paths import DB_PATH
 
+# 只有需要改变 SQLite 结构时才递增。旧库在首次 DDL 前自动留下回滚副本。
+SCHEMA_VERSION = 1
+
 engine = create_engine(
     f"sqlite:///{DB_PATH}",
     connect_args={"check_same_thread": False, "timeout": 5},
@@ -23,9 +26,15 @@ def _sqlite_unlock(dbapi_conn, _connection_record) -> None:
 
 
 def init_db() -> None:
+    from .user_data import backup_before_schema_change
+    backup = backup_before_schema_change(DB_PATH, SCHEMA_VERSION)
+    if backup:
+        print(f"[db] rollback backup: {backup}")
     SQLModel.metadata.create_all(engine)
     _migrate_columns()
     _ensure_indexes()
+    with engine.begin() as conn:
+        conn.execute(text(f"PRAGMA user_version={SCHEMA_VERSION}"))
 
 
 def _migrate_columns() -> None:

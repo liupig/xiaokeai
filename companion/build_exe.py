@@ -378,6 +378,9 @@ def export_pack_db(src: Path, dst: Path) -> dict:
         if name not in PACK_KEEP_TABLES:
             dst_conn.execute(f'DELETE FROM "{name}"')
     if "asset" in tables:
+        # Ownership is explicit for future upgrades.  This migration still
+        # replaces the whole catalog; later ones can retain source=user rows.
+        dst_conn.execute("UPDATE asset SET source = 'package'")
         gone = [
             row[0]
             for row in dst_conn.execute("SELECT id, path FROM asset")
