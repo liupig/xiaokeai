@@ -21,12 +21,15 @@ class AudienceBook:
         key = ev.user_key()
         row = self._rows.get(key)
         if row is None:
-            row = {"name": ev.nickname, "visits": 0, "gifts": 0, "last": now, "words": ""}
+            row = {"name": ev.nickname, "visits": 0, "gifts": 0, "last": now,
+                   "words": "", "previous": "", "replies": 0}
             self._rows[key] = row
         row["name"] = ev.nickname or row["name"]
         row["last"] = now
         if ev.kind == "comment":
             row["visits"] = int(row["visits"]) + 1
+            if row.get("words") and row["words"] != ev.content:
+                row["previous"] = row["words"]
             row["words"] = ev.content[:40]
         elif ev.kind in ("gift", "superchat", "guard"):
             row["gifts"] = int(row["gifts"]) + max(ev.count, 1)
@@ -58,3 +61,22 @@ class AudienceBook:
             bit += "）"
             parts.append(bit)
         return "常来的人：" + "、".join(parts)
+
+    def context_for(self, events: list[LiveEvent]) -> str:
+        """只带本轮观众的少量关系上下文，不把整个直播间塞进提示词。"""
+        lines = []
+        for ev in events[:4]:
+            row = self._rows.get(ev.user_key())
+            if not row:
+                continue
+            bit = f"{ev.nickname}：本场发言{row['visits']}次，已被回复{row.get('replies', 0)}次"
+            if row.get("previous") and row["previous"] != ev.content:
+                bit += f"；他此前说过“{row['previous']}”，只有自然相关时才召回"
+            lines.append(bit)
+        return "本轮观众关系（按人区分，不要互换经历）：\n" + "\n".join(lines) if lines else ""
+
+    def note_reply(self, nickname: str) -> None:
+        for row in self._rows.values():
+            if row["name"] == nickname:
+                row["replies"] = int(row.get("replies", 0)) + 1
+                return

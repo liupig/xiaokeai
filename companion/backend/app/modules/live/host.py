@@ -15,6 +15,7 @@ from .director import speak_events, speak_idle
 from .events import PRIORITY_KINDS, LiveEvent
 from .queue import LiveQueue
 from .intake import EventIntake
+from .idiom import IdiomGame
 from .rundown import Rundown
 from .show import GuessGame, TopicDeck, WishPool
 
@@ -53,6 +54,8 @@ class LiveHost:
         self._gift_streak = 0
         self._dialogue: deque[dict] = deque(maxlen=4)
         self._turn_context: dict | None = None
+        self._journal = None
+        self._idle_level = 0
         self._playback_failures = 0
         self._playback_owner = ""
         self.audience = AudienceBook()
@@ -60,6 +63,7 @@ class LiveHost:
         self.rundown = Rundown()
         self.topics = TopicDeck()
         self.game = GuessGame()
+        self.idiom = IdiomGame()
         self.wishes = WishPool()
         self.health = Health()
         self.on_air = False
@@ -195,7 +199,8 @@ class LiveHost:
             except Exception as exc:
                 self.health.note(str(exc))
                 self.health.degraded = True
-            self._stop.wait(2)
+            # 人少时弹幕也要快走；关播后恢复低频，不影响个人聊天进程。
+            self._stop.wait(0.25 if self.on_air else 2)
 
     def go_on(self, character_id: int, now: float | None = None) -> dict:
         cfg = self.cfg()
@@ -203,6 +208,13 @@ class LiveHost:
         if missing:
             return {"ok": False, "missing": missing}
         now = time.time() if now is None else now
+        if self._override is None:
+            from ...paths import DATA_DIR
+            from .journal import LiveJournal
+
+            self._journal = LiveJournal(DATA_DIR / "live-journal.sqlite3")
+            bili = dict(cfg.get("bilibili") or {})
+            self._journal.start(character_id, {"mode": bili.get("mode") or "", "room_id": bili.get("room_id") or ""})
         with self._lock:
             self.on_air = True
             self._generation += 1
@@ -221,16 +233,29 @@ class LiveHost:
             self.budget.reset()
             self.rundown.start(now)
             self.game = GuessGame()
+            self.idiom.clear()
+            self._idle_level = 0
         self.ensure_loop()
         return {"ok": True, "missing": []}
 
     def go_off(self) -> None:
+        was_on = self.on_air
         with self._lock:
             self.on_air = False
             self._generation += 1
             self._turn = None
             self._busy = False
             self.queue.clear()
+        if was_on and self._journal is not None:
+            self._journal.end()
+
+    def _journal_write(self, kind: str, data: dict) -> None:
+        try:
+            if self._journal is not None:
+                self._journal.append(kind, data)
+        except Exception:
+            # 日志故障不能打断真实弹幕和语音。
+            pass
 
     def note_busy(self, busy: bool, character_id: int = 0) -> None:
         with self._lock:
@@ -248,18 +273,26 @@ class LiveHost:
             self._playback_owner = player_id
             return True
 
-    def ack(self, turn_id: str, outcome: str = "completed", player_id: str = "") -> bool:
+    def ack(self, turn_id: str, outcome: str = "completed", player_id: str = "", text: str = "") -> bool:
         with self._lock:
             if self._playback_owner and player_id != self._playback_owner:
                 return False
             if self._turn and self._turn.get("id") == turn_id:
+                if text.strip():
+                    self._turn["text"] = text.strip()[:500]
+                    if self._turn_context and self._turn_context.get("messages"):
+                        self._turn_context["messages"][-1]["content"] = self._turn["text"]
                 if outcome in ("completed", "displayed"):
                     self._recent.append(self._turn["text"][:80])
                     if self._turn_context:
                         self._dialogue.append(self._turn_context)
+                        for viewer in self._turn_context.get("viewers", []):
+                            self.audience.note_reply(str(viewer.get("name") or ""))
                 elif outcome == "failed":
                     self._playback_failures += 1
                     self.health.note("直播语音播放失败，请检查语音引擎和音频输出")
+                self._journal_write("ack", {"turn_id": turn_id, "outcome": outcome,
+                                            "player_id": player_id, "text": self._turn.get("text") or ""})
                 self._turn = None
                 self._turn_context = None
                 self._playback_owner = ""
@@ -285,6 +318,7 @@ class LiveHost:
             ev = self.intake.accept(ev)
             if ev is None:
                 return False
+            self._journal_write("event", {**ev.public(), "uid": ev.uid, "msg_id": ev.msg_id})
             self._remember(ev)
             if ev.kind == "like" or (ev.kind in PRIORITY_KINDS and not feature_on(cfg, "gifts")):
                 return False
@@ -296,6 +330,7 @@ class LiveHost:
                 self._douyin_at = now
             if ev.kind in ("comment", "gift", "superchat", "guard", "follow"):
                 self._last_audience = now
+                self._idle_level = 0
             return self.queue.offer(ev, now=now, cfg=cfg)
 
     def _remember(self, ev: LiveEvent) -> None:
@@ -348,6 +383,7 @@ class LiveHost:
                         {**ev.public(), "msg_id": ev.msg_id} for ev in plan.get("events", [])
                     ]
                     self._turn["created_at"] = now
+                    self._journal_write("turn", self._turn)
                     self._turn_at = now
                     self._last_spoke = now
                     self._turn_context = None
@@ -355,6 +391,11 @@ class LiveHost:
                         self._turn_context = {
                             "viewers": [{"name": ev.nickname, "text": ev.content} for ev in plan["events"]],
                             "reply": turn["text"],
+                        "messages": [
+                            *[{"role": "user", "name": ev.nickname, "content": ev.content}
+                              for ev in plan["events"]],
+                            {"role": "assistant", "name": self._character()[0], "content": turn["text"]},
+                        ],
                         }
 
     def _plan(self, now: float) -> dict | None:
@@ -371,6 +412,9 @@ class LiveHost:
                 "type": "batch", "events": jumped, "mode": "chat",
                 "interrupt": feature_on(cfg, "interrupt") and any(ev.kind == "superchat" for ev in jumped),
             }
+        idiom_event = self.queue.take_comment(self.idiom.handles)
+        if idiom_event:
+            return {"type": "idiom", "events": [idiom_event]}
         if self._cue:
             act = self._cue
             self._cue = ""
@@ -392,6 +436,14 @@ class LiveHost:
                     return {"type": "guess", "event": ev, "number": number}
             elif self.game.should_announce(seg["index"]):
                 return {"type": "announce", "index": seg["index"]}
+        if self.game.open:
+            found = self.queue.take_guess()
+            if found:
+                ev, number = found
+                return {"type": "guess", "event": ev, "number": number}
+        guess_request = self.queue.take_comment(lambda text: "猜数字" in str(text or ""))
+        if guess_request:
+            return {"type": "announce", "index": 0, "events": [guess_request]}
         if seg["id"] in ("dance", "song", "wish") and seg["index"] not in self._fired:
             self._fired.add(seg["index"])
             return {"type": seg["id"], "index": seg["index"]}
@@ -400,9 +452,10 @@ class LiveHost:
             self._gift_streak = 0
             mode = "read" if seg["id"] == "read" else "chat"
             return {"type": "batch", "events": batch, "mode": mode}
-        idle_sec = int(cfg["pace"]["idle_sec"])
+        idle_sec = int(cfg["pace"]["idle_sec"]) * (2 ** self._idle_level)
         if feature_on(cfg, "idle") and now - self._last_spoke >= idle_sec:
             if seg["id"] in ("chat", "read", "wish"):
+                self._idle_level = min(self._idle_level + 1, 3)
                 return {"type": "idle"}
         return None
 
@@ -442,6 +495,9 @@ class LiveHost:
             return self._make(line, "game")
         if kind == "idle":
             return self._idle_turn(cfg)
+        if kind == "idiom":
+            ev = plan["events"][0]
+            return self._make(self.idiom.respond(ev.nickname, ev.content), "game")
         if kind == "batch":
             return self._batch_turn(
                 plan["events"], cfg, plan.get("mode") or "chat", bool(plan.get("interrupt")),
@@ -466,6 +522,12 @@ class LiveHost:
         return self._make(text or seed, "idle")
 
     def _batch_turn(self, events: list[LiveEvent], cfg: dict, mode: str, interrupt: bool = False) -> dict:
+        if self._override is None:
+            self._n += 1
+            return {
+                "id": f"{self._instance_id}-t{self._n}", "text": "", "cue": "chat", "act": "",
+                "interrupt": bool(interrupt), "delivery": "original_chat",
+            }
         phrase = str((cfg.get("persona") or {}).get("catchphrase") or "我在呢")
         if not feature_on(cfg, "reply"):
             from .director import canned
@@ -473,6 +535,9 @@ class LiveHost:
             return self._make(text, cue, interrupt=interrupt)
         name, persona = self._character()
         audience = self.audience.prompt(cfg)
+        related = self.audience.context_for(events)
+        if related:
+            audience = f"{audience}\n{related}" if audience else related
         primary, fallback = self._llm()
         complete = self._complete or _default_complete()
         try:
@@ -488,6 +553,7 @@ class LiveHost:
         except Exception as exc:
             self.health.llm_failures += 1
             self.health.note(str(exc))
+            self._journal_write("model_failure", {"error": str(exc)[:180]})
             self.budget.fail()
             from .director import canned
             text, cue = canned(events, phrase)
@@ -532,6 +598,20 @@ class LiveHost:
         bili = cfg.get("bilibili") or {}
         if not feature_on(cfg, "bilibili"):
             return {"ok": False, "error": "哔哩哔哩开关是关的"}
+        if bili.get("mode") == "web":
+            from .bili.web import WebLiveSession, normalize_room
+
+            room = normalize_room(str(bili.get("room_id") or ""))
+            if not room:
+                return {"ok": False, "error": "先填正确的 B 站房间号或直播间链接"}
+            self.stop_bilibili()
+            session = WebLiveSession(
+                room, str(bili.get("cookie") or ""), on_event=self.ingest, on_status=self._on_bili,
+            )
+            self._bili = session
+            session.start()
+            self.ensure_loop()
+            return {"ok": True, "error": "", **session.snapshot()}
         if not bili.get("access_key_id") or not bili.get("access_key_secret"):
             return {"ok": False, "error": "先填开放平台的 Access Key"}
         if not int(bili.get("app_id") or 0) or not bili.get("code"):
@@ -558,6 +638,7 @@ class LiveHost:
 
     def _on_bili(self, status: dict) -> None:
         self._bili_status = dict(status)
+        self._journal_write("platform", status)
         if status.get("error"):
             self.health.note(str(status["error"]))
 
@@ -572,6 +653,7 @@ class LiveHost:
                 bili["reconnects"] = self._bili.reconnects
             return {
                 "on_air": self.on_air,
+                "session_id": str(self._journal.session_id) if self._journal is not None else "",
                 "missing": missing_acks(cfg) if not self.on_air else [],
                 "features": dict(cfg.get("features") or {}),
                 "segment": seg,

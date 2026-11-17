@@ -44,6 +44,7 @@ class OpenLiveSession:
             "room_id": self.room_id,
             "reconnects": self.reconnects,
             "game_id": bool(self._game_id),
+            "mode": "open",
         }
 
     def start(self) -> None:

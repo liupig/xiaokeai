@@ -18,6 +18,7 @@ import XkIcon from '../icons/XkIcon.vue';
 import { tarotGameLock, tarotUi } from '../tarot/session';
 import { openTavern } from '../tavern/session';
 import { featureOn, t } from '../../i18n';
+import { liveDesk } from '../live/session';
 
 const TarotDock = defineAsyncComponent(() => import('../tarot/Dock.vue'));
 const CodewatchDock = defineAsyncComponent(() => import('../codewatch/Dock.vue'));
@@ -104,6 +105,7 @@ function scrollToLatest() {
 
 const partnerName = computed(() => characters.current?.name ?? '她');
 const mods = computed(() => settings.modules);
+const liveHosting = computed(() => liveDesk.onAir);
 const scenesOn = computed(() => settings.modules.scenes && featureOn('scenes', settings.locale.reply));
 const tarotOn = computed(() => settings.modules.tarot && featureOn('tarot', settings.locale.reply));
 const canRewrite = computed(() =>
@@ -182,6 +184,7 @@ watch(
 );
 
 async function send(raw?: string, opts?: { fromVoice?: boolean }) {
+  if (liveHosting.value) return 'skip';
   pinnedToLatest.value = true;
   shownCount.value = PAGE;
   const text = typeof raw === 'string' ? raw : input.value;
@@ -418,6 +421,7 @@ async function toggleMsgPin(id?: number) {
       <n-button v-if="micAvailable(isClipStt(settings.stt.engine) ? settings.stt.engine : 'browser')"
                 quaternary circle size="small"
                 :type="listening ? 'error' : 'default'"
+                :disabled="liveHosting"
                 class="mic" @click="toggleMic" @pointerenter="warmupMic">
         <XkIcon name="mic" :size="18" />
       </n-button>
@@ -470,7 +474,8 @@ async function toggleMsgPin(id?: number) {
       <n-input
         class="chat-input"
         v-model:value="input" size="small" round
-        :placeholder="tarotUi.phase !== 'off' && tarotUi.phase !== 'leaving'
+        :disabled="liveHosting"
+        :placeholder="liveHosting ? t('chat.liveHosting') : tarotUi.phase !== 'off' && tarotUi.phase !== 'leaving'
           ? (tarotGameLock()
             ? (tarotUi.phase === 'intent'
               ? '可以说「第三个」「时间线」，或点编号'
@@ -488,7 +493,7 @@ async function toggleMsgPin(id?: number) {
         @keydown.enter="onChatEnter"
       />
       <n-button type="primary" size="small" round
-                :loading="chat.sending" :disabled="!input.trim()"
+                :loading="chat.sending" :disabled="liveHosting || !input.trim()"
                 class="send" @click="() => send()">
         <XkIcon name="send" :size="15" />
         <span>{{ t('chat.send') }}</span>

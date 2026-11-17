@@ -313,6 +313,7 @@ const SIDECAR_KIND: Record<'continue' | 'proactive' | 'goodbye' | 'welcome', Mes
 export const useChatStore = defineStore('chat', {
   state: () => ({
     messages: [] as Message[],
+    liveMessages: [] as Message[],
     sending: false,
     lastError: '',
     /** 正在读的那一句（不依赖气泡切片，避免对不上就卡住） */
@@ -755,9 +756,14 @@ export const useChatStore = defineStore('chat', {
       this.messages = [];
       resetSession();
     },
-      async send(text: string, opts: { fromHold?: boolean; scripted?: boolean; tarotRole?: string; fromVoice?: boolean; hideUser?: boolean; localLine?: string; mode?: 'user' | 'life' } = {}) {
+      async send(text: string, opts: {
+        fromHold?: boolean; scripted?: boolean; tarotRole?: string; fromVoice?: boolean; hideUser?: boolean;
+        localLine?: string; mode?: 'user' | 'life'; channel?: 'personal' | 'live';
+        viewerId?: string; viewerName?: string; liveSessionId?: string;
+      } = {}) {
       let input = text.trim();
       if (!input) return 'empty';
+      const thread = opts.channel === 'live' ? this.liveMessages : this.messages;
       let tarotLock = false;
       let tarotPass = false;
       let tarotMod: typeof import('../features/tarot') | null = null;
@@ -818,7 +824,7 @@ export const useChatStore = defineStore('chat', {
       silencePhase = 'delayed';
       this.rollGoodbyeDeadline();
       if (!opts.hideUser) {
-        this.messages.push({
+        thread.push({
           role: 'user', content: input,
           created_at: new Date().toISOString(),
           when: localStamp(),
@@ -828,12 +834,12 @@ export const useChatStore = defineStore('chat', {
         role: 'assistant', content: '', fullContent: '', kind: 'qa', spokenLen: 0,
         created_at: new Date().toISOString(), when: localStamp(),
       };
-      this.messages.push(assistant);
+      thread.push(assistant);
       this.applyVoice();
       touchLastChat(chars.currentId);
       touchLastUserChat(chars.currentId);
       this.armSceneRotate();
-      const prevLine = [...this.messages].reverse().find(
+      const prevLine = [...thread].reverse().find(
         (m) => m.role === 'assistant' && (m.fullContent || m.content || '').trim(),
       );
       orchestrator.beginTurn(input, prevLine?.fullContent || prevLine?.content || '');
@@ -903,7 +909,7 @@ export const useChatStore = defineStore('chat', {
         if (ev.type === 'meta') {
           refreshCoinsSoon(); refreshJourneySoon(chars.currentId);
           if (ev.user_id) {
-            const u = [...this.messages].reverse().find((m) => m.role === 'user' && !m.id);
+            const u = [...thread].reverse().find((m) => m.role === 'user' && !m.id);
             if (u) u.id = ev.user_id;
           }
           if (ev.message_id) assistant.id = ev.message_id;
@@ -934,7 +940,13 @@ export const useChatStore = defineStore('chat', {
             emitLocal(quiet, onEvent);
           } else {
             const capabilities = chars.modelInfo?.format === 'live2d' ? live2dStage.capabilities : {};
-            await api.streamChat(chars.currentId, input, onEvent, controller.signal, morphs, opts.mode || 'user', liveScenePack(), capabilities);
+            await api.streamChat(chars.currentId, input, onEvent, controller.signal, morphs, opts.mode || 'user', {
+              ...liveScenePack(),
+              channel: opts.channel || 'personal',
+              viewer_id: opts.viewerId || '',
+              viewer_name: opts.viewerName || '',
+              live_session_id: opts.liveSessionId || '',
+            }, capabilities);
           }
         } catch (e) {
           if (!controller.signal.aborted) this.lastError = String(e);
@@ -1000,6 +1012,9 @@ export const useChatStore = defineStore('chat', {
       this.sending = false;
     },
     async sidecarChat(mode: 'continue' | 'proactive' | 'goodbye' | 'welcome', reason = '', extra: ChatExtra = {}) {
+      const { liveDesk } = await import('../features/live/session');
+      // 只有真正开播才暂停个人主动话术；连接弹幕或仅开模块不影响原闲聊。
+      if (liveDesk.onAir) return;
       if (tavernUi.on) return;
       if (mode === 'continue' || mode === 'proactive' || mode === 'goodbye') {
         const { alongLive } = await import('../features/glance/along');

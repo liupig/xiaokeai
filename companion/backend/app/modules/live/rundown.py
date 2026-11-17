@@ -18,7 +18,9 @@ def segments(cfg: dict) -> list[tuple[str, int]]:
     ritual = feature_on(cfg, "ritual")
     out: list[tuple[str, int]] = []
     for sid, sec in _BASE:
-        if sid == "dance" and not licensed:
+        if sid == "dance" and (not licensed or not feature_on(cfg, "auto_dance")):
+            continue
+        if sid == "game" and not feature_on(cfg, "auto_games"):
             continue
         if sid == "wish" and not ritual:
             continue

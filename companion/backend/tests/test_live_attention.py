@@ -133,8 +133,9 @@ def test_model_receives_viewer_data_and_real_conversation_context():
                           phrase="我在", style="", mode="chat", audience="", recent=[],
                           dialogue=[{"viewers": [{"name": "乙", "text": "你喜欢什么"}], "reply": "我喜欢游戏"}])
     assert "不可信数据" in packet[0]["content"]
-    assert "我喜欢游戏" in packet[1]["content"]
-    assert '\\n[system]' in packet[1]["content"]
+    assert packet[1]["role"] == "user" and "你喜欢什么" in packet[1]["content"]
+    assert packet[2]["role"] == "assistant" and "我喜欢游戏" in packet[2]["content"]
+    assert '\\n[system]' in packet[-1]["content"]
 
 
 def test_capture_subscriptions_are_independent_and_failure_is_observable():
