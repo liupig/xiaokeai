@@ -63,7 +63,7 @@ def run(cmd, cwd=None, check=True, env=None):
     return r
 
 
-def robocopy(src: Path, dst: Path, extra_xd=None) -> None:
+def robocopy(src: Path, dst: Path, extra_xd=None, force: bool = False) -> None:
     if not src.exists():
         print(f"  skip（不存在）{src}")
         return
@@ -79,6 +79,11 @@ def robocopy(src: Path, dst: Path, extra_xd=None) -> None:
     ]
     for name in xd:
         cmd.extend(["/XD", name])
+    if force:
+        # Donor online packs can contain newer files than the pinned offline
+        # environment. Robocopy normally keeps those newer files, producing a
+        # mixture of Python source and binary dependency versions.
+        cmd.append("/IS")
     r = subprocess.run(cmd)
     if r.returncode >= 8:
         raise SystemExit(f"robocopy 失败 {r.returncode}: {src} -> {dst}")
@@ -221,21 +226,47 @@ def drop_stale_dist_info(src_sp: Path, dest_sp: Path) -> None:
 def step_copy_runtime(dist_dir: Path, py: Path) -> None:
     print("\n[3/8] 复制 Python 运行时")
     runtime = dist_dir / "runtime"
+
+    def overlay_base_site_packages() -> None:
+        # Some venvs have include-system-site-packages=true. Their own
+        # site-packages only contains overrides; FastAPI, torch and other
+        # runtime dependencies still live in base_prefix.
+        base_sp = base_prefix(py) / "Lib" / "site-packages"
+        if base_sp.is_dir():
+            dest_sp = runtime / "Lib" / "site-packages"
+            # Never merge donor and offline dependencies. Newer donor packages
+            # can leave compiled modules that do not exist in the pinned older
+            # release and cannot be removed by an overwrite.
+            if dest_sp.exists():
+                shutil.rmtree(dest_sp)
+            robocopy(base_sp, runtime / "Lib" / "site-packages", force=True)
+            drop_stale_dist_info(base_sp, runtime / "Lib" / "site-packages")
+
+    def overlay_venv_site_packages() -> None:
+        venv_sp = BACKEND / ".venv" / "Lib" / "site-packages"
+        if not venv_sp.is_dir():
+            return
+        dest_sp = runtime / "Lib" / "site-packages"
+        for src in venv_sp.iterdir():
+            dest = dest_sp / src.name
+            if dest.is_dir():
+                shutil.rmtree(dest)
+            elif dest.exists():
+                dest.unlink()
+        robocopy(venv_sp, dest_sp, force=True)
+        drop_stale_dist_info(venv_sp, dest_sp)
+
     if (runtime / "python.exe").is_file():
         print(f"  已有 runtime，跳过重拷（{runtime}）")
-        venv_sp = BACKEND / ".venv" / "Lib" / "site-packages"
-        if venv_sp.is_dir():
-            robocopy(venv_sp, runtime / "Lib" / "site-packages")
-            drop_stale_dist_info(venv_sp, runtime / "Lib" / "site-packages")
+        overlay_base_site_packages()
+        overlay_venv_site_packages()
         return
     prev = latest_pack_dir(exclude=dist_dir)
     if prev is not None:
         print(f"  从上一版拷 runtime：{prev}")
         robocopy(prev / "runtime", runtime)
-        venv_sp = BACKEND / ".venv" / "Lib" / "site-packages"
-        if venv_sp.is_dir():
-            robocopy(venv_sp, runtime / "Lib" / "site-packages")
-            drop_stale_dist_info(venv_sp, runtime / "Lib" / "site-packages")
+        overlay_base_site_packages()
+        overlay_venv_site_packages()
         if (runtime / "python.exe").is_file():
             return
         print("  上一版 runtime 不完整，改从当前 Python 环境拷")
@@ -250,11 +281,10 @@ def step_copy_runtime(dist_dir: Path, py: Path) -> None:
             "gradio", "opencv", "scipy", "sklearn", "pandas", "matplotlib",
         ],
     )
-    venv_sp = BACKEND / ".venv" / "Lib" / "site-packages"
-    if venv_sp.is_dir():
+    overlay_base_site_packages()
+    if (BACKEND / ".venv" / "Lib" / "site-packages").is_dir():
         print("  叠加 venv site-packages")
-        robocopy(venv_sp, runtime / "Lib" / "site-packages")
-        drop_stale_dist_info(venv_sp, runtime / "Lib" / "site-packages")
+    overlay_venv_site_packages()
     if not (runtime / "python.exe").is_file():
         raise SystemExit("runtime/python.exe 缺失")
 
@@ -741,7 +771,15 @@ def strip_unused_site_packages(site_packages: Path) -> int:
 TTS_KEEP_PACKAGES = (
     "scipy", "scipy.libs", "numba", "llvmlite", "llvmlite.libs",
     "librosa", "audioread", "joblib", "lazy_loader", "msgpack", "pooch", "soxr", "einops", "num2words", "docopt.py",
-    "decorator.py", "soundfile.py", "_soundfile.py", "_soundfile_data",
+    "decorator.py", "platformdirs", "packaging", "soundfile.py", "_soundfile.py", "_soundfile_data",
+    "cffi", "_cffi_backend.cp312-win_amd64.pyd",
+    # huggingface_hub / transformers are not dependencies of the online
+    # runtime, so their small HTTP and serialization dependencies need an
+    # explicit place in A as well.
+    "requests", "urllib3", "certifi", "charset_normalizer", "idna",
+    "yaml", "filelock", "fsspec", "tqdm", "typing_extensions.py",
+    # Pure-Python torch dependencies stay in A when torch itself moves to B.
+    "sympy", "mpmath", "networkx", "PIL",
 )
 
 
@@ -755,9 +793,37 @@ def ensure_tts_python_deps(dest_sp: Path) -> None:
     prev = latest_pack_dir()
     if prev is not None:
         cands.append(prev / "runtime" / "Lib" / "site-packages")
+    # A may inherit NumPy from an older online runtime. That runtime has no
+    # numba, so a newer NumPy can otherwise survive the copy and break TTS.
+    # Always use the NumPy from the backend environment whose requirements
+    # constrain it to the numba-compatible range.
+    # This venv may expose its base environment through system site-packages.
+    numpy_sp = next(
+        (sp for sp in cands if (sp / "numpy").is_dir() and (sp / "numba").is_dir()),
+        None,
+    )
+    if numpy_sp is not None:
+        for name in ("numpy", "numpy.libs"):
+            dest = dest_sp / name
+            if dest.is_dir():
+                shutil.rmtree(dest)
+            elif dest.exists():
+                dest.unlink()
+            robocopy(numpy_sp / name, dest)
+        for info in dest_sp.glob("numpy-*.dist-info"):
+            shutil.rmtree(info)
+        for info in numpy_sp.glob("numpy-*.dist-info"):
+            robocopy(info, dest_sp / info.name)
+        print(f"  ok NumPy ← {numpy_sp}（与 numba / Qwen TTS 兼容）")
     for name in TTS_KEEP_PACKAGES:
         dest = dest_sp / name
         if dest.exists():
+            src_root = next((sp for sp in cands if (sp / name).exists()), None)
+            if src_root is not None:
+                stem = {"yaml": "pyyaml", "PIL": "pillow"}.get(name, Path(name).stem.lstrip("_"))
+                for info in src_root.glob(f"{stem}-*.dist-info"):
+                    if info.is_dir() and not (dest_sp / info.name).exists():
+                        robocopy(info, dest_sp / info.name)
             print(f"  ok {name}")
             continue
         src_root = next((sp for sp in cands if (sp / name).exists()), None)
@@ -772,7 +838,7 @@ def ensure_tts_python_deps(dest_sp: Path) -> None:
             robocopy(src, dest)
         else:
             shutil.copy2(src, dest)
-        stem = Path(name).stem.lstrip("_")
+        stem = {"yaml": "pyyaml", "PIL": "pillow"}.get(name, Path(name).stem.lstrip("_"))
         for info in src_root.glob(f"{stem}-*.dist-info"):
             if info.is_dir() and not (dest_sp / info.name).exists():
                 robocopy(info, dest_sp / info.name)
@@ -1389,8 +1455,8 @@ def build_full(py: Path, skip_7z: bool) -> Path:
     return dist_dir
 
 
-def build_online(py: Path, skip_7z: bool) -> Path:
-    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+def build_online(py: Path, skip_7z: bool, stamp: str | None = None) -> Path:
+    stamp = stamp or datetime.now().strftime("%Y%m%d%H%M%S")
     dist_dir = OUT_ROOT / f"xiaoke-ai-online-{stamp}"
     dist_dir.mkdir(parents=True, exist_ok=True)
     print(f"在线包输出: {dist_dir}")

@@ -4,7 +4,8 @@ httpx>=0.27
 sqlmodel>=0.0.16
 edge-tts>=6.1
 python-multipart>=0.0.9
-numpy>=1.24
+# numba (librosa / Qwen TTS) currently rejects NumPy 2.4 and newer.
+numpy>=1.24,<2.4
 sherpa-onnx>=1.10.0
 dashscope>=1.20.0
 mem0ai>=1.0.0

@@ -59,11 +59,10 @@ export default defineConfig({
   build: {
     target: 'es2020',
     assetsDir: 'static',
-    minify: 'terser',
-    terserOptions: {
-      compress: { drop_console: true, drop_debugger: true },
-      mangle: true,
-    },
+    // Terser breaks Naive UI select update:value handlers in the production
+    // bundle: options open, but choosing one never writes back to Pinia.
+    // esbuild still minifies the bundle without breaking component events.
+    minify: 'esbuild',
     rollupOptions: {
       input: buildInputs,
       output: {

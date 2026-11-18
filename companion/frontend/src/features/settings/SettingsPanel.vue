@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import NativeSelect from './NativeSelect.vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import {
   NButton, NColorPicker, NDrawer, NDrawerContent, NInput, NInputNumber, NSelect,
@@ -949,13 +950,13 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
         <div class="form">
           <p class="hint">{{ t('lang.hint') }}</p>
           <label>{{ t('lang.ui') }}</label>
-          <n-select :value="settings.locale.ui" :options="langOptions"
+          <NativeSelect :value="settings.locale.ui" :options="langOptions"
                     @update:value="(v: 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru') => settings.setLocale({ ui: v })" />
           <label>{{ t('lang.reply') }}</label>
-          <n-select :value="settings.locale.reply" :options="langOptions"
+          <NativeSelect :value="settings.locale.reply" :options="langOptions"
                     @update:value="(v: 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru') => settings.setLocale({ reply: v })" />
           <label>{{ t('lang.mode') }}</label>
-          <n-select :value="settings.locale.reply_mode" :options="replyModeOptions"
+          <NativeSelect :value="settings.locale.reply_mode" :options="replyModeOptions"
                     @update:value="(v: 'fixed' | 'follow') => settings.setLocale({ reply_mode: v })" />
           <p v-if="!featureOn('tarot', settings.locale.reply)" class="hint">{{ t('mod.missing') }} · {{ t('mod.tarot') }}</p>
           <p v-if="!featureOn('scenes', settings.locale.reply)" class="hint">{{ t('mod.missing') }} · {{ t('mod.scenes') }}</p>
@@ -1002,7 +1003,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <p class="hint">{{ t('set.mod.memory') }}</p>
           <template v-if="settings.modules.memory">
             <label>{{ t('set.mod.embed') }}</label>
-            <n-select :value="settings.memory.embedder" :options="embedderOptions"
+            <NativeSelect :value="settings.memory.embedder" :options="embedderOptions"
                       @update:value="saveEmbedder" />
             <p class="hint">{{ t('set.mod.embedHint') }}</p>
           </template>
@@ -1063,7 +1064,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <p class="hint">{{ t('set.mod.glance') }}</p>
           <template v-if="settings.modules.glance">
             <label>{{ t('set.mod.alongGenerator') }}</label>
-            <n-select v-model:value="settings.vision.generator" :options="alongGeneratorOptions"
+            <NativeSelect v-model:value="settings.vision.generator" :options="alongGeneratorOptions"
                       @update:value="() => settings.save()" />
             <p class="hint">{{ t('set.mod.alongGeneratorHint') }}</p>
           </template>
@@ -1099,7 +1100,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
             </ul>
           </template>
           <label>{{ t('set.vision.label') }}</label>
-          <n-select v-model:value="settings.vision.provider" :options="visionOptions" />
+          <NativeSelect v-model:value="settings.vision.provider" :options="visionOptions" />
           <template v-if="settings.vision.provider === 'openai'">
             <label>{{ t('set.vision.url') }}</label>
             <n-input v-model:value="settings.vision.base_url"
@@ -1117,7 +1118,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
       <n-tab-pane name="ai" :tab="t('settings.ai')">
         <div class="form">
           <label>{{ t('set.llm.label') }}</label>
-          <n-select :value="currentPreset" :options="llmPresetOptions" filterable
+          <NativeSelect :value="currentPreset" :options="llmPresetOptions" filterable
                     :placeholder="t('set.llm.ph')"
                     @update:value="applyLlmPreset" />
           <label>{{ t('set.llm.url') }}</label>
@@ -1148,7 +1149,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <p v-if="settings.llm_env || settings.llm_local" class="hint">{{ t('set.llm.env') }}</p>
           <p class="hint">{{ t('set.llm.hint') }}</p>
           <label>{{ t('set.llm.think') }}</label>
-          <n-select v-model:value="settings.llm.thinking" :options="thinkingOptions" />
+          <NativeSelect v-model:value="settings.llm.thinking" :options="thinkingOptions" />
           <p class="hint">{{ t('set.llm.thinkHint') }}</p>
           <label>{{ t('set.llm.temp', { n: settings.llm.temperature.toFixed(2) }) }}</label>
           <n-slider v-model:value="settings.llm.temperature"
@@ -1207,7 +1208,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <p v-if="hwHint" class="hint">{{ hwHint }}</p>
           <h3 class="section-title">{{ t('set.asr.title') }}</h3>
           <label>{{ t('set.asr.engine') }}</label>
-          <n-select v-model:value="settings.stt.engine" :options="asrEngineOptions" />
+          <NativeSelect v-model:value="settings.stt.engine" :options="asrEngineOptions" />
           <p class="hint">{{ t('set.asr.hint') }}</p>
           <p v-if="settings.stt.engine === 'ali' || settings.stt.engine === 'volc'" class="hint">{{ t('set.asr.cloud') }}</p>
           <p v-if="settings.stt.engine === 'openai' || settings.stt.engine === 'eleven' || settings.stt.engine === 'gemini'" class="hint">{{ t('set.asr.cloudIntl') }}</p>
@@ -1219,7 +1220,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
 
           <h3 class="section-title">{{ t('set.tts.title') }}</h3>
           <label>{{ t('set.tts.engine') }}</label>
-          <n-select v-model:value="settings.tts.engine" :options="ttsEngineOptions" />
+          <NativeSelect v-model:value="settings.tts.engine" :options="ttsEngineOptions" />
           <div v-if="settings.tts.engine === 'tera'" class="speech-status">
             <p class="hint">{{ speechStatus?.tera.message || (speechStatus?.tera.installed ? 'TeraTTSv2 ✓' : t('set.tera.missing')) }}</p>
             <n-button size="small" :loading="!!speechStatus?.tera.downloading"
@@ -1234,7 +1235,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           </div>
           <template v-if="settings.tts.engine === 'qwen'">
             <label>{{ t('set.tts.size') }}</label>
-            <n-select v-model:value="settings.tts.qwen_size" :options="qwenSizeOptions" />
+            <NativeSelect v-model:value="settings.tts.qwen_size" :options="qwenSizeOptions" />
             <p class="hint">
               {{ t('set.tts.sizeLead') }}
               0.6B {{ speechStatus?.tts.sizes?.['0.6b']?.installed ? t('set.tts.local') : t('set.tts.missing') }}
@@ -1244,7 +1245,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
               </template>
             </p>
             <label>{{ t('set.tts.style') }}</label>
-            <n-select v-model:value="settings.tts.qwen_style" :options="qwenStyleOptions" />
+            <NativeSelect v-model:value="settings.tts.qwen_style" :options="qwenStyleOptions" />
             <n-input v-if="settings.tts.qwen_style === 'custom'"
                      v-model:value="settings.tts.qwen_instruct" type="textarea"
                      :autosize="{ minRows: 2, maxRows: 4 }"
@@ -1252,7 +1253,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
             <p class="hint">{{ t('set.tts.styleHint') }}</p>
           </template>
           <label>{{ t('set.tts.voice') }}</label>
-          <n-select v-model:value="settings.tts.voice" :options="voiceOptions" filterable
+          <NativeSelect v-model:value="settings.tts.voice" :options="voiceOptions" filterable
                     :fallback-option="false" :placeholder="t('set.tts.voicePh')"
                     :disabled="!ttsNeedsVoice" />
           <p class="hint">{{ t('set.tts.voiceHint') }}</p>
@@ -1260,7 +1261,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
           <p class="hint">{{ t('set.tavern.castHint') }}</p>
           <template v-for="seat in tavernSeats" :key="seat">
             <label>{{ t('set.tavern.' + seat) }}</label>
-            <n-select :value="tavernCastValue(seat)" :options="tavernCastOptions" filterable
+            <NativeSelect :value="tavernCastValue(seat)" :options="tavernCastOptions" filterable
                       @update:value="(value) => setTavernCast(seat, String(value || ''))" />
           </template>
 
@@ -1281,7 +1282,7 @@ async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'ta
                      :placeholder="t('set.persona.descPh')" />
           </template>
           <label>{{ t('set.tts.duplex') }}</label>
-          <n-select v-model:value="settings.tts.duplex_cmd" :options="duplexCmdOptions" />
+          <NativeSelect v-model:value="settings.tts.duplex_cmd" :options="duplexCmdOptions" />
           <label>{{ t('set.tts.remain', { n: Number(settings.tts.duplex_remain_sec).toFixed(1) }) }}</label>
           <n-slider v-model:value="settings.tts.duplex_remain_sec"
                     :min="1" :max="8" :step="0.5" />
