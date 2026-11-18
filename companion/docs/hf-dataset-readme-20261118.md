@@ -4,6 +4,14 @@
 
 **核心更新：镜头组合由 2000+ 扩充至 16000+，规模约为此前的 8 倍。** 更丰富的景别、机位、运动与切换节奏，让对话、舞蹈、日常生活和直播拥有更自然的镜头语言与更少的重复感。
 
+## 三个下载渠道
+
+- **Hugging Face：** [20261118114555 版本目录](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261118114555)（A+B）· [Online 目录](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/online)
+- **百度网盘：** [统一分享目录](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)，提取码 **`xkai`**。
+- **Google Drive：** [统一镜像目录](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link)。
+
+GitHub 同步发布：[2026-11-18 · A + Online 完整体验包](https://github.com/liupig/xiaokeai/releases/tag/release-20261118)。百度网盘和 Google Drive 为统一镜像目录，下载时请核对文件时间戳为 `20261118114555`，A、B 不要混用不同版本。
+
 ## 下载选择
 
 | 使用方式 | 文件 | 位置 | 说明 |
@@ -57,6 +65,14 @@ Windows 10+。密钥不随包提供。Online 需要联网并配置自己的模�
 Unified build version: `20261118114555`.
 
 **Highlight: the camera-combination library has grown from more than 2,000 to over 16,000, roughly eight times its previous size.** Expanded framing, angles, movements and transition pacing bring more natural visual variety to conversations, dances, everyday life and livestreams.
+
+## Three download mirrors
+
+- **Hugging Face:** [20261118114555 release directory](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261118114555) for A+B, and the [Online directory](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/online).
+- **Baidu Netdisk:** [shared mirror directory](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai), extraction code **`xkai`**.
+- **Google Drive:** [shared mirror directory](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link).
+
+Also available on GitHub: [November 18, 2026 · A + Online](https://github.com/liupig/xiaokeai/releases/tag/release-20261118). Baidu Netdisk and Google Drive use shared mirror directories. Check for timestamp `20261118114555` before downloading, and do not mix A and B from different releases.
 
 ## Choose your edition
 

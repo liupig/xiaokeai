@@ -6,6 +6,14 @@
 
 ## 下载与启动
 
+### 三个下载渠道 · Download mirrors
+
+- **Hugging Face：** [20261118114555 版本目录](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261118114555)（A+B）· [Online 目录](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/online)
+- **百度网盘：** [统一分享目录](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)，提取码 **`xkai`**。
+- **Google Drive：** [统一镜像目录](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link)。
+
+GitHub 本 Release 直接提供 A 和 Online；B 及镜像可从以上渠道获取。百度网盘和 Google Drive 为统一镜像目录，下载时请核对文件时间戳为 **`20261118114555`**，A、B 不要混用不同版本。
+
 ### 本地 A+B：语音、向量与视觉可跑在本机
 
 1. 下载本 Release 的 `xiaoke-ai-agent-A-20261118114555.7z`。
@@ -65,6 +73,14 @@ Unified build version: **`20261118114555`**. The A application pack and the Onli
 **Highlight of this release: the camera-combination library has grown from more than 2,000 to over 16,000 combinations, roughly eight times its previous size.** A much broader range of framing, angles, movements and transitions gives character performances, everyday companionship and stage presentations far more visual variety.
 
 ### Download and start
+
+#### Three download mirrors
+
+- **Hugging Face:** [20261118114555 release directory](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261118114555) for A+B, and the [Online directory](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/online).
+- **Baidu Netdisk:** [shared mirror directory](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai), extraction code **`xkai`**.
+- **Google Drive:** [shared mirror directory](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link).
+
+A and Online are attached directly to this GitHub Release. B and mirror copies are available through the channels above. Baidu Netdisk and Google Drive use shared mirror directories; before downloading, check that the filename timestamp is **`20261118114555`**. Do not mix A and B from different releases.
 
 #### A+B: local speech, embeddings and vision
 
