@@ -30,7 +30,7 @@ def _make_import_cb(category: str = ""):
         ) else None
         with DbSession(db_engine) as s:
             return import_downloaded(
-                s, archive, source="aplaybox",
+                s, archive, source="user-aplaybox",
                 source_url=f"https://www.aplaybox.com/details/{info['work_type']}/{info['uid']}",
                 label=label,
                 extra_meta=extra,

@@ -48,7 +48,7 @@ async def import_file(file: UploadFile, session: Session = Depends(get_session))
         shutil.copyfileobj(file.file, out)
     try:
         stem = Path(file.filename or "").stem
-        created = import_downloaded(session, tmp, label=stem)
+        created = import_downloaded(session, tmp, label=stem, source="user")
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(422, f"导入失败: {exc}") from exc
     finally:

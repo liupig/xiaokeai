@@ -1,14 +1,15 @@
 {
-  "version": "20261105173339",
-  "published_at": "2026-11-05",
+  "version": "20261118114555",
+  "published_at": "2026-11-18",
   "notes": {
-    "zh": "新增魅影酒馆、直播互动、连续视频陪看、SillyTavern 角色卡和自然语言开游戏；A/B 包需使用相同时间戳。",
-    "en": "Adds Phantom Tavern, live interaction, continuous video companionship, SillyTavern cards, and natural-language game launching. A/B packs must use the same timestamp."
+    "zh": "新增共同生活与旅程、Live2D、Mixamo 和 B 站直播；优化语音、人物阴影、用户数据迁移，并修复设置页切换。A/B 包需使用相同时间戳。",
+    "en": "Adds shared-life journeys, Live2D, Mixamo and Bilibili live tools; improves speech, shadows and user-data migration, and fixes settings dropdowns. A/B packs must use the same timestamp."
   },
   "baidu_password": "xkai",
   "downloads": {
     "baidu": "https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai",
-    "huggingface": "https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261105173339",
+    "huggingface": "https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261118114555",
+    "github": "https://github.com/liupig/xiaokeai/releases/tag/release-20261118",
     "google_drive": "https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link"
   }
 }

@@ -1266,7 +1266,9 @@ export class Stage {
       if (!mesh.isMesh) return;
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       mesh.castShadow = materials.some((mat) => !mat.transparent || mat.opacity >= 0.95);
-      mesh.receiveShadow = true;
+      // 脸部、睫毛和头发的自阴影会在低多边形曲面上形成三角形 shadow acne。
+      // 人物仍向地面和舞台投影，但不接收自身或其他人物网格的阴影。
+      mesh.receiveShadow = false;
     });
     this.modelRoot = root;
     this.modelKind = format;

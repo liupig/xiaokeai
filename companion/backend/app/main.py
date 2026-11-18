@@ -128,7 +128,10 @@ def startup() -> None:
     import atexit
     atexit.register(proc_reap.shutdown_workers)
     init_db()
-    from .paths import ASSETS_DIR, content_status
+    from .paths import ASSETS_DIR, DB_PATH, ROOT_DIR, content_status, is_packed
+    if is_packed():
+        from .user_data import sync_package_catalog_once
+        sync_package_catalog_once(DB_PATH, ROOT_DIR / "data" / "app.db", ROOT_DIR.name)
     st = content_status()
     print(f"[paths] assets={ASSETS_DIR}")
     print(f"[content] packed={st['packed']} ok={st['ok']} path={st['path'] or '-'}")
