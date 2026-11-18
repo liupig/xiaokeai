@@ -34,6 +34,20 @@ B       83D30CA54F446B4560FE58633610B571D88C1CA11E0B5254F9EFC4FB02F1CDF6
 Online  8AD0B9E96DFFDEAD6C674B35AEC818B236221041E2AA3D4DDCE9580119469757
 ```
 
+---
+
+## 我们的社区 · Our Community
+
+无论你是 AI 伴侣玩家、开发者、角色卡作者、MMD/VRM 创作者、直播主播，还是单纯想来看看桌宠今天又在忙什么，都欢迎加入。期待大家一起聊角色、晒舞台、提建议、写代码，也想看看你会把小可爱变成什么样子。
+
+Whether you are an AI companion player, developer, character-card author, MMD/VRM creator, livestreamer, or simply curious about what the desktop companion is doing today, you are welcome to join us. Share characters and stages, offer suggestions, contribute code, and help shape xiaoke.ai with the community.
+
+- **QQ 群 · QQ group：** `1124054481`
+- **微信 · WeChat：** `xiaokeai3d`
+- **Discord：** [https://discord.gg/xxvXxHP8T](https://discord.gg/xxvXxHP8T)
+- **X：** [https://x.com/iliuPIG](https://x.com/iliuPIG)
+- **YouTube：** [https://www.youtube.com/@liupig](https://www.youtube.com/@liupig)
+
 Windows 10+。密钥不随包提供。Online 需要联网并配置自己的模型服务 Key；本地 Qwen TTS 需要兼容的 NVIDIA 显卡和驱动。
 
 ---
