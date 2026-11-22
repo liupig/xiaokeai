@@ -29,15 +29,12 @@ def test_brief_keeps_persona_and_drops_the_director_manual():
         {"role": "system", "content": "导演：[emo:happy] 然后 [dance:]"},
         {"role": "user", "content": "在吗"},
     ]
-    brief = host_brief(messages, ["wave.vmd"])
+    brief = host_brief(messages)
     assert "清宵" in brief
-    assert "wave.vmd" in brief
     assert "[dance:]" not in brief
     reading = host_brief(
         [{"role": "system", "content": "【当前扮演】临时看牌。\n【这一轮任务】只讲这一张。"}],
-        ["wave.vmd"],
     )
-    assert "wave.vmd" not in reading
     assert "只讲这一张" in reading
 
 

@@ -12,8 +12,8 @@ const RECENT_WEIGHT = [0.06, 0.16, 0.32, 0.5, 0.68, 0.82, 0.92];
 
 const REPEAT_RE = /再跳一次|再跳一遍|再来一次|再来一遍|再跳这|这支再|刚才那|同样的|一样的|\bagain\b|one more time|same one/i;
 const SWITCH_RE = /换一|换支|另一|别的舞|不一样|不要这|跳个别|下一支|再跳一个|再来一个|再来一支|再来一首|再唱一首|再跳支|\banother\b|\bdifferent\b/i;
-const OPEN_RE = /跳.{0,6}舞|来一段|来一支|来一首|跳呀|跳起来|跳一个|dance/i;
-const YES_RE = /^(好的|好呀|好啊|好吧|可以|行呀|行吧|来吧|跳吧|就这个|要这个|就它|嗯好|对)[呀啊吧呢哦哇～!！。.\s]*$/;
+const OPEN_RE = /跳.{0,6}舞|来一段|来一支|来一首|跳呀|跳起来|跳一个|跳一段|跳一下|跳一支|dance/i;
+const YES_RE = /^(好的|好呀|好啊|好吧|可以|行呀|行吧|来吧|跳吧|就这个|就这支|就这首|要这个|就它|嗯好|对)[呀啊吧呢哦哇～!！。.\s]*$/;
 
 let recent: string[] = loadRecent();
 
@@ -53,6 +53,27 @@ export function danceIntent(ask: string): DanceIntent {
 export function asksForDance(text: string) {
   const t = text || '';
   return OPEN_RE.test(t) || REPEAT_RE.test(t) || SWITCH_RE.test(t);
+}
+
+export function stopsCurrentDance(text: string) {
+  const normalized = text.trim().replace(/[。！？!?]+$/, '');
+  return /^(?:停|停下|先停|暂停|停一下|别跳了|不跳了|停止跳舞|把舞停了|先别跳|不要跳了|stop dancing|stop the dance|pause the dance|やめて|그만|стоп)$/i.test(normalized)
+    || /^(?:(?:请|你)?先?|请你)?(?:坐下|站起来|坐一会儿|过来|走过来|回中间|走到(?:左边|右边|中间))(?:吧|呀|一下)?$/u.test(normalized)
+    || /(?:别跳了|停止跳舞|把舞停了|停舞|stop dancing)[，。！!,\s]*(?:我们|我想|聊聊|问你|先|坐下)?/i.test(text);
+}
+
+export function discussionOnlyDance(text: string) {
+  if (/不(?:要|用|许|想看).{0,4}跳|别跳|先不跳|stop dancing|(?:don't|do not) dance/i.test(text)) return true;
+  return /what (?:dances|songs)|(?:会|能)跳(?:什么|哪些)|推荐.*(?:舞|一支|一下)/i.test(text)
+    && !/(?:然后|再|现在|直接|就)跳|(?:and then|then) dance/i.test(text);
+}
+
+export function explicitDanceTitle(text: string) {
+  const title = text.match(/[《「“]([^》」”]{2,60})[》」”]/)?.[1]
+    ?? text.match(/跳(?:一下|一段|一支|一首)\s*(.{2,60}?)(?:吧|呀|啊|吗)?[。！？!?,，]*\s*$/u)?.[1]?.trim()
+    ?? '';
+  const clean = title.replace(/[吧呀啊吗。！？!?,，]+$/u, '').trim();
+  return /^(?:舞|舞蹈|给我看|给我看看|别的|另外一支)$/.test(clean) ? '' : clean;
 }
 
 /** 短句答应。上一句若点了舞名，才当成要跳那支。 */

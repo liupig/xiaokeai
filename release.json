@@ -9,6 +9,7 @@
   "downloads": {
     "baidu": "https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai",
     "huggingface": "https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261118114555",
+    "modelscope": "https://modelscope.cn/datasets/liupig/xiaokeai",
     "github": "https://github.com/liupig/xiaokeai/releases/tag/release-20261118",
     "google_drive": "https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link"
   }

@@ -1,3 +1,4 @@
+import { WINK_MORPH } from '../expression';
 import type { Application, Ticker } from 'pixi.js';
 import type { Live2DModel } from 'untitled-pixi-live2d-engine/cubism';
 import type { ModelInfo } from '../stage';
@@ -444,6 +445,10 @@ export class Live2DStage {
   }
 
   async setExpressionEnabled(name: string, enabled: boolean, persist = true): Promise<void> {
+    if (WINK_MORPH.test(name)) {
+      if (enabled && this.expressionNames.includes(name)) stage.setMorph(name, 1);
+      return;
+    }
     if (!this.avatar) return;
     if (name.toLowerCase() === 'glasses') {
       if (!enabled) {

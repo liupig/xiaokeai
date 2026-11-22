@@ -241,12 +241,15 @@ async def annotate_stream(
     filler: bool = True,
     delayed_sec: float = 6,
     unit_kind: str = "body",
+    allow_model_duplex: bool = True,
+    quick_first: bool = False,
 ):
     """把 LLM 异步事件流补上 speech 单元。text 仍给 UI；合成只走 speech。"""
-    splitter = SentenceSplitter(current_reply())
+    splitter = SentenceSplitter(current_reply(), quick_first=quick_first)
     gate = _JsonSpeechGate()
     body_cmd = normalize_body_cmd(body_cmd)
     first_body = True
+    decision_open = True
 
     def _units(prose: str, kind: str):
         nonlocal first_body
@@ -261,6 +264,15 @@ async def annotate_stream(
 
     try:
         async for ev in events:
+            kind = ev.get("type")
+            if kind == "duplex":
+                decision = str(ev.get("value") or "").strip().lower()
+                if allow_model_duplex and decision_open and decision in BODY_CMDS | {"skip", "silent"}:
+                    decision_open = False
+                    yield {"type": "duplex_decision", "duplex_cmd": decision}
+                continue
+            if kind not in {"meta", "usage"} and (kind != "text" or str(ev.get("delta") or "").strip()):
+                decision_open = False
             if ev.get("type") == "text":
                 prose = strip_emoji(gate.push(str(ev.get("delta") or "")))
                 if not prose:
@@ -273,6 +285,19 @@ async def annotate_stream(
                     unit = make_unit(spoken, kind, body_cmd)
                     if unit["text"]:
                         yield unit
+                continue
+            if ev.get("type") in {"emo", "expr", "intent", "act"}:
+                # 表情与动作标签修饰其后的语句。已有正文先入语音队列，避免接收端把标签绑到上一句。
+                for sent in splitter.flush():
+                    spoken, extras = peel_stage_dirs(sent)
+                    for extra in extras:
+                        yield extra
+                    kind = unit_kind if unit_kind != "body" else ("phrase" if first_body else "body")
+                    unit = make_unit(spoken, kind, body_cmd)
+                    if unit["text"]:
+                        yield unit
+                        first_body = False
+                yield ev
                 continue
             if ev.get("type") == "done":
                 tail = strip_emoji(gate.finish())

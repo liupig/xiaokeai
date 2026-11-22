@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import traceback
 from queue import Queue
+from contextlib import closing
 from threading import Lock, Thread
 
 
@@ -19,6 +20,7 @@ def main(in_q, out_q, cancel_ev) -> None:
 
     work: Queue = Queue()
     current = {"job": ""}
+    queued: set[str] = set()
     cancelled: set[str] = set()
     gate = Lock()
 
@@ -34,10 +36,14 @@ def main(in_q, out_q, cancel_ev) -> None:
                 return
             if cmd[0] == "cancel":
                 with gate:
-                    cancelled.add(str(cmd[1]))
                     if cmd[1] == current["job"]:
                         cancel_ev.set()
+                    elif cmd[1] in queued:
+                        cancelled.add(cmd[1])
                 continue
+            if cmd[0] == "synth":
+                with gate:
+                    queued.add(cmd[1])
             work.put(cmd)
 
     Thread(target=recv, daemon=True, name="tts-recv").start()
@@ -57,6 +63,7 @@ def main(in_q, out_q, cancel_ev) -> None:
                 _, job, text, voice, size, instruct, *extra = cmd
                 language = extra[0] if extra else ""
                 with gate:
+                    queued.discard(job)
                     dropped = job in cancelled
                     if dropped:
                         cancelled.discard(job)
@@ -67,10 +74,11 @@ def main(in_q, out_q, cancel_ev) -> None:
                     out_q.put(("done", job, b""))
                     continue
                 try:
-                    for pcm in synthesize_pcm_sync(text, voice, size, instruct, cancel_ev, language):
-                        if cancel_ev.is_set():
-                            break
-                        out_q.put(("pcm", job, pcm))
+                    with closing(synthesize_pcm_sync(text, voice, size, instruct, cancel_ev, language)) as chunks:
+                        for pcm in chunks:
+                            if cancel_ev.is_set():
+                                break
+                            out_q.put(("pcm", job, pcm))
                     out_q.put(("done", job, b""))
                 except Exception as exc:
                     extra = str(exc)
@@ -85,7 +93,8 @@ def main(in_q, out_q, cancel_ev) -> None:
                         pass
                     out_q.put(("err", job, extra))
                 finally:
-                    current["job"] = ""
+                    with gate:
+                        current["job"] = ""
             else:
                 continue
         except Exception as exc:

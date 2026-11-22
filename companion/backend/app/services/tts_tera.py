@@ -242,6 +242,7 @@ def _stop_gpu_worker() -> None:
             proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait()
 
 
 def _ensure_gpu_worker():

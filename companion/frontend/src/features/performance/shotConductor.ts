@@ -2,6 +2,7 @@
  * 镜头导演：程序化景别/运镜 + 运镜库 VMD 一起抽。
  * 景别（comboDist）决定能做什么动作；运镜只负责从哪看、怎么连续看。
  */
+import { safeAutomaticShot } from '../../engine/shotRules';
 import { api, type AssetItem } from '../../api/client';
 import { stage } from '../../engine/stage';
 import type { CamShotId, EmotionKey } from '../../engine/types';
@@ -40,6 +41,8 @@ export class ShotConductor {
   current: CamShotId | null = null;
   private comboDist: Distance = 'half';
   private lastAt = 0;
+  private nextMotionFramingCheck = 0;
+  private inMotionFraming: { revision: number; asset: string | undefined; usedClose: boolean; pulledBack: boolean; lastCut: number } | null = null;
   private holdUntil = 0;
   private recent: string[] = [];
   private cards: CamCard[] = [];
@@ -75,10 +78,52 @@ export class ShotConductor {
     this.indexFrom(useAssetsStore().cameras);
   }
 
+  /** 保持当前动作，只从同资产和当前站位的过审镜头换景别。 */
+  reframePlayingMotion() {
+    const now = Date.now();
+    if (now < this.nextMotionFramingCheck) return;
+    this.nextMotionFramingCheck = now + 180;
+    if (this.reviewLock || !repertoire.loaded || stage.stand.isMoving || stage.cameraDriving) return;
+    if (stage.director.state === 'thinking') return;
+    if (stage.camSizeLock?.length && !stage.camSizeLock.includes('close')) return;
+    const clip = stage.motion.reframePlayback;
+    if (!clip?.url || clip.duration < 1.1 || clip.time < 0.45 || clip.duration - clip.time < 0.4) return;
+    if (this.inMotionFraming?.revision !== clip.revision) {
+      const activeSize = stage.automaticShotSize;
+      this.inMotionFraming = {
+        revision: clip.revision,
+        asset: repertoire.playingAssetName,
+        usedClose: activeSize === 'close',
+        pulledBack: false,
+        lastCut: now,
+      };
+    }
+    const state = this.inMotionFraming;
+    if (!state.asset) return;
+    const size = stage.automaticShotSize;
+    if (size === 'close') state.usedClose = true;
+    const pullBack = state.usedClose && size === 'close' && !state.pulledBack;
+    if ((state.usedClose && !pullBack) || now - state.lastCut < (pullBack ? 3100 : 600)) return;
+    const eligible = (target: CamShotId) => stage.clampCamSize(target) === target
+      ? repertoire.pick({ assetName: state.asset, stand: stage.standSlot, size: target, camKey: 'hold' })
+      : null;
+    const beat = pullBack ? eligible('bust') ?? eligible('half') ?? eligible('threeQ') ?? eligible('full') : eligible('close');
+    if (!beat) return;
+    void repertoire.perform(beat, {
+      cam: true, stand: false, motion: false, sameMotionCamera: true,
+      onCameraApplied: () => {
+        state.lastCut = Date.now();
+        state.usedClose = true;
+        state.pulledBack ||= pullBack;
+        this.syncFromBeat(beat);
+      },
+    });
+  }
+
   /** 读一场戏，只从过审四元组里抽镜头 */
   cover(cue: SceneCue) {
     if (this.reviewLock) return;
-    if (stage.cameraDriving && Date.now() - this.lastAt < 900) return;
+    const canCut = !this.current || (Date.now() >= this.holdUntil && stage.director.state !== 'speaking');
     if (!repertoire.loaded) return;
     const dancing = !!(cue.dancing || cue.beat === 'dance');
     if (dancing && this.danceAsset) {
@@ -102,10 +147,10 @@ export class ShotConductor {
       ...this.sizeLockNeed(),
     });
     if (!beat) return;
-    this.syncFromBeat(beat);
+    if (canCut) this.syncFromBeat(beat);
     void repertoire.perform(beat, {
-      cam: true,
-      stand: !dancing && (cue.beat === 'open' || !!cue.forceWide),
+      cam: canCut,
+      stand: canCut && !dancing && (cue.beat === 'open' || !!cue.forceWide),
       // 跳舞等 playDance 开动作，这里只先把镜头落到这支舞能用的景别
       motion: !dancing && cue.beat === 'line',
     });
@@ -129,9 +174,10 @@ export class ShotConductor {
       stage.director.nudgeIdle(0.5);
       return;
     }
+    if (repertoire.playingAssetName) return;
     const now = Date.now();
     const [minGap] = this.idleKind === 'alone' ? IDLE_CADENCE.aloneCuts : IDLE_CADENCE.betweenCuts;
-    if (now - this.lastAt < minGap * 1000) return;
+    if (now < this.holdUntil || now - this.lastAt < minGap * 1000) return;
     if (stage.director.state === 'speaking') return;
     if (stage.director.state === 'thinking') return;
 
@@ -158,7 +204,7 @@ export class ShotConductor {
           ? (this.current && this.current !== 'close' ? this.current : 'full')
           : (this.current && this.current !== 'long' ? this.current : 'half');
       }
-      stage.playIdleCut(fallback, move, kind === 'alone' ? 3.2 : 2.2 + Math.random() * 0.8);
+      stage.playAutomaticFraming(fallback, undefined, move);
       this.current = fallback;
       this.lastAt = now;
       this.idleCut += 1;
@@ -168,11 +214,14 @@ export class ShotConductor {
     this.syncFromBeat(beat);
     this.lastAt = now;
     this.holdUntil = now + (kind === 'alone' ? 3600 : 2000);
-    if (wantMotion && beat.assetName) this.lastIdleAsset = beat.assetName;
-    if (wantMotion) {
+    const playMotionNow = wantMotion && !stage.motion.active && beat.actionKind !== 'none';
+    // 普通动作末帧经常是素材烘焙的初始站姿，不能把它作为独处待机钉住。
+    const holdLast = playMotionNow && kind === 'alone' && beat.intents.includes('sit') && beat.actionKind === 'asset';
+    if (playMotionNow && beat.assetName) this.lastIdleAsset = beat.assetName;
+    if (playMotionNow) {
       this.lastIdleSat = beat.intents.includes('sit');
       const [a, b] = IDLE_CADENCE.alonePoseHold;
-      this.poseHoldUntil = kind === 'alone'
+      this.poseHoldUntil = holdLast
         ? now + (a + Math.random() * (b - a)) * 1000
         : 0;
     }
@@ -180,11 +229,11 @@ export class ShotConductor {
     const wander = kind === 'alone'
       && beat.stand !== stage.standSlot
       && (beat.intents.includes('walk') || Math.random() < 0.32);
-    const holdLast = kind === 'alone' && !beat.intents.includes('walk') && beat.actionKind === 'asset';
     void repertoire.perform(beat, {
       cam: true,
       stand: wander,
-      motion: wantMotion && !stage.motion.active && beat.actionKind !== 'none',
+      motion: playMotionNow,
+      once: true,
       holdLast,
       idleMove: move,
       onMotionEnded: holdLast ? undefined : () => {
@@ -295,11 +344,15 @@ export class ShotConductor {
   danceCut() {
     if (this.reviewLock || !this.danceAsset) return;
     if (!stage.motion.active) {
+      if (stage.danceLive) return;
       this.endDance();
       return;
     }
     const now = Date.now();
-    if (now - this.lastAt < 2200) return;
+    if (now < this.holdUntil || now - this.lastAt < 4000 || stage.cameraDriving) return;
+    const { time, duration } = stage.motion.previewTime;
+    const nearLoopBoundary = duration > 0 && (time < 0.18 || duration - time < 0.18);
+    if (!nearLoopBoundary && stage.bodyFramingSpeed > 0.55 && now - this.lastAt < 8500) return;
     const name = this.danceAsset;
     const preferSize = this.current ? stage.clampCamSize(this.current) : undefined;
     const beat = repertoire.pick({
@@ -320,7 +373,7 @@ export class ShotConductor {
     });
     if (!beat) return;
     this.syncFromBeat(beat);
-    this.holdUntil = now + 2200 + Math.random() * 1800;
+    this.holdUntil = now + 4000;
     void repertoire.perform(beat, { cam: true, stand: false, motion: false });
   }
 
@@ -335,7 +388,7 @@ export class ShotConductor {
   }
 
   /** 审查：直接播一条运镜 VMD；distHint 钉住所选景别 */
-  forceVmd(name: string, distHint?: Distance) {
+  forceVmd(name: string, distHint?: Distance, adapt = false) {
     this.ensureIndex();
     const raw = useAssetsStore().cameras.find((c) => c.name === name);
     if (!raw) return;
@@ -345,13 +398,22 @@ export class ShotConductor {
     this.current = ANCHOR_SHOT[dist];
     this.lastAt = Date.now();
     this.holdUntil = this.lastAt + 8000;
-    void stage.playCameraVmd(api.assetUrl(raw), { once: true });
+    return stage.playCameraVmd(api.assetUrl(raw), { once: true, review: true, adapt });
+  }
+
+  previewFramedShot(size: CamShotId, move?: CamShotId, instant = false) {
+    const dist = distanceOfShot(size);
+    this.comboDist = dist;
+    this.current = ANCHOR_SHOT[dist];
+    this.lastAt = Date.now();
+    this.holdUntil = this.lastAt + 5000;
+    stage.playReviewShot(size, move, instant);
   }
 
   /** LLM 点名一条程序镜头：必须落在过审组合上 */
   suggest(id: CamShotId, cue: SceneCue = {}) {
-    if (this.reviewLock) return;
-    const shot = SIZE_SHOTS.has(id) ? stage.clampCamSize(id) : id;
+    if (this.reviewLock || Date.now() < this.holdUntil) return;
+    const shot = SIZE_SHOTS.has(id) ? stage.clampCamSize(id) : safeAutomaticShot(id);
     const asSize = SIZE_SHOTS.has(shot);
     const beat = repertoire.pick({
       size: asSize ? shot : undefined,
@@ -360,7 +422,13 @@ export class ShotConductor {
       preferStand: stage.standSlot,
       preferSize: asSize ? shot : (this.current ? stage.clampCamSize(this.current) : undefined),
       ...this.sizeLockNeed(),
-    });
+    }) ?? (!asSize && this.current ? repertoire.pick({
+      size: stage.clampCamSize(this.current),
+      camKey: 'hold',
+      allowWalk: false,
+      preferStand: stage.standSlot,
+      ...this.sizeLockNeed(),
+    }) : null);
     if (!beat) return;
     this.syncFromBeat(beat);
     void repertoire.perform(beat, { cam: true, stand: false, motion: false });
@@ -387,6 +455,8 @@ export class ShotConductor {
     this.comboDist = 'half';
     this.lastAt = 0;
     this.holdUntil = 0;
+    this.inMotionFraming = null;
+    this.nextMotionFramingCheck = 0;
     this.recent = [];
     this.idleKind = 'chat';
     this.pendingAlone = false;

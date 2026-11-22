@@ -417,6 +417,10 @@ async function toggleMsgPin(id?: number) {
         <span class="vst">{{ statusLabel[m.status] }}</span>
       </div>
     </div>
+    <div v-if="chat.lastError" class="chat-error" role="alert">
+      <span>{{ chat.lastError }}</span>
+      <button type="button" class="head-btn" @click="chat.lastError = ''">{{ t('common.close') }}</button>
+    </div>
     <div class="input-row">
       <n-button v-if="micAvailable(isClipStt(settings.stt.engine) ? settings.stt.engine : 'browser')"
                 quaternary circle size="small"
@@ -504,6 +508,16 @@ async function toggleMsgPin(id?: number) {
 </template>
 
 <style scoped>
+.chat-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #ffb3b3;
+  overflow-wrap: anywhere;
+}
 /* 左下停靠的对话面板：不遮挡居中的人物 */
 .chat-dock {
   position: absolute;

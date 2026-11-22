@@ -51,6 +51,7 @@ Characters shown in screenshots are demo assets created by [aplaybox](https://ww
 
 - [GitHub Release · online-20261109](https://github.com/liupig/xiaokeai/releases/tag/online-20261109)
 - [Hugging Face · Online directory](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/online)
+- [ModelScope · dataset](https://modelscope.cn/datasets/liupig/xiaokeai)
 
 Download `xiaoke-ai-online-20261109154149.7z`, extract it, and run `xiaoke-ai.exe`. Configure one Volcengine Ark LLM API key under **Settings → AI Chat**. Chat and online memory embeddings share this key. Browser Web Speech provides free ASR and edge-tts provides free speech synthesis by default, so no separate speech key is required.
 
@@ -62,10 +63,10 @@ The current A/B prebuilt packs are **2026-11-05**. They include Chromium and a P
 
 **Download both A and B with timestamp `20261105173339`.** The older unversioned `xiaoke-ai-B` is not compatible with this release. Baidu Netdisk uses one shared folder for both files; password: `xkai`.
 
-| Pack | Purpose | Hugging Face | Google Drive | Baidu Netdisk |
-|---|---|---|---|---|
-| **A** · `xiaoke-ai-agent-A-20261105173339.7z` | Application and runtime | [Download](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-A-20261105173339.7z) | [Mirror folder](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [Shared folder](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
-| **B** · `xiaoke-ai-agent-B-20261105173339.7z` | Characters, motions, music, speech, and local vision models | [Download](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-B-20261105173339.7z) | [Mirror folder](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [Shared folder](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+| Pack | Purpose | Hugging Face | ModelScope | Google Drive | Baidu Netdisk |
+|---|---|---|---|---|---|
+| **A** · `xiaoke-ai-agent-A-20261105173339.7z` | Application and runtime | [Download](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-A-20261105173339.7z) | [Dataset](https://modelscope.cn/datasets/liupig/xiaokeai) | [Mirror folder](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [Shared folder](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+| **B** · `xiaoke-ai-agent-B-20261105173339.7z` | Characters, motions, music, speech, and local vision models | [Download](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-B-20261105173339.7z) | [Dataset](https://modelscope.cn/datasets/liupig/xiaokeai) | [Mirror folder](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [Shared folder](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
 
 A is also available from [GitHub Releases](https://github.com/liupig/xiaokeai/releases/tag/a-20261105), with bilingual release notes and community links.
 

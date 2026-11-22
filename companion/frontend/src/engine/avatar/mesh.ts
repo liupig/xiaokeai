@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { WINK_MORPH } from '../expression';
 import type { Avatar, Axis, BoneKey, BoneMap, MorphMap } from '../types';
 import { makeBaseTracker, measureArm } from './common';
 import { MeshActionController } from './meshActions';
@@ -41,6 +42,28 @@ export function makeMeshAvatar(
       }
     }
   }
+  // Clip tracks and mocap can write morph weights without going through ExpressionController.
+  const singleEyeMorphs = morphMeshes.flatMap(mesh => Object.entries(mesh.morphTargetDictionary!)
+    .filter(([name]) => WINK_MORPH.test(name))
+    .map(([, index]) => ({ mesh, index, startedAt: -1, openAt: -1 })));
+
+  function limitSingleEyeClosure() {
+    const now = performance.now();
+    for (const channel of singleEyeMorphs) {
+      const weights = channel.mesh.morphTargetInfluences!;
+      if (weights[channel.index] <= 0.025) {
+        if (channel.openAt < 0) channel.openAt = now;
+        if (now - channel.openAt >= 350) channel.startedAt = -1;
+        continue;
+      }
+      channel.openAt = -1;
+      if (channel.startedAt < 0) channel.startedAt = now;
+      const elapsed = now - channel.startedAt;
+      if (elapsed >= 150) {
+        weights[channel.index] *= Math.max(0, (230 - elapsed) / 80);
+      }
+    }
+  }
   const avatarBone = (key: BoneKey) => {
     if (!boneCache.has(key)) boneCache.set(key, findBone(BONES[key]));
     return boneCache.get(key)!;
@@ -51,6 +74,7 @@ export function makeMeshAvatar(
     bone: avatarBone,
     get actionActive() { return actions.active; },
     playAction: (name) => actions.play(name),
+    stopAction: () => actions.stop(),
     beginFrame: () => {
       for (const { mesh, idx } of usedIndices) mesh.morphTargetInfluences![idx] = 0;
     },
@@ -71,13 +95,16 @@ export function makeMeshAvatar(
       }
       return [...names];
     },
-    setMorph: (name, v) => {
+    setMorph: (name, v, blendWithPreset = false) => {
       for (const mesh of morphMeshes) {
         const idx = mesh.morphTargetDictionary![name];
         if (idx !== undefined) mesh.morphTargetInfluences![idx] = v;
       }
     },
-    update: (dt) => actions.update(dt),
+    update: (dt) => {
+      actions.update(dt);
+      if (singleEyeMorphs.length) limitSingleEyeClosure();
+    },
     base,
     armL,
     armR,

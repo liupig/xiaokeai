@@ -3,11 +3,12 @@ export const availableRelease = shallowRef<ReleaseInfo | null>(null);
 export const UPDATE_URL = 'https://xiaoke.ai';
 export const CURRENT_VERSION = String(import.meta.env.VITE_XIAOKEAI_VERSION || 'dev');
 
-export interface ReleaseInfo { version: string; published_at?: string; notes?: { zh?: string; en?: string }; update_available?: boolean; baidu_password?: string; downloads?: { baidu?: string; huggingface?: string; google_drive?: string }; }
+export interface ReleaseInfo { version: string; published_at?: string; notes?: { zh?: string; en?: string }; update_available?: boolean; baidu_password?: string; downloads?: { baidu?: string; huggingface?: string; modelscope?: string; google_drive?: string }; }
 
 export const DEFAULT_DOWNLOADS = {
   baidu: 'https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai',
   huggingface: 'https://huggingface.co/datasets/liupigai/xiaokeai/tree/main',
+  modelscope: 'https://modelscope.cn/datasets/liupig/xiaokeai',
   google_drive: 'https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link',
 };
 

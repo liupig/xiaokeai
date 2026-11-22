@@ -16,6 +16,37 @@ from app.modules.harness import service, stream_tap
 from app.modules.harness.memory import CONTEXT_BUDGET, continuity, read_state, write_state
 
 
+def test_tap_detects_filtered_end_without_confusing_it_with_reply_text():
+    parser = stream_tap.SseTextTap()
+    assert parser.feed(b'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"content_filter"}}\n') == ["content_filter"]
+    assert not parser.content_filtered
+    assert parser.feed(b'data: {"type":"message_delta","delta":{"stop_reason":"content_') == []
+    assert not parser.content_filtered
+    assert parser.feed(b'filter"}}\n') == []
+    assert parser.content_filtered
+
+
+@pytest.mark.parametrize("partial", ["", "你说的是英雄联盟的 BLG 吗？"])
+def test_messages_content_filter_emits_error_without_assistant_fallback(monkeypatch, partial):
+    def run_turn(_config, *, on_delta, **_kwargs):
+        if partial:
+            on_delta(partial)
+        raise service.HarnessError("DeepSeek Messages stream: unsupported stop reason content_filter")
+
+    monkeypatch.setattr(service, "runtime", lambda: SimpleNamespace(run_turn=run_turn))
+
+    async def collect():
+        return [event async for event in service.stream_reply(
+            {}, character_id=1, user_text="你知道BLG吗？", brief="", timeout=2,
+        )]
+
+    events = asyncio.run(collect())
+    assert [event for event in events if event["type"] == "text"] == (
+        [{"type": "text", "delta": partial}] if partial else []
+    )
+    assert events[-1] == {"type": "error", "code": "content_filter", "message": "模型服务拦截了本次回复。"}
+
+
 @pytest.fixture
 def isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(service, "home_dir", lambda: tmp_path)

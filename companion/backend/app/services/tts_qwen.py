@@ -463,6 +463,8 @@ def _stream_chunks(
     cancel: Optional[threading.Event] = None,
 ):
     """同步生成器：产出 float PCM numpy / tensor 块。"""
+    if cancel is not None and cancel.is_set():
+        return
     model = _load_model(size)
     pieces = _utterances(_speak_text(text))
     import numpy as np
@@ -496,6 +498,8 @@ def _stream_one(
     import torch
     with torch.inference_mode():
         for backend in backends:
+            if cancel is not None and cancel.is_set():
+                return
             try:
                 gen = model.generate_custom_voice_streaming(backend=backend, **kwargs)
                 try:
@@ -630,6 +634,7 @@ def _stop_worker() -> None:
         _proc.join(timeout=3)
         if _proc.is_alive():
             _proc.terminate()
+            _proc.join()
     _proc = None
     _in_q = None
     _out_q = None
@@ -655,10 +660,14 @@ def release() -> None:
     print("[tts] released worker")
 
 
-def _reader_loop() -> None:
-    while _out_q is not None:
+def _reader_loop(out_q, proc) -> None:
+    while True:
         try:
-            msg = _out_q.get()
+            msg = out_q.get(timeout=0.2)
+        except queue.Empty:
+            if not proc.is_alive():
+                break
+            continue
         except (EOFError, OSError, ValueError):
             break
         if not msg:
@@ -686,7 +695,9 @@ def _ensure_worker() -> None:
             daemon=True, name="companion-tts",
         )
         _proc.start()
-        _reader = threading.Thread(target=_reader_loop, daemon=True, name="tts-rpc-reader")
+        _reader = threading.Thread(
+            target=_reader_loop, args=(_out_q, _proc), daemon=True, name="tts-rpc-reader",
+        )
         _reader.start()
         print(f"[tts] worker pid={_proc.pid}")
         atexit.register(_stop_worker)
@@ -755,16 +766,21 @@ async def synthesize_pcm(
     _ensure_worker()
     job = uuid.uuid4().hex
     stop = cancel if cancel is not None else threading.Event()
+    commands = _in_q
     box = _waiter(job)
-    _in_q.put(("synth", job, text, voice, size, instruct, language))
     first_limit = 40.0
     chunk_limit = 25.0
     t_wait = time.perf_counter()
     got = False
+    finished = False
+    submitted = False
     try:
+        if stop.is_set():
+            return
+        commands.put(("synth", job, text, voice, size, instruct, language))
+        submitted = True
         while True:
             if stop.is_set():
-                _in_q.put(("cancel", job))
                 return
             try:
                 msg = await asyncio.get_running_loop().run_in_executor(
@@ -776,32 +792,27 @@ async def synthesize_pcm(
                 limit = chunk_limit if got else first_limit
                 if (time.perf_counter() - t_wait) > limit:
                     stop.set()
-                    try:
-                        _in_q.put(("cancel", job))
-                    except Exception:
-                        pass
-                    raise RuntimeError(
-                        "本地语音超时。眼睛模型已经占着这张显卡，本地语音排不进去。"
-                    )
+                    raise RuntimeError("本地语音生成超时，请重试。")
                 continue
             kind = msg[0]
             if kind == "pcm":
                 if stop.is_set():
-                    _in_q.put(("cancel", job))
                     return
                 yield msg[2]
                 got = True
                 t_wait = time.perf_counter()
             elif kind == "err":
+                finished = True
                 raise RuntimeError(str(msg[2]))
             else:
+                finished = True
                 if not got:
                     raise RuntimeError("本地 TTS 未返回音频")
                 return
     finally:
-        if stop.is_set():
+        if submitted and not finished:
             try:
-                _in_q.put(("cancel", job))
+                commands.put(("cancel", job))
             except Exception:
                 pass
         _drop_waiter(job)

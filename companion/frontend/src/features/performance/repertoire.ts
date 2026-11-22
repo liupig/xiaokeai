@@ -4,6 +4,7 @@
  *
  * 一次表演是一整拍：景别 × 运镜 × 站位 × 动作，不再各抽各的。
  */
+import { acceptsShot, isAdvancedShot } from '../../engine/shotRules';
 import { shallowRef } from 'vue';
 import { api } from '../../api/client';
 import { stage } from '../../engine/stage';
@@ -19,7 +20,6 @@ import { distanceOfShot, type Distance } from './grammar';
 import {
   isIdleSafeIntents,
   idleMoveLabel,
-  idleMoveToShot,
   idleSizeScore,
   type IdleKind,
   type IdleMoveKind,
@@ -54,6 +54,7 @@ export interface ApprovedBeat {
 }
 
 export interface LiveNow {
+  appliedApprovedCam?: boolean;
   beat: ApprovedBeat;
   cam: boolean;
   motion: boolean;
@@ -62,6 +63,7 @@ export interface LiveNow {
 
 /** 舞台正在播的这一拍，给 HUD 用 */
 export const liveNow = shallowRef<LiveNow | null>(null);
+export const liveCamera = shallowRef<ApprovedBeat | null>(null);
 export const liveRecent = shallowRef<ApprovedBeat[]>([]);
 
 export interface BeatLabels {
@@ -149,26 +151,33 @@ function camOf(raw: string): Pick<ApprovedBeat, 'camKind' | 'camMove' | 'vmdName
   return null;
 }
 
-function cameraAngleGroup(beat: ApprovedBeat): 'front' | 'yaw45' | 'yaw90' {
-  if (beat.camMove === 'yawL45' || beat.camMove === 'yawR45') return 'yaw45';
-  if (beat.camMove === 'yawL90' || beat.camMove === 'yawR90') return 'yaw90';
-  return 'front';
+const RARE_CAMERA_CHANCE = 0.02;
+const RARE_CAMERA_MIN_SHOTS = 20;
+const RARE_CAMERA_COOLDOWN_MS = 60_000;
+
+function isSideCamera(beat: ApprovedBeat) {
+  return beat.camMove === 'yawL45' || beat.camMove === 'yawR45';
 }
 
-function pickCameraWeighted(top: { b: ApprovedBeat; s: number }[]): ApprovedBeat | null {
-  const weights = { front: 0.7, yaw45: 0.2, yaw90: 0.1 };
-  const groups = new Map<keyof typeof weights, { b: ApprovedBeat; s: number }[]>();
-  for (const item of top) {
-    const group = cameraAngleGroup(item.b);
-    groups.set(group, [...(groups.get(group) ?? []), item]);
+function pickCameraWeighted(scored: { b: ApprovedBeat; s: number }[], allowRare: boolean): ApprovedBeat | null {
+  const rare = scored.filter(({ b }) => isAdvancedShot(b.camMove));
+  const normal = scored.filter(({ b }) => !isAdvancedShot(b.camMove));
+  if (!normal.length) return null;
+
+  const front = normal.filter(({ b }) => !isSideCamera(b));
+  const side = normal.filter(({ b }) => isSideCamera(b));
+  let candidates: typeof scored;
+  if (allowRare && rare.length && Math.random() < RARE_CAMERA_CHANCE) {
+    candidates = rare;
+  } else if (front.length && side.length) {
+    candidates = Math.random() < 0.8 ? front : side;
+  } else {
+    candidates = normal;
   }
-  const total = [...groups].reduce((sum, [group]) => sum + weights[group], 0);
-  let roll = Math.random() * total;
-  for (const [group, items] of groups) {
-    roll -= weights[group];
-    if (roll <= 0) return items[Math.floor(Math.random() * items.length)]?.b ?? null;
-  }
-  return top[0]?.b ?? null;
+  // 先选角度组，再在组内选高分组合，避免某组资产多就抢走镜头份额。
+  const cutoff = candidates[0].s - 8;
+  const top = candidates.filter(({ s }) => s >= cutoff);
+  return top[Math.floor(Math.random() * top.length)].b;
 }
 
 export class Repertoire {
@@ -178,6 +187,9 @@ export class Repertoire {
   idleFavorite = '';
   private recent: string[] = [];
   private playSeq = 0;
+  private liveSeq = 0;
+  private normalShotsSinceRare = 0;
+  private lastRareCameraAt = 0;
   private cards: MotionCard[] = [];
 
   get size() { return this.beats.length; }
@@ -257,7 +269,7 @@ export class Repertoire {
     if (!this.loaded || !this.beats.length) return null;
     const curStand = need.preferStand ?? stage.standSlot;
     const curSize = need.preferSize;
-    let pool = this.beats.slice();
+    let pool = this.beats.filter((b) => acceptsShot(b.size, b.camMove));
 
     if (need.assetName) pool = pool.filter((b) => b.assetName === need.assetName);
     if (need.sizes?.length) pool = pool.filter((b) => need.sizes!.includes(b.size));
@@ -278,8 +290,8 @@ export class Repertoire {
       pool = pool.filter((b) => b.actionKind !== 'none');
     }
     if (need.phrase) {
-      pool = pool.filter((b) => !b.dance && !b.showOnly);
-      pool = pool.filter((b) => b.actionKind !== 'none');
+      pool = pool.filter((b) => !b.dance && !b.showOnly && b.actionKind !== 'none'
+        && (b.speakSafe || need.intent === 'sit' || need.intent === 'walk' || need.intent === 'bow'));
     }
     if (need.speaking && !need.phrase) {
       pool = pool.filter((b) => !b.dance && !b.showOnly);
@@ -331,8 +343,7 @@ export class Repertoire {
       return { b, s };
     });
     scored.sort((a, c) => c.s - a.s);
-    const top = scored.filter((x) => x.s >= scored[0].s - 8);
-    return pickCameraWeighted(top);
+    return pickCameraWeighted(scored, this.canUseRareCamera());
   }
 
   drop(id: string) {
@@ -340,27 +351,76 @@ export class Repertoire {
     liveRecent.value = liveRecent.value.filter((b) => b.id !== id);
   }
 
+  get playingAssetName() {
+    const motion = stage.motion.reframePlayback;
+    if (!motion?.url) return undefined;
+    return useAssetsStore().motions.find(item => api.assetUrl(item) === motion.url)?.name;
+  }
+
   async perform(beat: ApprovedBeat, parts: {
     cam?: boolean; stand?: boolean; motion?: boolean;
     once?: boolean; holdLast?: boolean; onMotionEnded?: () => void;
     idleMove?: IdleMoveKind;
+    speechAligned?: boolean;
+    sameMotionCamera?: boolean;
+    onCameraApplied?: () => void;
   } = {}) {
-    const cam = parts.cam !== false;
     const doStand = parts.stand !== false;
     const motion = parts.motion !== false;
+    const danceReservation = beat.dance && motion ? stage.danceReservation : undefined;
+    const playing = motion ? undefined : this.playingAssetName;
+    const cam = parts.cam !== false && !stage.reviewOwnsCamera
+      && (!playing || (playing === beat.assetName && beat.stand === stage.standSlot));
     const seq = motion ? ++this.playSeq : this.playSeq;
     this.remember(beat);
-    const shown = this.withIdleCam(beat, parts.idleMove);
-    liveNow.value = { beat: shown, cam, motion, at: Date.now() };
-    const rest = liveRecent.value.filter((b) => b.id !== shown.id);
-    liveRecent.value = [shown, ...rest].slice(0, 6);
+    const liveSeq = ++this.liveSeq;
+    const record = { beat, cam: false, motion, at: Date.now(), appliedApprovedCam: false };
+    const publish = () => {
+      liveNow.value = { ...record };
+      if (!record.cam) return;
+      liveCamera.value = record.beat;
+      if (record.beat.size === beat.size && this.beatCamKey(record.beat) === this.beatCamKey(beat)) {
+        liveRecent.value = [record.beat, ...liveRecent.value.filter(item => item.id !== beat.id)].slice(0, 6);
+      } else {
+        liveRecent.value = liveRecent.value.filter(item => item.id !== beat.id);
+      }
+    };
+    const useCamera = () => {
+      const accept = (move?: CamShotId, size = beat.size) => {
+        record.cam = true;
+        const matchesApproval = size === beat.size && move === beat.camMove && beat.camKind !== 'vmd';
+        record.beat = { ...beat, size, camKind: move ? 'move' : 'hold', camMove: move, vmdName: undefined };
+        record.appliedApprovedCam = matchesApproval;
+        if (liveSeq === this.liveSeq) publish();
+        else liveCamera.value = record.beat;
+      };
+      if (beat.camKind === 'vmd' && beat.vmdName && !stage.camSizeLock?.length && !stage.reviewOwnsCamera) {
+        const asset = useAssetsStore().cameras.find(item => item.name === beat.vmdName);
+        if (asset) {
+          void stage.playCameraVmd(api.assetUrl(asset), { once: true }).then(played => {
+            if (!played || liveSeq !== this.liveSeq) return;
+            this.normalShotsSinceRare += 1;
+            record.cam = true;
+            record.appliedApprovedCam = true;
+            publish();
+          });
+          return;
+        }
+      }
+      const applied = this.playCam(beat, parts.idleMove, accept, parts.sameMotionCamera);
+      if (applied) {
+        accept(applied.move, applied.size);
+        parts.onCameraApplied?.();
+      }
+    };
+    publish();
     if (!beat.dance && !stage.danceLive) stage.silenceBgm();
 
     if (useCharacterStore().modelInfo?.format === 'live2d') {
       if (doStand) live2dStage.goToStand(beat.stand);
-      if (cam) this.playCam(beat, parts.idleMove);
+      if (cam) useCamera();
       if (!motion || beat.actionKind === 'none') return;
-      await this.wait(cam ? 280 : 0, seq);
+      if (cam && !parts.speechAligned) await this.wait(280, seq);
       if (seq !== this.playSeq) return;
       this.playLive2DMotion(beat, parts.onMotionEnded);
       return;
@@ -371,10 +431,10 @@ export class Repertoire {
       await this.wait(1100, seq);
       if (seq !== this.playSeq) return;
     }
-    if (cam) this.playCam(beat, parts.idleMove);
+    if (cam) useCamera();
     if (!motion || beat.actionKind === 'none') return;
-    await this.wait(cam ? 280 : 0, seq);
-    if (seq !== this.playSeq) return;
+    if (cam && !parts.speechAligned) await this.wait(280, seq);
+    if (seq !== this.playSeq || (danceReservation !== undefined && danceReservation !== stage.danceReservation)) return;
     this.playMotion(beat, parts.once, parts.onMotionEnded, parts.holdLast);
   }
 
@@ -439,36 +499,24 @@ export class Repertoire {
     return '';
   }
 
-  private playCam(beat: ApprovedBeat, idleMove?: IdleMoveKind) {
-    if (idleMove) {
-      stage.playIdleCut(beat.size, idleMove, 2.15 + Math.random() * 0.7);
-      return;
-    }
-    if (beat.camKind === 'vmd' && beat.vmdName && !stage.camSizeLock?.length) {
-      const raw = useAssetsStore().cameras.find((c) => c.name === beat.vmdName);
-      if (raw) void stage.playCameraVmd(api.assetUrl(raw), { once: true });
-      return;
-    }
-    if (beat.camKind === 'vmd' && stage.camSizeLock?.length) {
-      stage.playShot(beat.size, false);
-      return;
-    }
-    stage.playShot(beat.size, false);
-    if (beat.camKind === 'move' && beat.camMove) {
-      window.setTimeout(() => stage.playShot(beat.camMove!, false), 380);
-    }
+  private canUseRareCamera() {
+    return this.normalShotsSinceRare >= RARE_CAMERA_MIN_SHOTS
+      && Date.now() - this.lastRareCameraAt >= RARE_CAMERA_COOLDOWN_MS;
   }
 
-  private withIdleCam(beat: ApprovedBeat, move?: IdleMoveKind): ApprovedBeat {
-    if (!move) return beat;
-    const shot = idleMoveToShot(move);
-    return {
-      ...beat,
-      idleMove: move,
-      camKind: shot ? 'move' : 'hold',
-      camMove: shot,
-      vmdName: undefined,
-    };
+  private playCam(beat: ApprovedBeat, idleMove?: IdleMoveKind, onChange?: (move?: CamShotId) => void, sameMotion = false) {
+    if (stage.reviewOwnsCamera) return;
+    const rare = isAdvancedShot(beat.camMove);
+    const useRare = rare && this.canUseRareCamera() && acceptsShot(stage.clampCamSize(beat.size), beat.camMove);
+    const actual = stage.playAutomaticFraming(beat.size, rare && !useRare ? undefined : beat.camMove, idleMove, onChange, false, sameMotion);
+    if (!actual) return;
+    if (isAdvancedShot(actual.move)) {
+      this.normalShotsSinceRare = 0;
+      this.lastRareCameraAt = Date.now();
+    } else {
+      this.normalShotsSinceRare += 1;
+    }
+    return actual;
   }
 
   private playLive2DMotion(beat: ApprovedBeat, onEnded?: () => void) {

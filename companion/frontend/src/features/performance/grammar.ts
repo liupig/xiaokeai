@@ -82,8 +82,6 @@ export const COMBOS: Combo[] = [
     distance: 'threeQ',
     shots: [
       { id: 'threeQ', grade: 'S' },
-      { id: 'yawL90', grade: 'B' },
-      { id: 'yawR90', grade: 'B' },
     ],
     intents: [
       'nod', 'shake', 'think', 'look', 'talk', 'tease', 'shy', 'cute',
@@ -99,9 +97,7 @@ export const COMBOS: Combo[] = [
     distance: 'full',
     shots: [
       { id: 'full', grade: 'S' },
-      { id: 'high45', grade: 'A' },
-      { id: 'yawL90', grade: 'B' },
-      { id: 'yawR90', grade: 'B' },
+      { id: 'tilt12', grade: 'A' },
     ],
     intents: [
       'greet', 'bow', 'clap', 'stretch', 'sit', 'walk', 'dance',
@@ -117,9 +113,7 @@ export const COMBOS: Combo[] = [
     distance: 'long',
     shots: [
       { id: 'long', grade: 'S' },
-      { id: 'high45', grade: 'A' },
-      { id: 'yawL90', grade: 'A' },
-      { id: 'yawR90', grade: 'A' },
+      { id: 'tilt12', grade: 'A' },
     ],
     intents: ['dance', 'walk', 'sit', 'greet', 'idle'],
     exprLead: false,

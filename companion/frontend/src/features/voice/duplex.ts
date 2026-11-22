@@ -67,6 +67,8 @@ export interface PlayableUnit {
   kind?: string;
   id?: string;
   updateContext?: boolean;
+  onAudible?: () => boolean | void;
+  noteTiming?: (stage: 'tts_request' | 'tts_ready' | 'audible') => void;
 }
 
 const CMDS: DuplexCmd[] = [
@@ -116,7 +118,7 @@ export function resolveDuplex(opts: {
     case 'interrupt_or_queue':
       return over ? 'interrupt' : 'queue';
     case 'conditional_queue':
-      return remaining < threshold ? 'queue' : 'skip';
+      return remaining <= threshold ? 'queue' : 'skip';
     case 'conditional_interrupt':
       return over ? 'interrupt' : 'skip';
     default:

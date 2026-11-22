@@ -3,6 +3,7 @@
  * 选角器只认这张表，不再拿文件名做关键词碰运气。
  */
 import type { AssetItem } from '../../api/client';
+import { WINK_MORPH } from '../../engine/expression';
 import type { EmotionKey } from '../../engine/types';
 import { parseMotionCat } from '../assets/motionMeta';
 
@@ -82,7 +83,7 @@ export const EMOTIONS: EmotionCard[] = [
 export const EXPRESSIONS: ExprCard[] = [
   { kind: 'smile', meaning: '微笑、嘴角上扬', when: '开心、打招呼、感谢、肯定', moods: ['happy', 'relaxed'], exclusive: ['angry', 'tear'], speakOk: true, nameRe: /にっこり|にこり|笑い|微笑|笑/ },
   { kind: 'sparkle', meaning: '星星眼、亮晶晶', when: '哈哈、太好了、惊喜的开心', moods: ['happy'], exclusive: ['angry', 'sadEye', 'tear'], speakOk: true, nameRe: /星目|キラ|sparkle|星星眼|星/ },
-  { kind: 'wink', meaning: '眨单眼、俏皮', when: '调侃、卖萌、坏笑', moods: ['happy'], exclusive: ['angry', 'tear'], speakOk: true, nameRe: /ウィンク|wink|眨/ },
+  { kind: 'wink', meaning: '眨单眼、俏皮', when: '调侃、卖萌、坏笑', moods: ['happy'], exclusive: ['angry', 'tear'], speakOk: true, nameRe: WINK_MORPH },
   { kind: 'blush', meaning: '脸红、害羞', when: '被夸、喜欢、讨厌啦', moods: ['happy', 'relaxed'], exclusive: ['angry'], speakOk: true, nameRe: /照れ|頬|赤面|てれ|blush|脸红|害羞/ },
   { kind: 'heartEye', meaning: '爱心眼', when: '比心、爱你、心动', moods: ['happy'], exclusive: ['angry', 'sadEye'], speakOk: true, nameRe: /ハート|爱心目|爱心眼|heart/i },
   { kind: 'sadEye', meaning: '柔和的难过眼神', when: '安慰、唉、心疼', moods: ['sad'], exclusive: ['sparkle', 'wink', 'angry'], speakOk: true, nameRe: /悲しい|困る|うるうる|じと|悲伤/ },

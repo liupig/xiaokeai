@@ -6,9 +6,10 @@
 
 ## 下载与启动
 
-### 三个下载渠道 · Download mirrors
+### 四个下载渠道 · Download mirrors
 
 - **Hugging Face：** [20261118114555 版本目录](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261118114555)（A+B）· [Online 目录](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/online)
+- **ModelScope 魔塔：** [xiaokeai 数据集](https://modelscope.cn/datasets/liupig/xiaokeai)（A+B 与 Online）。
 - **百度网盘：** [统一分享目录](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)，提取码 **`xkai`**。
 - **Google Drive：** [统一镜像目录](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link)。
 
@@ -74,9 +75,10 @@ Unified build version: **`20261118114555`**. The A application pack and the Onli
 
 ### Download and start
 
-#### Three download mirrors
+#### Four download mirrors
 
 - **Hugging Face:** [20261118114555 release directory](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261118114555) for A+B, and the [Online directory](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/online).
+- **ModelScope:** [xiaokeai dataset](https://modelscope.cn/datasets/liupig/xiaokeai) for A+B and Online.
 - **Baidu Netdisk:** [shared mirror directory](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai), extraction code **`xkai`**.
 - **Google Drive:** [shared mirror directory](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link).
 

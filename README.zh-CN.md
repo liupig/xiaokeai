@@ -51,6 +51,7 @@
 
 - [GitHub Release · online-20261109](https://github.com/liupig/xiaokeai/releases/tag/online-20261109)
 - [Hugging Face · Online 目录](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/online)
+- [ModelScope 魔塔 · 数据集](https://modelscope.cn/datasets/liupig/xiaokeai)
 
 下载 `xiaoke-ai-online-20261109154149.7z`，解压后双击 `xiaoke-ai.exe`，在 **设置 → AI 对话** 配置一个火山方舟 LLM API Key 即可。对话与在线记忆向量共用这把 Key；默认识别是免费的浏览器 Web Speech，朗读是免费的 edge-tts，不需要另配语音 Key。
 
@@ -62,10 +63,10 @@
 
 **请下载时间戳均为 `20261105173339` 的 A、B 两个包。** 旧版无时间戳的 `xiaoke-ai-B` 不能搭配此版本。百度网盘的 A、B 位于同一分享文件夹，提取码：`xkai`。
 
-| 包 | 内容 | Hugging Face | Google Drive | 百度网盘 |
-|---|---|---|---|---|
-| **A** · `xiaoke-ai-agent-A-20261105173339.7z` | 应用程序与运行时 | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-A-20261105173339.7z) | [镜像目录](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
-| **B** · `xiaoke-ai-agent-B-20261105173339.7z` | 角色、动作、音乐、语音和本地视觉模型 | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-B-20261105173339.7z) | [镜像目录](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+| 包 | 内容 | Hugging Face | ModelScope 魔塔 | Google Drive | 百度网盘 |
+|---|---|---|---|---|---|
+| **A** · `xiaoke-ai-agent-A-20261105173339.7z` | 应用程序与运行时 | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-A-20261105173339.7z) | [数据集](https://modelscope.cn/datasets/liupig/xiaokeai) | [镜像目录](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
+| **B** · `xiaoke-ai-agent-B-20261105173339.7z` | 角色、动作、音乐、语音和本地视觉模型 | [下载](https://huggingface.co/datasets/liupigai/xiaokeai/resolve/main/20261105173339/xiaoke-ai-agent-B-20261105173339.7z) | [数据集](https://modelscope.cn/datasets/liupig/xiaokeai) | [镜像目录](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) | [同一分享](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai) |
 
 A 也可从 [GitHub Releases](https://github.com/liupig/xiaokeai/releases/tag/a-20261105) 下载，发布页包含中英文说明和完整社区入口。
 

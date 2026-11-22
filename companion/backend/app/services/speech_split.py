@@ -187,9 +187,10 @@ def pack_stream(text: str) -> Tuple[List[str], str]:
 
 
 class SentenceSplitter:
-    def __init__(self, lang: str = "zh-CN") -> None:
+    def __init__(self, lang: str = "zh-CN", *, quick_first: bool = False) -> None:
         self.buf = ""
         self.lang = (lang or "zh-CN").split("-")[0]
+        self.quick_first = quick_first and self.lang == "zh"
 
     def feed(self, delta: str) -> List[str]:
         if not delta:
@@ -200,10 +201,20 @@ class SentenceSplitter:
         if self.lang in ("ja", "ko"):
             return self._drain_mark(flush=False)
         out: List[str] = []
+        if self.quick_first:
+            first = re.search(r"[，、。！？!?\n]", self.buf)
+            if first and first.group() in "，、" and 8 <= first.end() <= SENTENCE_MAX:
+                phrase = sanitize_tts_text(self.buf[:first.end()])
+                if phrase:
+                    self.buf = self.buf[first.end():]
+                    self.quick_first = False
+                    out.append(phrase)
         out.extend(self._drain_hard())
         out.extend(self._drain_soft())
         out.extend(self._drain_jieba())
         cleaned = [sanitize_tts_text(s) for s in out]
+        if any(cleaned):
+            self.quick_first = False
         return [s for s in cleaned if s]
 
     def flush(self) -> List[str]:

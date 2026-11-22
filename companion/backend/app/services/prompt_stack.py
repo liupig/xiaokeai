@@ -7,7 +7,7 @@
     L5     上下文槽（现在时间 / 距上次聊天，代码填值）
     L2     场景包（代码前置分类 chat/knowledge/dance，不让模型自己判题型）
     L3     会话扮演 overlay（代码判进/出，进 system 常驻，不随历史裁剪）
-    L4     导演手册 SYSTEM_PROTOCOL + 舞蹈清单
+    L4     导演手册 SYSTEM_PROTOCOL
     情境卡  scenes 模块在 hooks.after_messages 里追加
     L7     历史（_prompt_history 已做 QA 优先裁剪；system 层每轮重拼，天然豁免裁剪）
     L8     本轮用户输入
@@ -167,7 +167,7 @@ _PACKS = {
         "这一轮对方在问正事：先一句话给结论，需要的话再补一两点，"
         "全程口语，说完就停。不要小标题、不要编号清单、不要攻略体长文。"
     ),
-    "dance": "这一轮对方在点舞。点了舞名就跳那支。说再跳一次、再来一次，跳刚才那支。说换一个、换一支、别的，必须换走刚才那支。没点名就写 [dance:]，不要自己指定文件名，工作室会抽一支近期较少跳的。",
+    "dance": "这一轮对方在点舞。输出 [dance:]，由舞台按原话处理点名、重跳和换舞。",
     "tarot": (
         "这一轮在看牌，按临时身份里【这一轮任务】和【怎么讲】做。"
         "只讲指定的那一张：先让人看见牌上的画，再让这张画自己贴上来。"
@@ -305,7 +305,7 @@ def _refusal_re() -> re.Pattern:
     return re.compile(f"(?:{pat})|(?:{_REFUSAL_RE.pattern})", re.IGNORECASE)
 
 
-async def guard_refusal(source):
+async def guard_refusal(source, *, early_clause: bool = False):
     """包在 stream_chat 外面：开头若命中审查播报特征，丢弃模型输出换成挡话。"""
     buf: List[Dict[str, str]] = []
     acc = ""
@@ -325,6 +325,10 @@ async def guard_refusal(source):
                 yield ev
                 continue
             t = ev.get("type")
+            if t == "duplex":
+                # The transport decision must reach speech before the first prose sentence.
+                yield ev
+                continue
             if t == "text":
                 acc += ev.get("delta") or ""
                 buf.append(ev)
@@ -333,7 +337,8 @@ async def guard_refusal(source):
                     for e in _deflect():
                         yield e
                     return
-                if len(acc) >= _GUARD_WINDOW or _sentence_ready(acc):
+                clause = early_clause and re.search(r"[，、]", acc[7:])
+                if len(acc) >= _GUARD_WINDOW or _sentence_ready(acc) or clause:
                     checking = False
                     for e in buf:
                         yield e
@@ -370,7 +375,6 @@ def build_messages(
     *,
     persona: str,
     char_name: str,
-    motion_groups: Dict[str, List[str]],
     history: List[Dict[str, str]],
     user_text: str,
     mode: str,
@@ -443,13 +447,8 @@ def build_messages(
         note = str(pack.get("exit_note") or _EXIT_NOTE)
         msgs.append({"role": "system", "content": note.format(name=name)})
 
-    names = (motion_groups.get("dance") or [])[:48]
-    dance_head = str(pack.get("dance_list") or (
-        "可用舞蹈（格式：文件名（舞蹈名），跳舞时输出 [dance:文件名]）：\n"
-    ))
-    dance_extra = f"\n{dance_head}{chr(10).join(names)}" if names else ""
     protocol = str(pack.get("protocol") or SYSTEM_PROTOCOL)
-    msgs.append({"role": "system", "content": protocol.strip() + dance_extra})
+    msgs.append({"role": "system", "content": protocol.strip()})
     # 世界书（before_hist）：贴近历史注入，排导演手册之后
     lore_post = [c for c in (lorebook_before_hist or []) if str(c).strip()]
     if lore_post:

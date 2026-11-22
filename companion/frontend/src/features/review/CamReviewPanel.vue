@@ -4,13 +4,13 @@ import { NButton, useMessage } from 'naive-ui';
 import { stage } from '../../engine/stage';
 import { api } from '../../api/client';
 import { isMotionRejected, motionReviewStatus, stripCatPrefix } from '../assets/motionMeta';
-import { caster } from '../performance/caster';
+import { acceptsShot, isAdvancedShot, isSideProfile, minimumShotSize } from '../../engine/shotRules';
 import { shots } from '../performance/shotConductor';
 import { useAssetsStore } from '../../stores/assets';
 import { useSettingsStore } from '../../stores/settings';
 import { t } from '../../i18n';
 import { distanceOfShot } from '../performance/grammar';
-import { auditMotionHead } from './autoHeadReview';
+import { auditMotionHead, type HeadAuditSample } from './autoHeadReview';
 import {
   MOVES, SIZES, STANDS,
   type ActFilter, type ActionPick, type CamPick, type ComboSel, type Verdict,
@@ -37,8 +37,67 @@ const actKey = ref('none');
 const actFilter = ref<ActFilter>('none');
 const autoRunning = ref(false);
 const autoCancel = ref(false);
-const autoProgress = ref('按 16:9 全屏画幅审查；头部累计出画不超过总时长 1/8 即可');
-let playSeq = 0;
+const autoProgress = ref('按当前舞台画幅审查。舞蹈全身镜头同时检查手脚，累计出画超过 1/8 会标记。');
+const instantCut = ref(false);
+const posePaused = ref(false);
+const workspace = ref<'preview' | 'audit'>('preview');
+const advanced = ref(false);
+const cameraHint = ref('');
+const safeArea = ref(false);
+const adaptVmd = ref(false);
+const timeline = ref({ time: 0, duration: 0 });
+const cameraMoving = ref(false);
+const comparison = ref<{ src: string; label: string }[]>([]);
+const capturePending = ref(false);
+const suggestions = ref<HeadAuditSample[]>([]);
+const selectedSuggestion = ref('');
+const queuePage = ref(0);
+const queuePageSize = 8;
+const visibleSuggestions = computed(() => suggestions.value.slice(queuePage.value * queuePageSize, (queuePage.value + 1) * queuePageSize));
+let playbackTimer = 0;
+let previewSeq = 0;
+
+function clearComparison() {
+  for (const still of comparison.value) URL.revokeObjectURL(still.src);
+  comparison.value = [];
+}
+
+function syncPlayback() {
+  timeline.value = stage.motion.previewTime;
+  cameraMoving.value = stage.reviewCameraMoving;
+}
+
+async function captureComparison() {
+  if (capturePending.value || stage.reviewCameraMoving || comparison.value.length >= 2) return;
+  setPosePaused(true);
+  capturePending.value = true;
+  const seq = previewSeq;
+  const label = showCombo(sel.value);
+  try {
+    const frame = await stage.captureStill(600);
+    if (props.show && posePaused.value && seq === previewSeq) {
+      comparison.value = [...comparison.value, { src: URL.createObjectURL(frame), label }];
+    }
+  } catch {
+    message.warning('当前舞台无法截帧');
+  } finally {
+    capturePending.value = false;
+  }
+}
+
+function seekPose(time: number) {
+  setPosePaused(true);
+  clearComparison();
+  previewSeq += 1;
+  if (stage.motion.seekPreview(time) && camPick.value.kind === 'vmd') {
+    stage.seekReviewCamera(stage.motion.previewTime.time);
+  }
+  syncPlayback();
+}
+
+function allowed(sel: ComboSel) {
+  return sel.cam.kind !== 'move' || acceptsShot(sel.size, sel.cam.id);
+}
 
 const cams = computed(() => allCamPicks(
   assets.cameras.map((c) => ({ name: c.name, label: stripCatPrefix(c.label) || c.name })),
@@ -130,11 +189,17 @@ const autoStats = computed(() => {
 
 watch(() => props.show, (v) => {
   shots.reviewLock = v;
+  stage.setReviewCameraActive(v);
   if (v) {
+    playbackTimer = window.setInterval(syncPlayback, 100);
     shots.indexFrom(assets.cameras);
     void hydrate();
   } else {
     autoCancel.value = true;
+    previewSeq += 1;
+    window.clearInterval(playbackTimer);
+    setPosePaused(false);
+    safeArea.value = false;
   }
 }, { immediate: true });
 
@@ -149,7 +214,7 @@ async function hydrate() {
     persistHint.value = bits.length
       ? `${bits.join('；')}（cam_review）`
       : t('review.saved');
-    jumpToFirstUnset();
+    if (props.show) jumpToFirstUnset();
   } catch {
     persistOk.value = false;
     persistHint.value = t('review.offline');
@@ -158,9 +223,12 @@ async function hydrate() {
 
 onUnmounted(() => {
   shots.reviewLock = false;
+  stage.setReviewCameraActive(false);
   autoCancel.value = true;
-  playSeq += 1;
   window.clearTimeout(saveTimer);
+  window.clearInterval(playbackTimer);
+  clearComparison();
+  previewSeq += 1;
 });
 
 async function startAutoReview(mode: 'all' | 'dance' | 'current' | 'high45' = 'all') {
@@ -170,10 +238,13 @@ async function startAutoReview(mode: 'all' | 'dance' | 'current' | 'high45' = 'a
     : actions.value.filter((a): a is Extract<ActionPick, { kind: 'asset' }> =>
       a.kind === 'asset' && (mode !== 'dance' || a.cat === 'dance'));
   if (!list.length) return;
-  if (!window.confirm(`将自动审查 ${list.length} 个动作，头部累计出画不超过总时长 1/8 即为可用，并覆盖这些动作的镜头组合结果。人工结果已有独立备份。开始吗？`)) return;
   autoRunning.value = true;
   autoCancel.value = false;
-  playSeq += 1;
+  previewSeq += 1;
+  suggestions.value = [];
+  selectedSuggestion.value = '';
+  queuePage.value = 0;
+  setPosePaused(false);
   stage.stopCamera();
   stage.stopMotion();
   let completed = 0;
@@ -201,27 +272,19 @@ async function startAutoReview(mode: 'all' | 'dance' | 'current' | 'high45' = 'a
         if (!autoCancel.value) failed += 1;
         continue;
       }
-      const next = { ...verdicts.value };
-      for (const stale of result.remove) delete next[stale];
-      Object.assign(next, result.verdicts);
-      verdicts.value = next;
-      saveLocalVerdicts(next);
-      await persistVerdicts(next);
-      await api.putHeadAutoReview(asset.name, action.label, result.samples);
-      written += Object.keys(result.verdicts).length;
+      suggestions.value = [...suggestions.value, ...result.samples];
+      written += result.samples.length;
       completed += 1;
-      autoProgress.value = `${completed + failed} / ${list.length} · 已完成 ${completed}，失败 ${failed}，写入 ${written} 格`;
+      autoProgress.value = `${completed + failed} / ${list.length} · 已完成 ${completed}，失败 ${failed}，生成 ${written} 条建议`;
     }
-    persistOk.value = true;
-    persistHint.value = t('review.wrote');
-    autoProgress.value = `${autoCancel.value ? '已停止' : '自动审查完成'} · 成功 ${completed}，失败 ${failed}，写入 ${written} 格`;
+    autoProgress.value = `${autoCancel.value ? '已停止' : '自动审查完成'} · 成功 ${completed}，失败 ${failed}，生成 ${written} 条建议`;
     message.success(autoProgress.value);
   } catch (error) {
     if (autoCancel.value || (error as Error)?.message === 'auto-review-cancelled') {
-      autoProgress.value = `已停止 · 已完成 ${completed} 个动作，结果已保存`;
+      autoProgress.value = `已停止 · 已完成 ${completed} 个动作，建议保留在本次会话`;
     } else {
       console.error('自动镜头审查失败', error);
-      autoProgress.value = `中断 · 已完成 ${completed} 个动作，结果已保存；失败 ${failed + 1}`;
+      autoProgress.value = `中断 · 已完成 ${completed} 个动作，建议已保留；失败 ${failed + 1}`;
       persistOk.value = false;
       message.error(autoProgress.value);
     }
@@ -232,19 +295,31 @@ async function startAutoReview(mode: 'all' | 'dance' | 'current' | 'high45' = 'a
   }
 }
 
-function applySel(next: ComboSel, play = true) {
+function applySel(next: ComboSel, preview: 'all' | 'camera' | 'action' | 'stand' = 'all') {
   if (autoRunning.value) return;
+  cameraHint.value = '';
+  if (!allowed(next) && next.cam.kind === 'move') {
+    const minSize = minimumShotSize(next.cam.id);
+    cameraHint.value = '此机位需要 ' + t('cam.' + minSize) + ' 或更远景别';
+    if (next.size === size.value) return;
+    next = { ...next, cam: holdCam };
+    cameraHint.value += '，已切回正面';
+  }
+  if (next.cam.kind === 'move' && isAdvancedShot(next.cam.id)) advanced.value = true;
   size.value = next.size;
   camKeySel.value = camKey(next.cam);
   stand.value = next.stand;
   actKey.value = actionKey(next.action);
   actFilter.value = filterOfAction(next.action);
-  if (play) void playCurrent(next);
+  if (preview === 'camera') playCamera(next);
+  else if (preview === 'action') playAction(next.action);
+  else if (preview === 'stand') stage.placeReviewStand(next.stand);
+  else playCurrent(next);
 }
 
 function setFilter(f: ActFilter) {
   actFilter.value = f;
-  if (f === 'none') applySel({ ...sel.value, action: noneAct });
+  if (f === 'none') applySel({ ...sel.value, action: noneAct }, 'action');
 }
 
 async function setAssetReview(status: 'pending' | 'approved' | 'rejected') {
@@ -254,7 +329,6 @@ async function setAssetReview(status: 'pending' | 'approved' | 'rejected') {
   try {
     await assets.setMotionReviewStatus(motion.id, status);
     if (status === 'rejected') {
-      playSeq += 1;
       stage.stopMotion();
       step(1, true);
     }
@@ -263,49 +337,93 @@ async function setAssetReview(status: 'pending' | 'approved' | 'rejected') {
   }
 }
 
-async function playCurrent(target: ComboSel = sel.value) {
-  if (autoRunning.value) return;
-  const seq = ++playSeq;
-  stage.stopCamera();
-  stage.stopMotion();
-  const needWalk = stage.standSlot !== target.stand;
-  if (needWalk) stage.goToStand(target.stand);
-  if (needWalk) await wait(1100, seq);
-  if (seq !== playSeq) return;
+function setPosePaused(paused: boolean) {
+  posePaused.value = paused;
+  if (!paused) clearComparison();
+  stage.setReviewPosePaused(paused);
+}
 
-  const dist = distanceOfShot(target.size);
+function playCamera(target: ComboSel = sel.value) {
+  if (autoRunning.value) return;
   if (target.cam.kind === 'vmd') {
-    shots.forceVmd(target.cam.name, dist);
+    return shots.forceVmd(target.cam.name, distanceOfShot(target.size), adaptVmd.value);
   } else {
-    shots.forceShot(target.size, dist);
-    if (target.cam.kind === 'move') {
-      await wait(420, seq);
-      if (seq !== playSeq) return;
-      shots.forceShot(target.cam.id, dist);
-    }
+    shots.previewFramedShot(target.size, target.cam.kind === 'move' ? target.cam.id : undefined, instantCut.value);
   }
-  const act = target.action;
-  if (act.kind === 'none') return;
-  await wait(target.cam.kind === 'hold' ? 280 : 700, seq);
-  if (seq !== playSeq) return;
+}
+
+async function playAction(act: ActionPick, seq = ++previewSeq) {
+  setPosePaused(false);
+  stage.stopMotion({ keepCamera: true });
+  if (act.kind === 'none') return true;
   if (act.kind === 'builtin') {
     stage.triggerAction(act.id);
-    return;
+    return true;
   }
-  const ok = caster.playAssetForReview(act.name);
+  const asset = assets.motionByName(act.name);
+  const ok = !!asset && !isMotionRejected(asset) && await stage.playMotion(api.assetUrl(asset));
+  if (seq !== previewSeq) return false;
+  syncPlayback();
   if (!ok) message.warning(t('review.missingMotion', { name: act.label }));
+  return ok;
 }
 
-function wait(ms: number, seq: number) {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(() => resolve(), ms);
-  });
+async function playCurrent(target: ComboSel = sel.value) {
+  if (autoRunning.value) return;
+  const seq = ++previewSeq;
+  if (target.cam.kind === 'vmd') {
+    const cameraName = target.cam.name;
+    const camera = assets.cameras.find(item => item.name === cameraName);
+    if (camera) await stage.preloadReviewCamera(api.assetUrl(camera), adaptVmd.value);
+    if (seq !== previewSeq || !props.show) return false;
+  }
+  stage.placeReviewStand(target.stand);
+  if (target.cam.kind !== 'vmd') playCamera(target);
+  const action = await playAction(target.action, seq);
+  if (target.cam.kind === 'vmd' && seq === previewSeq && props.show) await playCamera(target);
+  return action;
 }
 
-function mark(v: Verdict) {
+async function previewSuggestion(sample: HeadAuditSample) {
+  const [sizeId, cameraId, standId, actionId] = sample.combo_id.split('|').map(decodeURIComponent);
+  const shot = SIZES.find((item) => item.id === sizeId);
+  const cam = cams.value.find((item) => camKey(item) === cameraId);
+  const slot = STANDS.find((item) => item.id === standId);
+  const action = actions.value.find((item) => actionKey(item) === actionId);
+  if (!shot || !cam || !slot || !action) return;
+  const target = { size: shot.id, cam, stand: slot.id, action };
+  if (!allowed(target)) return;
+  selectedSuggestion.value = sample.combo_id;
+  size.value = target.size;
+  camKeySel.value = cameraId;
+  stand.value = target.stand;
+  actKey.value = actionId;
+  actFilter.value = filterOfAction(action);
+  if (cam.kind === 'move' && isAdvancedShot(cam.id)) advanced.value = true;
+  const playing = playCurrent(target);
+  const seq = previewSeq;
+  if (await playing && seq === previewSeq && selectedSuggestion.value === id.value && props.show) seekPose(sample.firstOutside ?? 0);
+}
+
+function resolveSuggestion(verdict: 'ok' | 'bad') {
+  if (!selectedSuggestion.value || selectedSuggestion.value !== id.value) return;
+  mark(verdict, false);
+  suggestions.value = suggestions.value.filter((s) => s.combo_id !== id.value);
+  selectedSuggestion.value = '';
+  queuePage.value = Math.min(queuePage.value, Math.max(0, Math.ceil(suggestions.value.length / queuePageSize) - 1));
+}
+
+function stopPreview() {
+  previewSeq += 1;
+  setPosePaused(false);
+  stage.stopCamera();
+  stage.stopMotion();
+}
+
+function mark(v: Verdict, inherit = true) {
   if (autoRunning.value) return;
   let next: Record<string, Verdict> = { ...verdicts.value, [id.value]: v };
-  if (v === 'ok' || v === 'bad') next = expandCompatOk(next);
+  if (inherit && (v === 'ok' || v === 'bad')) next = expandCompatOk(next);
   verdicts.value = next;
   saveLocalVerdicts(next);
   persistHint.value = v === 'ok'
@@ -329,6 +447,7 @@ function jumpToFirstUnset() {
   const n = total.value;
   for (let i = 0; i < n; i++) {
     const next = comboAt(i, cams.value, actions.value);
+    if (!allowed(next)) continue;
     const key = comboId(next);
     if (!verdicts.value[key] || verdicts.value[key] === 'unset') {
       applySel(next);
@@ -348,6 +467,7 @@ function step(dir: 1 | -1, onlyUnset = false) {
   for (let k = 0; k < n; k++) {
     i = (i + dir + n) % n;
     const next = comboAt(i, cams.value, actions.value);
+    if (!allowed(next)) continue;
     const key = comboId(next);
     if (!onlyUnset || !verdicts.value[key] || verdicts.value[key] === 'unset') {
       applySel(next);
@@ -358,10 +478,11 @@ function step(dir: 1 | -1, onlyUnset = false) {
 }
 
 function nearestBad(action: ActionPick): ComboSel | null {
-  const values = SIZES.map((s) => verdicts.value[comboId({ size: s.id, cam: camPick.value, stand: stand.value, action })] || 'unset');
+  const validSizes = SIZES.filter((item) => camPick.value.kind !== 'move' || acceptsShot(item.id, camPick.value.id));
+  const values = validSizes.map((s) => verdicts.value[comboId({ size: s.id, cam: camPick.value, stand: stand.value, action })] || 'unset');
   const firstOk = values.findIndex((v) => v === 'ok');
   if (firstOk === 0) return null;
-  const size = firstOk > 0 ? SIZES[firstOk - 1] : SIZES[0];
+  const size = firstOk > 0 ? validSizes[firstOk - 1] : validSizes[0];
   return { size: size.id, cam: camPick.value, stand: stand.value, action };
 }
 
@@ -424,7 +545,10 @@ function resetVerdicts() {
         <span class="title">{{ t('review.title') }}</span>
         <n-button size="tiny" quaternary @click="emit('update:show', false)">{{ t('common.close') }} ›</n-button>
       </div>
-      <p class="lead">{{ t('review.lead') }}</p>
+      <nav class="tools" aria-label="导演台工作区">
+        <n-button size="small" :type="workspace === 'preview' ? 'primary' : 'default'" @click="workspace = 'preview'">镜头预览</n-button>
+        <n-button size="small" :type="workspace === 'audit' ? 'primary' : 'default'" @click="workspace = 'audit'">组合审查<span v-if="suggestions.length"> · {{ suggestions.length }}</span></n-button>
+      </nav>
       <div class="now" :class="currentVerdict">
         {{ showCombo(sel) }}
       </div>
@@ -432,9 +556,9 @@ function resetVerdicts() {
         {{ t('review.pos', { n: idx + 1, total, acts: actions.length, marked: stats.marked, ok: stats.ok, bad: stats.bad }) }}
       </div>
       <div class="persist" :class="{ ok: persistOk }">{{ persistHint }}</div>
-      <div class="auto-review">
+      <div v-if="workspace === 'audit'" class="auto-review">
         <div class="auto-actions">
-          <n-button size="small" type="info" :loading="autoRunning" @click="startAutoReview('all')">全自动审查（头部出镜≤1/8）</n-button>
+          <n-button size="small" type="info" :loading="autoRunning" @click="startAutoReview('all')">生成自动审查建议</n-button>
           <n-button size="small" type="warning" secondary :disabled="autoRunning"
                     @click="startAutoReview('dance')">只重审舞蹈</n-button>
           <n-button size="small" secondary :disabled="autoRunning"
@@ -445,39 +569,88 @@ function resetVerdicts() {
         </div>
         <div class="auto-progress">{{ autoProgress }}</div>
         <div class="auto-progress">有效统计（VMD 每组只计一次）：可用 {{ autoStats.ok }} / 不可用 {{ autoStats.bad }}</div>
+        <div v-if="suggestions.length" class="audit-queue">
+          <button v-for="sample in visibleSuggestions" :key="sample.combo_id" type="button"
+                  :disabled="autoRunning" :aria-pressed="selectedSuggestion === sample.combo_id"
+                  @click="previewSuggestion(sample)">
+            {{ labelFromId(sample.combo_id, cams, actions) }} · {{ (sample.ratio * 100).toFixed(1) }}% 出画
+            <span v-if="sample.headOutside"> · 头部 {{ sample.headOutside.toFixed(2) }} s</span>
+            <span v-if="sample.limbsOutside"> · 手脚 {{ sample.limbsOutside.toFixed(2) }} s</span>
+            <span v-if="sample.firstOutside !== undefined"> · {{ sample.firstOutside.toFixed(2) }} s</span>
+          </button>
+          <div class="tools">
+            <n-button size="tiny" :disabled="queuePage === 0" @click="queuePage--">上一页</n-button>
+            <n-button size="tiny" :disabled="(queuePage + 1) * queuePageSize >= suggestions.length" @click="queuePage++">下一页</n-button>
+            <n-button size="tiny" type="success" :disabled="autoRunning || selectedSuggestion !== id" @click="resolveSuggestion('ok')">确认可用</n-button>
+            <n-button size="tiny" type="error" :disabled="autoRunning || selectedSuggestion !== id" @click="resolveSuggestion('bad')">确认不可用</n-button>
+          </div>
+        </div>
       </div>
 
+      <section v-if="workspace === 'preview'" class="monitor-tools">
+        <div class="tools">
+          <n-button size="tiny" :aria-pressed="safeArea" @click="safeArea = !safeArea; stage.setReviewSafeArea(safeArea)">安全框</n-button>
+        </div>
+        <div v-if="timeline.duration > 0" class="timeline">
+          <n-button size="tiny" :disabled="autoRunning" @click="seekPose(timeline.time - 1 / 30)">上一帧</n-button>
+          <input type="range" aria-label="动作时间" min="0" :max="timeline.duration" step="0.001"
+                 :disabled="autoRunning" :value="timeline.time" @input="seekPose(Number(($event.target as HTMLInputElement).value))" />
+          <n-button size="tiny" :disabled="autoRunning" @click="seekPose(timeline.time + 1 / 30)">下一帧</n-button>
+          <output>{{ timeline.time.toFixed(2) }} / {{ timeline.duration.toFixed(2) }} s</output>
+        </div>
+        <div class="tools">
+          <n-button size="tiny" :disabled="autoRunning || cameraMoving || capturePending || comparison.length === 2"
+                    @click="captureComparison">{{ comparison.length ? '保存 B 镜' : '保存 A 镜' }}</n-button>
+          <n-button v-if="comparison.length" size="tiny" @click="clearComparison">清除对照</n-button>
+        </div>
+        <div v-if="comparison.length" class="comparison">
+          <figure v-for="(frame, i) in comparison" :key="frame.src">
+            <img :src="frame.src" :alt="frame.label" />
+            <figcaption>{{ i === 0 ? 'A' : 'B' }} · {{ frame.label }}</figcaption>
+          </figure>
+        </div>
+      </section>
       <div class="row">
         <span class="lab">{{ t('beat.size') }}</span>
         <n-button v-for="s in SIZES" :key="s.id" size="tiny"
                   :type="size === s.id ? 'primary' : 'default'"
                   :quaternary="size !== s.id"
-                  @click="applySel({ ...sel, size: s.id })">{{ t('cam.' + s.id) }}</n-button>
+                  @click="applySel({ ...sel, size: s.id }, 'camera')">{{ t('cam.' + s.id) }}</n-button>
       </div>
       <div class="row">
         <span class="lab">{{ t('beat.cam') }}</span>
         <n-button size="tiny"
                   :type="camKeySel === 'hold' ? 'primary' : 'default'"
                   :quaternary="camKeySel !== 'hold'"
-                  @click="applySel({ ...sel, cam: holdCam })">{{ t('beat.hold') }}</n-button>
-        <n-button v-for="m in MOVES" :key="m.id" size="tiny"
+                  @click="applySel({ ...sel, cam: holdCam }, 'camera')">{{ t('beat.hold') }}</n-button>
+        <n-button v-for="m in MOVES.filter((move) => advanced || !isAdvancedShot(move.id))" :key="m.id" size="tiny"
                   :type="camKeySel === `move:${m.id}` ? 'primary' : 'default'"
                   :quaternary="camKeySel !== `move:${m.id}`"
-                  @click="applySel({ ...sel, cam: { kind: 'move', id: m.id, label: m.label } })">{{ t('cam.' + m.id) }}</n-button>
+                  @click="applySel({ ...sel, cam: { kind: 'move', id: m.id, label: m.label } }, 'camera')">{{ t('cam.' + m.id) }}</n-button>
+      </div>
+      <div class="tools">
+        <n-button size="tiny" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起高级机位' : '高级机位' }}</n-button>
+        <small v-if="cameraHint" role="status">{{ cameraHint }}</small>
+        <small v-else-if="camPick.kind === 'move' && isSideProfile(camPick.id)">纯侧面使用直切</small>
+      </div>
+      <div v-if="camPick.kind === 'vmd'" class="tools">
+        <n-button size="tiny" :aria-pressed="adaptVmd" @click="adaptVmd = !adaptVmd; playCamera()">
+          {{ adaptVmd ? '角色适配' : '原始取景' }}
+        </n-button>
       </div>
       <div class="row vmd">
         <span class="lab">{{ t('review.library') }}</span>
         <n-button v-for="c in vmdCams" :key="c.name" size="tiny"
                   :type="camKeySel === `vmd:${c.name}` ? 'primary' : 'default'"
                   :quaternary="camKeySel !== `vmd:${c.name}`"
-                  @click="applySel({ ...sel, cam: c })">{{ camText(c) }}</n-button>
+                  @click="applySel({ ...sel, cam: c }, 'camera')">{{ camText(c) }}</n-button>
       </div>
       <div class="row">
         <span class="lab">{{ t('beat.stand') }}</span>
         <n-button v-for="s in STANDS" :key="s.id" size="tiny"
                   :type="stand === s.id ? 'primary' : 'default'"
                   :quaternary="stand !== s.id"
-                  @click="applySel({ ...sel, stand: s.id })">{{ t('stand.' + s.id) }}</n-button>
+                  @click="applySel({ ...sel, stand: s.id }, 'stand')">{{ t('stand.' + s.id) }}</n-button>
       </div>
       <div class="row">
         <span class="lab">{{ t('review.filter') }}</span>
@@ -493,7 +666,7 @@ function resetVerdicts() {
           <n-button v-for="a in visibleActs" :key="actionKey(a)" size="tiny"
                     :type="actKey === actionKey(a) ? 'primary' : 'default'"
                     :quaternary="actKey !== actionKey(a)"
-                    @click="applySel({ ...sel, action: a })">{{ actButton(a) }}</n-button>
+                    @click="applySel({ ...sel, action: a }, 'action')">{{ actButton(a) }}</n-button>
         </template>
       </div>
 
@@ -514,7 +687,16 @@ function resetVerdicts() {
         <n-button size="small" type="info" secondary @click="showNextBad">下一动作边界</n-button>
       </div>
       <div class="tools">
-        <n-button size="small" type="primary" @click="playCurrent()">{{ t('review.replay') }}</n-button>
+        <n-button size="small" :disabled="autoRunning" @click="setPosePaused(!posePaused)">
+          {{ t(posePaused ? 'review.resumePose' : 'review.pausePose') }}
+        </n-button>
+        <n-button size="small" :disabled="autoRunning" @click="playCamera()">{{ t('review.replayCamera') }}</n-button>
+        <n-button size="small" type="primary" :disabled="autoRunning" @click="playCurrent()">{{ t('review.replay') }}</n-button>
+        <n-button size="small" :disabled="autoRunning || camPick.kind === 'vmd'" :aria-pressed="instantCut" @click="instantCut = !instantCut">
+          {{ t(instantCut ? 'review.hardCut' : 'review.smoothCut') }}
+        </n-button>
+      </div>
+      <div class="tools">
         <n-button size="small" secondary @click="step(-1)">{{ t('review.prev') }}</n-button>
         <n-button size="small" secondary @click="step(1)">{{ t('review.next') }}</n-button>
         <n-button size="small" type="info" secondary @click="step(1, true)">{{ t('review.nextUnset') }}</n-button>
@@ -528,7 +710,7 @@ function resetVerdicts() {
                   @click="mark('bad')">{{ t('review.bad') }}</n-button>
         <n-button size="small" type="primary" secondary @click="copyReport">{{ t('review.copy') }}</n-button>
         <n-button size="small" quaternary @click="resetVerdicts">{{ t('review.clear') }}</n-button>
-        <n-button size="small" type="warning" secondary @click="stage.stopCamera(); stage.stopMotion()">{{ t('review.stop') }}</n-button>
+        <n-button size="small" type="warning" secondary :disabled="autoRunning" @click="stopPreview">{{ t('review.stop') }}</n-button>
       </div>
     </div>
   </transition>
@@ -540,12 +722,12 @@ function resetVerdicts() {
   top: calc(70px + var(--desk-chrome, 0px));
   right: 16px;
   bottom: 20px;
-  width: 460px;
+  width: min(460px, calc(100vw - 32px));
   z-index: 9;
   padding: 14px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
   border-radius: 16px;
   background: rgba(15, 15, 26, 0.82);
   backdrop-filter: blur(18px);
@@ -599,6 +781,16 @@ function resetVerdicts() {
 }
 .hint { font-size: 12px; opacity: 0.55; padding-top: 4px; }
 .tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.timeline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 8px; }
+.timeline input { flex: 1; min-width: 60px; }
+.timeline output { font-size: 11px; font-variant-numeric: tabular-nums; }
+.comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+.comparison figure { margin: 0; }
+.comparison img { display: block; width: 100%; border-radius: 5px; }
+.comparison figcaption { font-size: 11px; margin-top: 3px; }
+.audit-queue { margin-top: 8px; display: grid; gap: 4px; }
+.audit-queue > button { text-align: left; color: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.16); padding: 6px; border-radius: 5px; }
+.audit-queue > button[aria-pressed="true"] { border-color: currentColor; }
 .slide-enter-active, .slide-leave-active { transition: transform 0.25s ease, opacity 0.25s ease; }
 .slide-enter-from, .slide-leave-to { transform: translateX(30px); opacity: 0; }
 </style>

@@ -148,9 +148,10 @@ onMounted(async () => {
   stage.director.onSpeakBeat = () => caster.onSpeakBeat();
   stage.director.onIdleBeat = () => caster.onIdleBeat();
   stage.director.onIdleCam = () => shots.idleLive();
+  stage.use({ id: "playing-motion-framing", onFrame: () => shots.reframePlayingMotion() });
   shots.beginIdle();
-  speechPlayer.onSentence = (text) => {
-    caster.onSpeakSentence(text);
+  speechPlayer.onSentence = (text, allowAutoMotion) => {
+    caster.onSpeakSentence(text, allowAutoMotion);
     chat.markSpeaking(text);
   };
   speechPlayer.onAllEnded = () => {
@@ -164,7 +165,10 @@ onMounted(async () => {
   window.addEventListener('focus', armVoice);
   await chat.beginVisit();
 });
-onUnmounted(() => window.removeEventListener('xiaokeai:update', onUpdate));
+onUnmounted(() => {
+  stage.unuse('playing-motion-framing');
+  window.removeEventListener('xiaokeai:update', onUpdate);
+});
 </script>
 
 <template>
@@ -180,9 +184,10 @@ onUnmounted(() => window.removeEventListener('xiaokeai:update', onUpdate));
           <div v-if="update?.notes?.zh" class="update-notes">{{ update.notes.zh }}</div>
           <div class="update-section-label">下载安装包 <span>选择你习惯的下载方式</span></div>
           <div class="update-downloads">
-            <button type="button" @click="openDownload(update?.downloads?.baidu || DEFAULT_DOWNLOADS.baidu)"><span>百度网盘</span><small>提取码 {{ update?.baidu_password || 'xkai' }}</small></button>
-            <button type="button" @click="openDownload(update?.downloads?.huggingface || DEFAULT_DOWNLOADS.huggingface)"><span>Hugging Face</span></button>
-            <button type="button" @click="openDownload(update?.downloads?.google_drive || DEFAULT_DOWNLOADS.google_drive)"><span>Google Drive</span></button>
+            <button type="button" @click="openDownload(update?.downloads?.baidu || DEFAULT_DOWNLOADS.baidu)"><span>百度网盘</span><small>中国 · 提取码 {{ update?.baidu_password || 'xkai' }}</small></button>
+            <button type="button" @click="openDownload(update?.downloads?.modelscope || DEFAULT_DOWNLOADS.modelscope)"><span>ModelScope 魔塔</span><small>中国</small></button>
+            <button type="button" @click="openDownload(update?.downloads?.huggingface || DEFAULT_DOWNLOADS.huggingface)"><span>Hugging Face</span><small>国外</small></button>
+            <button type="button" @click="openDownload(update?.downloads?.google_drive || DEFAULT_DOWNLOADS.google_drive)"><span>Google Drive</span><small>国外</small></button>
           </div>
         </div>
         <template #footer>

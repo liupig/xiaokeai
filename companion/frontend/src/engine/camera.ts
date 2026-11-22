@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { MMDAnimationHelper, MMDLoader } from 'three-stdlib';
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { CamPreset, CamShotId } from './types';
+import { outsideSafeFrame } from './framing';
+import { isSideProfile } from './shotRules';
 
 function easeInOut(t: number) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -47,6 +49,7 @@ export const CAM_SHOTS: { id: CamShotId; label: string; duration: number }[] = [
   { id: 'threeQ', label: '3/4', duration: 1.0 },
   { id: 'full', label: '全身', duration: 0.9 },
   { id: 'long', label: '远景', duration: 1.1 },
+  { id: 'tilt12', label: '轻俯12度', duration: 1.3 },
   { id: 'high45', label: '俯拍25度', duration: 1.3 },
   { id: 'yawL45', label: '左侧45度旋转', duration: 1.4 },
   { id: 'yawR45', label: '右侧45度旋转', duration: 1.4 },
@@ -62,6 +65,7 @@ export function isCamShot(name: string): name is CamShotId {
 
 /** 闲时轻运镜：换景别的同时带一点推/移/仰，不拉到特写或远景 */
 export type IdleMoveKind = 'driftL' | 'driftR' | 'push' | 'pull' | 'rise' | 'settle';
+export const REVIEW_FOV = 32;
 
 /** 镜头预设、程序化运镜、镜头 VMD 播放 */
 export class CameraRig {
@@ -69,12 +73,14 @@ export class CameraRig {
   /** 角色站位 X：预设镜头与环绕都以该点为看点（跟拍走动） */
   focusX = 0;
   private lastFocusX = 0;
+  private sideProfile = false;
   /** 正在播镜头 VMD：主循环应跳过轨道控制器和 FOV 呼吸 */
   vmdPlaying = false;
 
   private anim: {
     from: ShotSpherical; to: ShotSpherical;
     t: number; dur: number;
+    fov?: { from: number; to: number };
   } | null = null;
 
   private loader = new MMDLoader();
@@ -82,6 +88,10 @@ export class CameraRig {
   private clipCache = new Map<string, THREE.AnimationClip>();
   private vmdSeq = 0;
   private vmdRemain = 0;
+  private vmdDuration = 0;
+  private vmdAdapt = false;
+  private vmdOffsetX = 0;
+  vmdFrozen = false;
   private vmdCacheKey = '';
 
   constructor(
@@ -93,6 +103,7 @@ export class CameraRig {
   resetFocus() {
     this.focusX = 0;
     this.lastFocusX = 0;
+    this.sideProfile = false;
   }
 
   get driving() {
@@ -100,9 +111,9 @@ export class CameraRig {
   }
 
   /** 镜头始终围着角色转，人保持在画面里。theta=0 正面。 */
-  private sph(id: CamShotId): ShotSpherical {
+  private sph(id: CamShotId, varyAngle = true): ShotSpherical {
     const h = this.headY;
-    const jitter = (Math.random() - 0.5) * 0.06;
+    const jitter = varyAngle ? (Math.random() - 0.5) * 0.06 : 0;
     switch (id) {
       case 'close':
         return { theta: jitter * 0.5, radius: 0.78, height: h + 0.02, lookY: h - 0.04 };
@@ -118,6 +129,61 @@ export class CameraRig {
       default:
         return { theta: jitter, radius: h * 1.08, height: h - 0.02, lookY: h - 0.12 };
     }
+  }
+
+  /** 先确定景别，再应用机位角度，目标构图与上一个镜头无关。 */
+  playFramedShot(size: CamShotId, move?: CamShotId, instant = false, fovTarget = REVIEW_FOV, fit?: { points: THREE.Vector3[]; fallback: boolean }, idleMove?: IdleMoveKind) {
+    this.stopVmd(false);
+    const from = this.readSph();
+    const to = this.sph(size, false);
+    let actualMove = move;
+    switch (move) {
+      case 'tilt12': to.height = to.lookY + to.radius * Math.tan(Math.PI / 15); break;
+      case 'high45': to.height = to.lookY + to.radius * Math.tan(DEG25); break;
+      case 'yawL45': to.theta = -DEG45; break;
+      case 'yawR45': to.theta = DEG45; break;
+      case 'yawL90': to.theta = -DEG90; break;
+      case 'yawR90': to.theta = DEG90; break;
+    }
+    if (idleMove && !move) {
+      if (idleMove === 'push') to.radius *= 0.95;
+      if (idleMove === 'pull') to.radius *= 1.06;
+    }
+    if (fit?.points.length && !this.fitsShot(to, fovTarget, fit.points)) {
+      if (fit.fallback) {
+        Object.assign(to, this.sph(size, false));
+        actualMove = undefined;
+      }
+      const rise = (to.height - to.lookY) / to.radius;
+      const limit = this.headY * 4.2;
+      while (to.radius < limit && !this.fitsShot(to, fovTarget, fit.points)) {
+        to.radius = Math.min(limit, to.radius * 1.1);
+        to.height = to.lookY + to.radius * rise;
+      }
+    }
+    const profile = isSideProfile(actualMove);
+    instant ||= this.sideProfile || profile;
+    this.sideProfile = profile;
+    if (instant) {
+      this.anim = null;
+      this.applySph(to);
+      this.camera.fov = fovTarget;
+      this.camera.updateProjectionMatrix();
+      return actualMove;
+    }
+    const delta = to.theta - from.theta;
+    to.theta = from.theta + Math.atan2(Math.sin(delta), Math.cos(delta));
+    const duration = idleMove && !actualMove ? 2.4 : CAM_SHOTS.find((shot) => shot.id === (actualMove ?? size))?.duration ?? 0.9;
+    this.anim = { from, to, t: 0, dur: duration, fov: { from: this.camera.fov, to: fovTarget } };
+    return actualMove;
+  }
+
+  private fitsShot(shot: ShotSpherical, fov: number, points: THREE.Vector3[]) {
+    const camera = new THREE.PerspectiveCamera(fov, this.camera.aspect, this.camera.near, this.camera.far);
+    camera.position.set(this.focusX + Math.sin(shot.theta) * shot.radius, shot.height, Math.cos(shot.theta) * shot.radius);
+    camera.lookAt(this.focusX, shot.lookY, 0);
+    camera.updateMatrixWorld(true);
+    return !outsideSafeFrame(camera, points);
   }
 
   private readSph(): ShotSpherical {
@@ -168,7 +234,9 @@ export class CameraRig {
     const dur = duration && duration > 0.3 ? duration : base;
     const from = this.readSph();
     let to: ShotSpherical;
-    if (id === 'high45') {
+    if (id === 'tilt12') {
+      to = { ...from, height: from.lookY + from.radius * Math.tan(Math.PI / 15) };
+    } else if (id === 'high45') {
       to = { ...from, height: from.lookY + from.radius * Math.tan(DEG25) };
     } else if (id === 'yawL45') {
       to = { ...from, theta: -DEG45 };
@@ -222,10 +290,10 @@ export class CameraRig {
     this.anim = { from, to, t: 0, dur };
   }
 
-  async playVmd(url: string, opts?: { once?: boolean; scale?: number }): Promise<boolean> {
+  async playVmd(url: string, opts?: { once?: boolean; scale?: number; adapt?: boolean }): Promise<boolean> {
     this.stopVmd(false);
     const seq = ++this.vmdSeq;
-    const scale = opts?.scale ?? MMD_SCALE;
+    const scale = opts?.scale ?? this.vmdScale(opts?.adapt);
     const clip = await this.loadClip(url, scale);
     if (!clip || seq !== this.vmdSeq) return false;
     this.controls.enabled = false;
@@ -233,7 +301,10 @@ export class CameraRig {
     this.vmdHelper.add(this.camera, { animation: clip });
     this.vmdPlaying = true;
     this.vmdCacheKey = `${url}#${scale}`;
-    this.vmdRemain = opts?.once === false ? 0 : Math.max(clip.duration, 0.3);
+    this.vmdDuration = clip.duration;
+    this.vmdRemain = opts?.once === false ? 0 : clip.duration;
+    this.vmdAdapt = !!opts?.adapt;
+    this.sideProfile = false;
     this.anim = null;
     return true;
   }
@@ -241,11 +312,14 @@ export class CameraRig {
   stopVmd(restore = true) {
     this.vmdSeq += 1;
     if (this.vmdHelper) {
+      if (!restore) this.controls.target.copy(this.vmdHelper.cameraTarget.position);
       try { this.vmdHelper.remove(this.camera); } catch { /* 已移除 */ }
       this.vmdHelper = null;
     }
     this.vmdPlaying = false;
     this.vmdRemain = 0;
+    this.vmdOffsetX = 0;
+    this.vmdFrozen = false;
     this.controls.enabled = true;
     if (restore) {
       this.camera.up.set(0, 1, 0);
@@ -253,6 +327,14 @@ export class CameraRig {
       this.camera.updateProjectionMatrix();
       this.controls.target.set(this.focusX, this.headY * 0.7, 0);
     }
+  }
+
+  private vmdScale(adapt?: boolean) {
+    return MMD_SCALE * (adapt ? THREE.MathUtils.clamp(this.headY / 1.35, 0.65, 1.6) : 1);
+  }
+
+  preloadVmd(url: string, adapt?: boolean) {
+    return this.loadClip(url, this.vmdScale(adapt));
   }
 
   private loadClip(url: string, scale: number): Promise<THREE.AnimationClip | null> {
@@ -288,19 +370,32 @@ export class CameraRig {
     return c;
   }
 
+  seekVmd(seconds: number) {
+    const mixer = this.vmdHelper?.objects.get(this.camera)?.mixer;
+    if (!mixer || this.vmdDuration <= 0) return;
+    const target = THREE.MathUtils.clamp(seconds, 0, Math.max(0, this.vmdDuration - 0.0001));
+    this.vmdRemain = 0;
+    this.vmdFrozen = false;
+    this.update(target - mixer.time);
+    this.vmdRemain = this.vmdDuration - target;
+    this.vmdFrozen = true;
+  }
+
   update(dt: number) {
     if (this.vmdPlaying && this.vmdHelper) {
-      const dx = this.focusX - this.lastFocusX;
-      if (Math.abs(dx) > 1e-5) {
-        this.camera.position.x += dx;
-        this.controls.target.x += dx;
-        this.lastFocusX = this.focusX;
+      if (this.vmdFrozen) return;
+      const last = this.vmdRemain > 0 && dt >= this.vmdRemain;
+      this.camera.position.x -= this.vmdOffsetX;
+      this.vmdHelper.cameraTarget.position.x -= this.vmdOffsetX;
+      this.vmdHelper.update(last ? Math.max(0, this.vmdRemain - Math.min(0.0001, this.vmdDuration / 2)) : dt);
+      if (this.vmdAdapt) {
+        this.vmdOffsetX = this.focusX;
+        this.camera.position.x += this.vmdOffsetX;
+        this.vmdHelper.cameraTarget.position.x += this.vmdOffsetX;
       }
-      this.vmdHelper.update(dt);
-      if (this.vmdRemain > 0) {
-        this.vmdRemain -= dt;
-        if (this.vmdRemain <= 0) this.stopVmd(false);
-      }
+      this.lastFocusX = this.focusX;
+      if (last) this.stopVmd(false);
+      else if (this.vmdRemain > 0) this.vmdRemain -= dt;
       return;
     }
 
@@ -308,6 +403,12 @@ export class CameraRig {
       this.anim.t += dt / this.anim.dur;
       const k = easeInOut(Math.min(this.anim.t, 1));
       this.applySph(this.lerpSph(this.anim.from, this.anim.to, k));
+      const fov = this.anim.fov;
+      const nextFov = fov ? THREE.MathUtils.lerp(fov.from, fov.to, k) : this.camera.fov;
+      if (this.camera.fov !== nextFov) {
+        this.camera.fov = nextFov;
+        this.camera.updateProjectionMatrix();
+      }
       if (this.anim.t >= 1) this.anim = null;
       return;
     }

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { NButton, useMessage } from 'naive-ui';
 import {
   liveNow,
+  liveCamera,
   liveRecent,
   repertoire,
   type ApprovedBeat,
@@ -57,7 +58,12 @@ function labelsOf(beat: ApprovedBeat) {
   return { size, cam, stand: t(`stand.${beat.stand}`), action, group };
 }
 
-const labels = computed(() => (now.value ? labelsOf(now.value.beat) : null));
+const labels = computed(() => {
+  if (!now.value) return null;
+  const action = labelsOf(now.value.beat);
+  const actual = liveCamera.value ? labelsOf(liveCamera.value) : null;
+  return { ...action, size: actual?.size, cam: actual?.cam };
+});
 const actionText = computed(() => {
   if (!labels.value) return '';
   const { group, action } = labels.value;
@@ -102,15 +108,15 @@ async function ban(id: string) {
     </button>
     <template v-if="open && now && labels">
       <div class="chips">
-        <span class="chip"><em>{{ t('beat.size') }}</em>{{ labels.size }}</span>
-        <span class="chip"><em>{{ t('beat.cam') }}</em>{{ labels.cam }}</span>
+        <span v-if="labels.size" class="chip"><em>{{ t('beat.size') }}</em>{{ labels.size }}</span>
+        <span v-if="labels.cam" class="chip"><em>{{ t('beat.cam') }}</em>{{ labels.cam }}</span>
         <span class="chip"><em>{{ t('beat.stand') }}</em>{{ labels.stand }}</span>
         <span class="chip" :class="{ dim: !now.motion }">
           <em>{{ t('beat.act') }}</em>{{ actionText }}
         </span>
       </div>
       <n-button size="tiny" type="error" ghost
-                :disabled="banning || currentBanned"
+                :disabled="banning || currentBanned || !now.appliedApprovedCam"
                 :loading="banning && !currentBanned"
                 @click="ban(now.beat.id)">
         {{ currentBanned ? t('beat.gone') : t('beat.bad') }}

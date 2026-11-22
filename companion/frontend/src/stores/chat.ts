@@ -13,7 +13,7 @@ import { useCharacterStore } from './character';
 import { useSettingsStore } from './settings';
 import { humanSilenceSec } from '../features/voice/duplex';
 import {
-  fallbackIngress, localIngress, mergeHold, peekIngressCut,
+  fallbackIngress, isExplicitSpeechStop, localIngress, mergeHold, peekIngressCut,
   type IngressBusy,
 } from '../features/voice/ingress';
 import { alignVoice, promptPack, replyLang, voiceLang } from '../i18n';
@@ -24,7 +24,7 @@ import { refreshJourneySoon } from '../features/journey/session';
 import type { ChatExtra } from '../api/client';
 
 /** 口型 / 眨眼等由系统占用的基础形态键，不暴露给 LLM */
-const BASE_MORPHS = new Set(['あ', 'い', 'う', 'え', 'お', 'ん', 'ワ', 'まばたき', '瞬き']);
+import { isPerformanceMorph } from '../features/performance/expressionCue';
 
 export interface Message {
   id?: number;
@@ -300,7 +300,7 @@ function resetSession() {
 }
 
 function dancePlaying() {
-  return caster.holdingDance && stage.motion.active;
+  return stage.danceLive;
 }
 
 const SIDECAR_KIND: Record<'continue' | 'proactive' | 'goodbye' | 'welcome', Message['kind']> = {
@@ -330,7 +330,7 @@ export const useChatStore = defineStore('chat', {
       clearDelayed();
       silencePhase = 'idle';
     },
-    async bargeIn() {
+    async bargeIn(forceStop = true) {
       clearDelayed();
       clearTarotNext();
       sessionClosed = false;
@@ -338,10 +338,12 @@ export const useChatStore = defineStore('chat', {
       streamAbort?.abort();
       streamAbort = null;
       this.sending = false;
-      this.captionLine = '';
-      this.captionStartedAt = 0;
+      if (forceStop) {
+        this.captionLine = '';
+        this.captionStartedAt = 0;
+      }
       orchestrator.cancelPendingFiller();
-      speechPlayer.onUserBargeIn();
+      speechPlayer.onUserBargeIn(forceStop);
       await this.commitSpoken();
     },
     /** 麦克风刚响：只掐续聊。看牌游戏锁期间不掐她正在讲的牌。 */
@@ -763,6 +765,13 @@ export const useChatStore = defineStore('chat', {
       } = {}) {
       let input = text.trim();
       if (!input) return 'empty';
+      const startedAt = performance.now();
+      const latencyId = crypto.randomUUID();
+      const timing: Record<string, number> = {};
+      let tracedSpeech = false;
+      const mark = (stage: string) => {
+        timing[stage] ??= Math.round(performance.now() - startedAt);
+      };
       const thread = opts.channel === 'live' ? this.liveMessages : this.messages;
       let tarotLock = false;
       let tarotPass = false;
@@ -808,7 +817,7 @@ export const useChatStore = defineStore('chat', {
           || phase === 'placed' || phase === 'open' || phase === 'synth' || phase === 'linger';
         await waitWhile(() => this.sending || (waitSpeech && speechPlayer.isSpeaking()));
       } else {
-        await this.bargeIn();
+        await this.bargeIn(hushTarot || !!opts.scripted || isExplicitSpeechStop(input));
         speechPlayer.tarotHold = tarotLiveNow && !(tarotMod?.isTarotExit(input, phase));
       }
       const chars = useCharacterStore();
@@ -916,11 +925,23 @@ export const useChatStore = defineStore('chat', {
           return;
         }
         applyBubbleEvent(assistant, ev, bag);
-        orchestrator.handle(ev);
+        if (ev.type === 'text') mark('first_text');
+        if (ev.type === 'speech' && ev.kind !== 'filler' && !tracedSpeech) {
+          tracedSpeech = true;
+          mark('first_speech');
+          orchestrator.handle(ev, (stage) => {
+            mark(stage);
+            if (stage === 'audible' && timing.chat_request != null) {
+              void api.recordChatPlaybackLatency(latencyId, timing).catch(() => {});
+            }
+          });
+        } else {
+          orchestrator.handle(ev);
+        }
       };
 
-      const morphs = (chars.modelInfo?.morphNames ?? [])
-        .filter((n) => !BASE_MORPHS.has(n))
+      const morphs = (chars.modelInfo?.format === 'live2d' ? live2dStage.capabilities.expressions : (chars.modelInfo?.morphNames ?? []))
+        .filter(isPerformanceMorph)
         .slice(0, 50);
 
       streamAbort = controller;
@@ -940,12 +961,14 @@ export const useChatStore = defineStore('chat', {
             emitLocal(quiet, onEvent);
           } else {
             const capabilities = chars.modelInfo?.format === 'live2d' ? live2dStage.capabilities : {};
+            mark('chat_request');
             await api.streamChat(chars.currentId, input, onEvent, controller.signal, morphs, opts.mode || 'user', {
               ...liveScenePack(),
               channel: opts.channel || 'personal',
               viewer_id: opts.viewerId || '',
               viewer_name: opts.viewerName || '',
               live_session_id: opts.liveSessionId || '',
+              latency_id: latencyId,
             }, capabilities);
           }
         } catch (e) {
@@ -960,8 +983,11 @@ export const useChatStore = defineStore('chat', {
           orchestrator.allowLocalSpeech();
           emitLocal(fallbackReply(input, names), onEvent);
         }
-        if (!assistant.content && this.lastError && streamAbort === controller) {
-          assistant.content = `（出错了：${this.lastError}）`;
+        if (this.lastError && streamAbort === controller) {
+          speechPlayer.streamOpen = false;
+          stage.director.notifyTurnDone();
+          const index = thread.indexOf(assistant);
+          if (index >= 0 && !assistant.content && !assistant.fullContent) thread.splice(index, 1);
         }
         if (streamAbort === controller) {
           streamAbort = null;
@@ -1093,8 +1119,8 @@ export const useChatStore = defineStore('chat', {
         applyBubbleEvent(assistant, ev, bag);
         orchestrator.handle(ev);
       };
-      const morphs = (chars.modelInfo?.morphNames ?? [])
-        .filter((n) => !BASE_MORPHS.has(n))
+      const morphs = (chars.modelInfo?.format === 'live2d' ? live2dStage.capabilities.expressions : (chars.modelInfo?.morphNames ?? []))
+        .filter(isPerformanceMorph)
         .slice(0, 50);
       const controller = new AbortController();
       streamAbort = controller;
@@ -1179,8 +1205,8 @@ export const useChatStore = defineStore('chat', {
           });
         }
       };
-      const morphs = (chars.modelInfo?.morphNames ?? [])
-        .filter((n) => !BASE_MORPHS.has(n))
+      const morphs = (chars.modelInfo?.format === 'live2d' ? live2dStage.capabilities.expressions : (chars.modelInfo?.morphNames ?? []))
+        .filter(isPerformanceMorph)
         .slice(0, 50);
       const extra: ChatExtra = {
         ...liveScenePack(),
@@ -1265,8 +1291,8 @@ export const useChatStore = defineStore('chat', {
         applyBubbleEvent(assistant, ev, bag);
         orchestrator.handle(ev);
       };
-      const morphs = (chars.modelInfo?.morphNames ?? [])
-        .filter((n) => !BASE_MORPHS.has(n))
+      const morphs = (chars.modelInfo?.format === 'live2d' ? live2dStage.capabilities.expressions : (chars.modelInfo?.morphNames ?? []))
+        .filter(isPerformanceMorph)
         .slice(0, 50);
       try {
         await api.streamChat(chars.currentId, text, onEvent, controller.signal, morphs, 'along', liveScenePack());
@@ -1319,8 +1345,8 @@ export const useChatStore = defineStore('chat', {
         applyBubbleEvent(assistant, ev, bag);
         orchestrator.handle(ev);
       };
-      const morphs = (chars.modelInfo?.morphNames ?? [])
-        .filter((n) => !BASE_MORPHS.has(n))
+      const morphs = (chars.modelInfo?.format === 'live2d' ? live2dStage.capabilities.expressions : (chars.modelInfo?.morphNames ?? []))
+        .filter(isPerformanceMorph)
         .slice(0, 50);
       try {
         await api.streamChat(
@@ -1484,8 +1510,8 @@ export const useChatStore = defineStore('chat', {
         applyBubbleEvent(lastA, ev, bag);
         orchestrator.handle(ev);
       };
-      const morphs = (chars.modelInfo?.morphNames ?? [])
-        .filter((n) => !BASE_MORPHS.has(n))
+      const morphs = (chars.modelInfo?.format === 'live2d' ? live2dStage.capabilities.expressions : (chars.modelInfo?.morphNames ?? []))
+        .filter(isPerformanceMorph)
         .slice(0, 50);
       const controller = new AbortController();
       streamAbort = controller;

@@ -65,6 +65,33 @@ def _qwen_stand_in(voice: str) -> str:
     return _EDGE_QWEN.get(voice, "Serena")
 
 
+async def _first_local_audio(request: Request, agen, cancel: threading.Event):
+    async def watch_disconnect():
+        while (await request.receive())["type"] != "http.disconnect":
+            pass
+        cancel.set()
+
+    first = asyncio.create_task(anext(agen))
+    disconnected = asyncio.create_task(watch_disconnect())
+    handed_off = False
+    try:
+        await asyncio.wait((first, disconnected), return_when=asyncio.FIRST_COMPLETED)
+        if disconnected.done():
+            disconnected.result()
+            raise HTTPException(499, "语音请求已取消")
+        chunk = first.result()
+        handed_off = True
+        return chunk
+    finally:
+        if not handed_off:
+            cancel.set()
+            first.cancel()
+        disconnected.cancel()
+        await asyncio.gather(first, disconnected, return_exceptions=True)
+        if not handed_off:
+            await agen.aclose()
+
+
 async def _speak_qwen(req: TTSRequest, conf: Dict[str, Any], request: Request, all_conf: Dict[str, Any], voice: str):
     try:
         qwen_size = tts_qwen.normalize_size(req.qwen_size or conf.get("qwen_size") or "0.6b")
@@ -83,7 +110,9 @@ async def _speak_qwen(req: TTSRequest, conf: Dict[str, Any], request: Request, a
         req.text, voice, qwen_size, instruct, cancel, tts_qwen.qwen_language(reply),
     )
     try:
-        first = await anext(agen)
+        first = await _first_local_audio(request, agen, cancel)
+    except HTTPException:
+        raise
     except StopAsyncIteration:
         cancel.set()
         raise HTTPException(503, "本地 TTS 未返回音频") from None
@@ -169,7 +198,9 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
             )
         agen = tts_cosy.synthesize_pcm(req.text, voice, api_key)
         try:
-            first = await anext(agen)
+            first = await _first_local_audio(request, agen, cancel)
+        except HTTPException:
+            raise
         except StopAsyncIteration:
             raise HTTPException(503, "CosyVoice 未返回音频") from None
         except Exception as exc:

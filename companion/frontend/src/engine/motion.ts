@@ -6,8 +6,15 @@ import { loadXkMotion } from './xkMotion';
 
 type PoseMap = Map<THREE.Object3D, { pos: THREE.Vector3; quat: THREE.Quaternion }>;
 
-/** 姿势过渡时长（秒）：动作切换 / 停止时从当前姿势平滑混合到目标姿势 */
-const BLEND_DURATION = 0.35;
+/** 小动作收得快，抬手或转身留出更多复位时间。 */
+function blendDuration(from: PoseMap, to: PoseMap, returning: boolean) {
+  let change = 0;
+  for (const [bone, pose] of to) {
+    const start = from.get(bone);
+    if (start) change = Math.max(change, start.quat.angleTo(pose.quat));
+  }
+  return (returning ? 0.18 : 0.14) + 0.18 * Math.min(1, change / 1.5);
+}
 /** 已解析动作很占堆内存，只留最近几条；当前正在播的不踢 */
 const CLIP_CACHE_MAX = 6;
 
@@ -50,6 +57,14 @@ export class MotionPlayer {
   private mixer: THREE.AnimationMixer | null = null;
   private clipCache = new Map<string, THREE.AnimationClip>();
   private initPose: PoseMap = new Map();
+  private bones: THREE.Bone[] = [];
+  private idleClip: {
+    duration: number;
+    time: number;
+    channels: { bone: THREE.Object3D; curve: THREE.QuaternionLinearInterpolant; first: THREE.Quaternion }[];
+  } | null = null;
+  private idleFadeFrom: PoseMap | null = null;
+  private idleFadeTime = 0;
   private loader = new MMDLoader();
   /** 过渡状态：期间暂停动画推进，只做骨骼插值 */
   private blend: {
@@ -68,23 +83,22 @@ export class MotionPlayer {
     this.root = root;
     this.mesh = (root as THREE.SkinnedMesh).isSkinnedMesh ? root as THREE.SkinnedMesh : null;
     this.mixamoRig = createMixamoRig(root, format, vrm);
+    root.traverse((object) => {
+      if ((object as THREE.Bone).isBone) this.bones.push(object as THREE.Bone);
+    });
     this.captureInitialPose();
   }
 
   /** PMX 会在 attach 后放低手臂；停止动作应回到自然姿势而不是 T-pose。 */
   captureInitialPose() {
-    this.initPose.clear();
-    if (!this.mixamoRig) return;
-    for (const bone of this.mixamoRig.bones) {
-      this.initPose.set(bone, { pos: bone.position.clone(), quat: bone.quaternion.clone() });
-    }
+    this.initPose = this.capturePose();
   }
 
   detach() {
     ++this.playSeq;
-    this.helper = null;
-    this.mixer?.stopAllAction();
-    this.mixer = null;
+    this.clearPlayback();
+    this.idleClip = null;
+    this.idleFadeFrom = null;
     this.active = false;
     this.holding = false;
     this.holdLast = false;
@@ -98,6 +112,7 @@ export class MotionPlayer {
     b?.onDone?.();
     this.clipCache.clear();
     this.initPose.clear();
+    this.bones = [];
   }
 
   /** 设置过渡；被打断的上一段过渡立即结束等待（其 onDone 均有 playSeq 守卫） */
@@ -110,6 +125,7 @@ export class MotionPlayer {
   private async loadClip(url: string): Promise<THREE.AnimationClip | null> {
     const cached = this.clipCache.get(url);
     if (cached) return cached;
+    const root = this.root;
     try {
       let clip: THREE.AnimationClip | null = null;
       if (/\.fbx(?:$|\?)/i.test(url)) {
@@ -117,16 +133,22 @@ export class MotionPlayer {
       } else if (/\.xkmotion(?:$|\?)/i.test(url)) {
         if (this.mixamoRig) clip = await loadXkMotion(url, this.mixamoRig);
       } else if (this.mesh) {
-        clip = await new Promise<THREE.AnimationClip>((resolve, reject) => {
-          this.loader.loadAnimation(
-            url,
-            this.mesh!,
-            (c) => resolve(c as THREE.AnimationClip),
-            undefined,
-            reject,
-          );
+        const mesh = this.mesh;
+        const vmd = await new Promise<object>((resolve, reject) => {
+          this.loader.loadVMD(url, resolve, undefined, reject);
         });
+        if (root !== this.root) return null;
+        // VMD 位移以骨骼当前位置为基准。构建时临时复位，避免把上一段位移烘进缓存。
+        const current = this.capturePose();
+        try {
+          this.applyPose(this.initPose);
+          const builder = this.loader.animationBuilder as { build(data: object, target: THREE.SkinnedMesh): THREE.AnimationClip };
+          clip = builder.build(vmd, mesh);
+        } finally {
+          this.applyPose(current);
+        }
       }
+      if (root !== this.root) return null;
       if (clip) rememberClip(this.clipCache, url, clip, this.currentUrl);
       return clip;
     } catch (e) {
@@ -137,8 +159,7 @@ export class MotionPlayer {
 
   private capturePose(): PoseMap {
     const m: PoseMap = new Map();
-    if (!this.mixamoRig) return m;
-    for (const bone of this.mixamoRig.bones) {
+    for (const bone of this.bones) {
       m.set(bone, { pos: bone.position.clone(), quat: bone.quaternion.clone() });
     }
     return m;
@@ -153,32 +174,111 @@ export class MotionPlayer {
     this.root.updateMatrixWorld(true);
   }
 
-  async play(url: string, opts?: { once?: boolean; holdLast?: boolean }): Promise<boolean> {
+  async loadIdle(url: string) {
+    const rig = this.mixamoRig;
+    if (!rig) return;
+    const clip = await this.loadClip(url);
+    if (!clip || this.mixamoRig !== rig) return;
+    // 身体随待机素材呼吸；脚下站位与对话中的视线仍由舞台控制。
+    const upperBody = new Map(rig.pairs
+      .filter(({ source }) => /^mixamorig(?:Spine|(?:Left|Right)(?:Shoulder|Arm|ForeArm|Hand))/.test(source))
+      .map(({ target }) => [`${target.name}.quaternion`, target]));
+    const channels = clip.tracks.flatMap(track => {
+      const bone = upperBody.get(track.name);
+      if (!bone || track.getValueSize() !== 4) return [];
+      return [{
+        bone,
+        curve: new THREE.QuaternionLinearInterpolant(track.times, track.values, 4),
+        first: new THREE.Quaternion().fromArray(track.values),
+      }];
+    });
+    if (!channels.length || clip.duration <= 0) return;
+    this.idleClip = { duration: clip.duration, time: 0, channels };
+    this.idleFadeTime = 0;
+    this.idleFadeFrom = this.active ? null : this.capturePose();
+  }
+
+  updateIdle(dt: number) {
+    const idle = this.idleClip;
+    if (!idle || this.suspended) return;
+    idle.time = (idle.time + dt) % idle.duration;
+    this.applyIdleClip();
+    if (!this.idleFadeFrom) return;
+    this.idleFadeTime += dt;
+    const p = Math.min(1, this.idleFadeTime / 0.35);
+    const weight = p * p * (3 - 2 * p);
+    for (const [bone, from] of this.idleFadeFrom) {
+      bone.position.lerp(from.pos, 1 - weight);
+      bone.quaternion.slerp(from.quat, 1 - weight);
+    }
+    if (p === 1) this.idleFadeFrom = null;
+  }
+
+  private applyIdleClip() {
+    const idle = this.idleClip;
+    if (!idle) return;
+    const loopBlend = Math.min(0.45, idle.duration * 0.1);
+    const seam = Math.max(0, 1 - (idle.duration - idle.time) / loopBlend);
+    for (const { bone, curve, first } of idle.channels) {
+      bone.quaternion.fromArray(curve.evaluate(idle.time));
+      if (seam > 0) bone.quaternion.slerp(first, seam * seam * (3 - 2 * seam));
+    }
+  }
+
+  private blendBackToIdle(seq: number, from: PoseMap) {
+    let to = this.initPose;
+    if (this.idleClip) {
+      this.applyInitPose();
+      this.applyIdleClip();
+      to = this.capturePose();
+      this.applyPose(from);
+    }
+    this.idleFadeFrom = null;
+    this.setBlend({
+      from, to, t: 0, dur: blendDuration(from, to, true),
+      onDone: () => {
+        if (seq === this.playSeq) this.active = false;
+      },
+    });
+  }
+
+  private clearPlayback() {
+    this.playbackMixer?.stopAllAction();
+    this.helper = null;
+    this.mixer = null;
+  }
+
+  async play(url: string, opts?: {
+    once?: boolean;
+    holdLast?: boolean;
+    releaseAvatarAction?: () => void;
+    onStart?: () => void;
+  }): Promise<boolean> {
     const mixerMotion = /\.(?:fbx|xkmotion)(?:$|\?)/i.test(url);
     if (this.suspended || (mixerMotion ? !this.mixamoRig : !this.mesh)) return false;
     const seq = ++this.playSeq;
+    const from = this.capturePose();
     this.onceRemain = 0;
     this.holding = false;
     this.holdLast = !!opts?.holdLast;
     this.holdPose = null;
 
-    // MMDLoader 会以当前骨骼位置为基准叠加 VMD 位移；FBX 重定向也要先移除当前动作。
-    if (!this.clipCache.has(url)) {
-      this.helper = null;
-      this.mixer?.stopAllAction();
-      this.mixer = null;
-      this.active = true;
-      await this.blendTo(this.initPose, BLEND_DURATION);
-      if (seq !== this.playSeq || !this.root) return false;
-      this.applyInitPose();
-    }
+    this.active = true;
+    this.currentUrl = '';
+    this.blend = null;
+    this.clearPlayback();
+    opts?.releaseAvatarAction?.();
+    this.applyPose(from);
     const clip = await this.loadClip(url);
-    if (!clip || seq !== this.playSeq || !this.root) return false;
+    if (seq !== this.playSeq || !this.root) return false;
+    if (!clip) {
+      this.blendBackToIdle(seq, this.capturePose());
+      return false;
+    }
 
-    const from = this.capturePose();
+    // 在同一个同步片段内采样下一动作，再还原画面姿势。待机基准不单独呈现。
+    const entryPose = this.capturePose();
     this.applyInitPose();
-    this.helper = null;
-    this.mixer = null;
     if (mixerMotion) {
       this.mixer = new THREE.AnimationMixer(this.root);
       this.mixer.clipAction(clip).play();
@@ -190,23 +290,18 @@ export class MotionPlayer {
       this.helper.update(0.0001);
     }
     const to = this.capturePose();
+    this.applyPose(entryPose);
 
-    this.active = true;
     this.currentUrl = url;
     if (opts?.once || this.holdLast) this.onceRemain = Math.max(clip.duration, 0.5);
+    // 平滑过渡已经在逐帧带动刚体，到末尾保留余摆。
     this.setBlend({
-      from, to, t: 0, dur: BLEND_DURATION,
-      onDone: () => { if (seq === this.playSeq) this.onPhysicsReset?.(); },
+      from: entryPose, to, t: 0, dur: blendDuration(entryPose, to, false),
+      onDone: () => {
+        if (seq === this.playSeq) opts?.onStart?.();
+      },
     });
     return true;
-  }
-
-  /** 平滑过渡到目标姿势，过渡完成时 resolve（被新的 play/stop 打断也会结束等待） */
-  private blendTo(to: PoseMap, dur: number): Promise<void> {
-    return new Promise((resolve) => {
-      if (!this.root) { resolve(); return; }
-      this.setBlend({ from: this.capturePose(), to, t: 0, dur, onDone: resolve });
-    });
   }
 
   stop() {
@@ -216,22 +311,14 @@ export class MotionPlayer {
     this.holding = false;
     this.holdLast = false;
     this.holdPose = null;
-    this.onStopped?.();
     const from = this.capturePose();
-    this.helper = null;
-    this.mixer?.stopAllAction();
-    this.mixer = null;
+    this.clearPlayback();
+    this.applyPose(from);
     this.currentUrl = '';
     // 过渡期间保持 active，避免程序化闲置动画中途抢骨骼；过渡完再交还
     this.active = true;
-    this.setBlend({
-      from, to: this.initPose, t: 0, dur: BLEND_DURATION,
-      onDone: () => {
-        if (seq !== this.playSeq) return;
-        this.active = false;
-        this.onPhysicsReset?.();
-      },
-    });
+    this.blendBackToIdle(seq, from);
+    this.onStopped?.();
   }
 
   /** 物理步进之后再钉一次末帧，避免刚体把定格姿势拉开 */
@@ -249,9 +336,8 @@ export class MotionPlayer {
 
   private freezeLast() {
     this.holdPose = this.capturePose();
-    this.helper = null;
-    this.mixer?.stopAllAction();
-    this.mixer = null;
+    this.clearPlayback();
+    this.applyPose(this.holdPose);
     this.onceRemain = 0;
     this.holding = true;
     this.active = true;
@@ -261,6 +347,37 @@ export class MotionPlayer {
   private advance(dt: number) {
     if (this.helper) this.helper.update(dt);
     this.mixer?.update(dt);
+  }
+
+  private get playbackMixer() {
+    return this.mixer ?? (this.mesh ? this.helper?.objects.get(this.mesh)?.mixer : undefined);
+  }
+
+  get reframePlayback() {
+    if (!this.active || this.blend || this.holding || !this.playbackMixer) return null;
+    return { ...this.previewTime, url: this.currentUrl, revision: this.playSeq };
+  }
+
+  get previewTime() {
+    const duration = this.clipCache.get(this.currentUrl)?.duration ?? 0;
+    const time = this.playbackMixer?.time ?? 0;
+    return { time: duration > 0 ? time % duration : 0, duration };
+  }
+
+  seekPreview(seconds: number) {
+    const mixer = this.playbackMixer;
+    const { duration } = this.previewTime;
+    if (!mixer || !duration || !this.active || this.holding) return false;
+    const target = THREE.MathUtils.clamp(seconds, 0, Math.max(0, duration - 0.0001));
+    const delta = target - mixer.time;
+    const blend = this.blend;
+    this.blend = null;
+    this.advance(delta);
+    if (this.onceRemain > 0) this.onceRemain = duration - target;
+    this.root?.updateMatrixWorld(true);
+    this.onPhysicsReset?.();
+    blend?.onDone?.();
+    return true;
   }
 
   update(dt: number) {
@@ -292,7 +409,7 @@ export class MotionPlayer {
         this.freezeLast();
         return;
       }
-      this.advance(dt);
+      this.advance(Math.min(dt, Math.max(0, this.onceRemain - 0.00001)));
       this.onceRemain -= dt;
       if (this.onceRemain <= 0) this.stop();
       return;

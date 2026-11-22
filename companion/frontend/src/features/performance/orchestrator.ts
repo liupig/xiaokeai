@@ -11,12 +11,14 @@ import { useAssetsStore } from '../../stores/assets';
 import { useCharacterStore } from '../../stores/character';
 import { speechPlayer } from '../voice/tts';
 import { SpeechSplitter } from '../voice/speechSplit';
-import { normalizeDuplexCmd, normalizeSentenceType } from '../voice/duplex';
+import { normalizeDuplexCmd, normalizeSentenceType, type PlayableUnit } from '../voice/duplex';
 import { caster } from './caster';
-import { parseMotionCat, playAssetMotion, stripCatPrefix } from '../assets/motionMeta';
+import { isMotionRejected, parseMotionCat, playAssetMotion, stripCatPrefix } from '../assets/motionMeta';
+import { parseExpressionCue } from './expressionCue';
 import { applyEmotion, parseEmotionMap } from './emotionMap';
 import { shots } from './shotConductor';
-import { asksForDance, danceIntent, danceWeight, isDanceYes, noteDancePlayed, sampleDance } from './dancePick';
+import { INTENTS, type Intent } from './lexicon';
+import { asksForDance, danceIntent, discussionOnlyDance, explicitDanceTitle, isDanceYes, noteDancePlayed, sampleDance, stopsCurrentDance } from './dancePick';
 import { repertoire, type ApprovedBeat } from './repertoire';
 import type { SidecarKind } from './caster';
 
@@ -52,8 +54,37 @@ export class Orchestrator {
   delayedSec = 0;
   private continueMode = false;
   private sidecarKind: SidecarKind = 'qa';
-  /** LLM 叠加表情的自动淡出计时器 */
-  private exprTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private presentationTurn = 0;
+  private queuedMood: (() => void) | undefined;
+  private queuedGesture: (() => boolean) | undefined;
+  private queuedExpressions = new Map<string, () => void>();
+
+  private resetFaceCues() {
+    this.presentationTurn += 1;
+    this.queuedMood = undefined;
+    this.queuedGesture = undefined;
+    this.queuedExpressions.clear();
+    stage.releasePerformanceExpressions();
+  }
+
+  private takeFaceCues() {
+    if (!this.queuedMood && !this.queuedGesture && !this.queuedExpressions.size) return undefined;
+    const turn = this.presentationTurn;
+    const character = useCharacterStore().currentId;
+    const mood = this.queuedMood;
+    const gesture = this.queuedGesture;
+    const cues = [...this.queuedExpressions.values()];
+    this.queuedMood = undefined;
+    this.queuedGesture = undefined;
+    this.queuedExpressions.clear();
+    return () => {
+      if (turn !== this.presentationTurn || character !== useCharacterStore().currentId) return;
+      mood?.();
+      const played = gesture?.() ?? false;
+      for (const cue of cues) cue();
+      return played;
+    };
+  }
   private fillerTimer: ReturnType<typeof setTimeout> | null = null;
   private lastUserAsk = '';
   private lastDanceName = '';
@@ -76,6 +107,7 @@ export class Orchestrator {
 
   /** 每轮对话开始前调用：停语音并布置舞台，选舞交给 LLM 标签。 */
   beginTurn(userText = '', prevAssistant = '') {
+    this.resetFaceCues();
     this.splitter.reset();
     this.turnText = '';
     this.ttsStarted = false;
@@ -89,7 +121,12 @@ export class Orchestrator {
     this.acceptedName = '';
     const offered = isDanceYes(userText) ? this.offeredDance(prevAssistant) : undefined;
     if (offered) this.acceptedName = offered.name;
-    const danceNow = asksForDance(userText) || !!offered;
+    const stopDance = stage.danceLive && stopsCurrentDance(userText);
+    if (stopDance) {
+      stage.stopMotion();
+      shots.endDance();
+    }
+    const danceNow = !stopDance && (stage.danceLive || asksForDance(userText) || !!offered);
     speechPlayer.beginNewQa();
     speechPlayer.streamOpen = true;
     stage.director.notifyThinking();
@@ -98,6 +135,7 @@ export class Orchestrator {
 
   /** 超时续聊 / 欢迎 / 告别：不开新一轮选角，正在跳的舞也不要被思考/句拍动作掐掉 */
   beginContinue(kind: Exclude<SidecarKind, 'qa'> = 'delayed') {
+    this.resetFaceCues();
     this.splitter.reset();
     this.turnText = '';
     this.ttsStarted = false;
@@ -117,7 +155,7 @@ export class Orchestrator {
     this.ttsStarted = false;
   }
 
-  handle(ev: ChatEvent) {
+  handle(ev: ChatEvent, noteTiming?: PlayableUnit['noteTiming']) {
     switch (ev.type) {
       case 'speech': {
         this.useBackendSpeech = true;
@@ -134,9 +172,14 @@ export class Orchestrator {
           sentenceType: normalizeSentenceType(ev.sentence_type),
           kind: ev.kind,
           id: ev.id,
+          onAudible: this.takeFaceCues(),
+          noteTiming,
         });
         break;
       }
+      case 'duplex_decision':
+        speechPlayer.applyTurnDuplex(ev.duplex_cmd);
+        break;
       case 'duplex':
         this.delayedSec = Number(ev.delayed_sec) || 0;
         break;
@@ -151,14 +194,20 @@ export class Orchestrator {
           const n = parseFloat(numStr);
           const intensity = Number.isFinite(n) ? Math.min(Math.max(n, 0), 1) : 0.85;
           const char = useCharacterStore().current;
-          applyEmotion(emo, parseEmotionMap(char?.emotion_map ?? '{}'), intensity);
+          const map = parseEmotionMap(char?.emotion_map ?? '{}');
+          this.queuedMood = () => applyEmotion(emo, map, intensity);
           caster.markEmotion();
         }
         break;
       }
-      case 'intent':
-        caster.applyIntent(ev.value);
+      case 'intent': {
+        const raw = ev.value.trim().toLowerCase();
+        const intent = raw === 'wave' ? 'greet' : raw;
+        if (intent !== 'dance' && INTENTS.includes(intent as Intent)) {
+          this.queuedGesture = () => !stage.danceLive && caster.applyIntent(intent);
+        }
         break;
+      }
       case 'motion': {
         if (useCharacterStore().modelInfo?.format !== 'live2d') break;
         const cut = ev.value.lastIndexOf(':');
@@ -194,18 +243,17 @@ export class Orchestrator {
         }
         break;
       case 'act': {
-        if (this.continueMode && caster.holdingDance) break;
-        if (ev.value === 'wave') {
-          caster.applyIntent('greet');
-          break;
-        }
-        const act = ev.value as ActionKey;
-        if (ACTIONS.includes(act)) {
-          caster.applyIntent(act);
-          break;
-        }
-        this.playMotionByName(ev.value, { once: true });
-        caster.markMotion();
+        if (stage.danceLive) break;
+        const act = ev.value.trim();
+        if (!act || act === 'dance') break;
+        this.queuedGesture = () => {
+          if (stage.danceLive) return false;
+          if (act === 'wave') return caster.applyIntent('greet');
+          if (ACTIONS.includes(act as ActionKey)) return caster.applyIntent(act);
+          const played = this.playMotionByName(act);
+          if (played) caster.markMotion();
+          return played;
+        };
         break;
       }
       case 'dance':
@@ -213,7 +261,7 @@ export class Orchestrator {
         if (this.playDance(ev.value)) caster.markDance();
         break;
       case 'cam': {
-        if (caster.holdingDance) break;
+        if (stage.danceLive || caster.holdingDance) break;
         const raw = ev.value.trim().toLowerCase();
         const alias = CAM_ALIASES[raw] ?? (isCamShot(raw) ? raw : null);
         if (alias) {
@@ -230,6 +278,7 @@ export class Orchestrator {
         break;
       }
       case 'stand': {
+        if (stage.danceLive) break;
         const key = ev.value.trim().toLowerCase();
         const slot = STAND_ALIASES[key] ?? STAND_ALIASES[ev.value.trim()];
         if (!slot || !repertoire.allowsStand(slot)) break;
@@ -244,20 +293,25 @@ export class Orchestrator {
         break;
       }
       case 'expr': {
-        // 模型自带形态键叠加（如 頬染め / ウィンク），8 秒后自动淡出
-        const name = ev.value.trim();
-        if (!name) break;
-        stage.setMorph(name, true);
-        clearTimeout(this.exprTimers.get(name));
-        this.exprTimers.set(name, setTimeout(() => {
-          stage.setMorph(name, false);
-          this.exprTimers.delete(name);
-        }, 8000));
+        const model = useCharacterStore().modelInfo;
+        const names = model?.format === 'live2d' ? live2dStage.capabilities.expressions : (model?.morphNames ?? []);
+        const cue = parseExpressionCue(ev.value, names);
+        if (!cue) break;
+        if (this.queuedExpressions.size >= 2 && !this.queuedExpressions.has(cue.name)) break;
+        this.queuedExpressions.set(cue.name, () => {
+          if (model === useCharacterStore().modelInfo) stage.setPerformanceExpression(cue.name, cue.weight, cue.seconds);
+        });
         break;
       }
       case 'done':
         if (!this.useBackendSpeech) this.flushText();
         else this.splitter.reset();
+        if (!this.ttsStarted) this.takeFaceCues()?.();
+        else {
+          this.queuedMood = undefined;
+          this.queuedGesture = undefined;
+          this.queuedExpressions.clear();
+        }
         speechPlayer.streamOpen = false;
         stage.director.notifyTurnDone();
         caster.finalize(ev.full_text || '');
@@ -294,7 +348,7 @@ export class Orchestrator {
     this.ttsStarted = true;
     this.turnText += text;
     caster.preview(this.turnText);
-    speechPlayer.enqueue(text);
+    speechPlayer.enqueue(text, this.takeFaceCues());
   }
 
   private flushText() {
@@ -303,49 +357,33 @@ export class Orchestrator {
 
   private playDance(nameOrLabel: string): boolean {
     const assets = useAssetsStore();
-    const all = assets.motions.filter((m) => parseMotionCat(m) === 'dance');
-    if (!all.length) return false;
-    const approved = all.filter((m) => repertoire.allowsAsset(m.name));
-    const dances = approved.length ? approved : all;
+    const format = useCharacterStore().modelInfo?.format;
+    if (format === 'live2d') return false;
+    const supported = (m: AssetItem) => !format || format === 'pmx' || !/\.vmd$/i.test(m.name);
+    const inventory = assets.motions.filter(m => parseMotionCat(m) === 'dance');
+    const dances = inventory.filter(m => supported(m) && !isMotionRejected(m) && repertoire.allowsAsset(m.name));
+    if (!dances.length || stopsCurrentDance(this.lastUserAsk) || discussionOnlyDance(this.lastUserAsk)) return false;
     const norm = (s: string) => s.replace(/\.(?:vmd|fbx|xkmotion)$/i, '').trim().toLowerCase();
-    const bare = (m: { label: string; name: string }) => stripCatPrefix(m.label).trim() || m.name;
-    const t = norm(nameOrLabel);
-    let motion =
-      (t
-        ? dances.find((m) => norm(m.name) === t) ??
-          dances.find((m) => norm(bare(m)) === t) ??
-          (t.length >= 2
-            ? dances.find((m) => norm(m.name).includes(t) || norm(bare(m)).includes(t))
-            : undefined)
-        : undefined);
-
+    const bare = (m: AssetItem) => stripCatPrefix(m.label).trim() || m.name;
     const ask = this.lastUserAsk;
-    const named = this.acceptedName
-      ? dances.find((m) => norm(m.name) === norm(this.acceptedName))
-      : this.danceNamedIn(ask, dances, bare, norm);
-    const intent = named ? 'named' : danceIntent(ask);
-    const tagged = motion;
-    const freshTag = !!(tagged && danceWeight(tagged.name) >= 0.5
-      && norm(tagged.name) !== norm(this.lastDanceName));
-    if (this.danceThisTurn && intent !== 'named') {
-      return true;
-    } else if (named) {
-      motion = named;
-    } else if (intent === 'repeat') {
-      const again = dances.find((m) => norm(m.name) === norm(this.lastDanceName));
-      motion = again ?? sampleDance(dances, (m) => m.name, 'open') ?? motion;
-    } else if (freshTag && intent === 'switch') {
-      motion = tagged;
-    } else {
-      motion = sampleDance(dances, (m) => m.name, intent === 'named' ? 'open' : intent) ?? motion;
-    }
-    if (!motion) {
-      const beat = repertoire.pick({ dancing: true, allowWalk: true, preferStand: stage.standSlot, varyCam: true });
-      if (this.launchDance(beat)) return true;
-      const pick = sampleDance(dances, (m) => m.name, 'open');
-      return pick ? this.launchDanceAsset(pick) : false;
-    }
-    if (this.danceThisTurn && norm(this.danceThisTurn) === norm(motion.name)) return true;
+    const fullName = this.acceptedName
+      ? inventory.find(m => norm(m.name) === norm(this.acceptedName))
+      : this.danceNamedIn(ask, inventory, bare, norm);
+    const intent = danceIntent(ask);
+    const title = intent === 'open' ? explicitDanceTitle(ask) : '';
+    const tagged = nameOrLabel.trim() ? dances.find(m => norm(m.name) === norm(nameOrLabel) || norm(bare(m)) === norm(nameOrLabel)) : undefined;
+    const matches = title ? dances.filter(m => norm(bare(m)).includes(norm(title)) || norm(m.name).includes(norm(title))) : [];
+    const named = fullName ?? (matches.length === 1 ? matches[0] : undefined);
+    if (!named && !asksForDance(ask)) return false;
+    if (named && !dances.includes(named)) return false;
+    if (this.danceThisTurn) return true;
+    let motion: AssetItem | null | undefined;
+    if (named) motion = named;
+    else if (intent === 'repeat') motion = dances.find(m => norm(m.name) === norm(this.lastDanceName));
+    else if (intent === 'switch') motion = sampleDance(dances.filter(m => norm(m.name) !== norm(this.lastDanceName)), m => m.name, 'switch');
+    else if (title) motion = tagged && matches.includes(tagged) ? tagged : undefined;
+    else motion = sampleDance(dances, m => m.name, 'open');
+    if (!motion) return false;
     const beat = repertoire.allowsAsset(motion.name)
       ? repertoire.pick({
           dancing: true,
@@ -397,7 +435,7 @@ export class Orchestrator {
     if (!dances.length || !text.trim()) return undefined;
     const norm = (s: string) => s.replace(/\.(?:vmd|fbx|xkmotion)$/i, '').trim().toLowerCase();
     const bare = (m: { label: string; name: string }) => stripCatPrefix(m.label).trim() || m.name;
-    return this.danceNamedIn(text, dances, bare, norm);
+    return this.danceNamedIn(text, dances, bare, norm, true);
   }
 
   /** 用户话里点到的舞名。最长的名字优先，避免短词误撞。 */
@@ -406,6 +444,7 @@ export class Orchestrator {
     dances: T[],
     bare: (m: T) => string,
     norm: (s: string) => string,
+    requireUnique = false,
   ) {
     const text = ask || '';
     const low = text.toLowerCase();
@@ -416,29 +455,31 @@ export class Orchestrator {
         || (file.length >= 2 && low.includes(file));
     });
     hits.sort((a, b) => bare(b).length - bare(a).length);
+    if (requireUnique && hits.length > 1 && hits.slice(1).some(m => bare(m) === bare(hits[0]) || !bare(hits[0]).includes(bare(m)))) return undefined;
     return hits[0];
   }
 
-  private playMotionByName(nameOrLabel: string, opts?: { fullCam?: boolean; once?: boolean }) {
+  private playMotionByName(nameOrLabel: string) {
     const assets = useAssetsStore();
     const target = nameOrLabel.trim().replace(/\.(?:vmd|fbx|xkmotion)$/i, '');
+    if (!target) return false;
     const bare = (m: { label: string }) => stripCatPrefix(m.label).trim();
     const motion =
       assets.motions.find((m) => m.name === target || m.name === `${target}.vmd` || m.name === `${target}.fbx` || m.name === `${target}.xkmotion`) ??
       assets.motions.find((m) => bare(m) === target) ??
       assets.motions.find((m) => m.name.includes(target) || bare(m).includes(target));
-    if (!motion || !repertoire.allowsAsset(motion.name)) return;
-    if (parseMotionCat(motion) === 'dance') return;
+    if (!motion || isMotionRejected(motion) || !repertoire.allowsAsset(motion.name)) return false;
+    if (parseMotionCat(motion) === 'dance') return false;
     const beat = repertoire.pick({
       assetName: motion.name,
       allowWalk: true,
       preferStand: stage.standSlot,
       preferSize: shots.current ?? undefined,
     });
-    if (!beat) return;
+    if (!beat) return false;
     shots.syncFromBeat(beat);
-    void repertoire.perform(beat);
-    void opts;
+    void repertoire.perform(beat, { speechAligned: true });
+    return true;
   }
 
   private playCameraByName(nameOrLabel: string) {

@@ -4,6 +4,7 @@
  * 并在用户开口的瞬间先反应（不等回复）。
  */
 import { api, type AssetItem } from '../../api/client';
+import { WINK_MORPH } from '../../engine/expression';
 import { stage } from '../../engine/stage';
 import type { CamShotId, EmotionKey } from '../../engine/types';
 import {
@@ -100,7 +101,7 @@ export class PerformanceCaster {
     if (!wantDance) {
       shots.endDance();
       if (wasDance) stage.stopMotion();
-    } else if (wasDance) {
+    } else if (wasDance || stage.danceLive) {
       this.danceThisTurn = true;
     }
     shots.cover({
@@ -113,7 +114,7 @@ export class PerformanceCaster {
       intents: stage.director.sceneIntent ? [stage.director.sceneIntent] : undefined,
       dancing: wantDance,
     });
-    if (!wantDance) this.reactToUser(userText);
+    if (!wantDance && !stage.danceLive) this.reactToUser(userText);
   }
 
   /** 这轮以为要跳舞，结果没开成 */
@@ -139,7 +140,7 @@ export class PerformanceCaster {
       intensity: stage.director.moodIntensity,
       llmShot: stage.director.sceneCam ?? undefined,
       intents: stage.director.sceneIntent ? [stage.director.sceneIntent] : undefined,
-      dancing: this.danceThisTurn,
+      dancing: this.holdingDance,
     });
   }
 
@@ -149,7 +150,7 @@ export class PerformanceCaster {
     this.danceThisTurn = true;
     shots.onDanceEnded = () => { this.danceThisTurn = false; };
   }
-  get holdingDance() { return this.danceThisTurn; }
+  get holdingDance() { return stage.danceLive || this.danceThisTurn; }
 
   /** 审查：播指定动作资产，关掉自带镜头以免盖住正在审的运镜 */
   playAssetForReview(name: string): boolean {
@@ -233,6 +234,7 @@ export class PerformanceCaster {
   }
 
   applyIntent(raw: string): boolean {
+    if (stage.danceLive) return false;
     let name = raw.trim().toLowerCase();
     if (name === 'wave') name = 'greet';
     if (!INTENTS.includes(name as Intent)) return false;
@@ -284,7 +286,7 @@ export class PerformanceCaster {
 
   /** 说话中按句补动作，跟着语义走 */
   onSpeakBeat() {
-    if (this.danceThisTurn) return;
+    if (this.holdingDance) return;
     if (Date.now() - this.lastSpeakMotionAt < 1600) return;
     const mood = stage.director.moodKey;
     this.performPhrase({
@@ -298,7 +300,7 @@ export class PerformanceCaster {
   /** 一句开播：表情 + 过审动作组一起跟上 */
   onSpeakSentence(text: string, allowMotion = true) {
     this.ensureIndex();
-    if (this.danceThisTurn) return;
+    if (this.holdingDance) return;
     const line = text.trim();
     if (!line) return;
     this.lastLine = line;
@@ -442,7 +444,7 @@ export class PerformanceCaster {
     this.motionThisTurn = true;
     if (beat.assetName) this.rememberMotion(beat.assetName);
     shots.syncFromBeat(beat);
-    void repertoire.perform(beat);
+    void repertoire.perform(beat, { speechAligned: true });
     return true;
   }
 
@@ -471,7 +473,7 @@ export class PerformanceCaster {
     if (beat.assetName) this.rememberMotion(beat.assetName);
     this.lastSpeakMotionAt = Date.now();
     shots.syncFromBeat(beat);
-    void repertoire.perform(beat, { stand: false });
+    void repertoire.perform(beat, { stand: false, speechAligned: true });
     return true;
   }
 
@@ -504,6 +506,7 @@ export class PerformanceCaster {
 
   private flashMorph(name: string, strength: number, holdMs = EXPR_HOLD_MS) {
     stage.setMorph(name, strength);
+    if (WINK_MORPH.test(name)) return;
     clearTimeout(this.exprTimers.get(name));
     this.exprTimers.set(name, setTimeout(() => {
       stage.setMorph(name, false);

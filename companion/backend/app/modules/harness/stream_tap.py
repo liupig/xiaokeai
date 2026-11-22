@@ -180,12 +180,22 @@ class SseTextTap:
     def __init__(self) -> None:
         self._buf = ""
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        self.content_filtered = False
 
     def feed(self, data: bytes) -> list[str]:
         self._buf += self._decoder.decode(data)
         found: list[str] = []
         while "\n" in self._buf:
             line, self._buf = self._buf.split("\n", 1)
+            if "content_filter" in line and line.lstrip().startswith("data:"):
+                try:
+                    event = json.loads(line.lstrip()[5:])
+                except ValueError:
+                    event = None
+                if isinstance(event, dict) and event.get("type") == "message_delta":
+                    delta = event.get("delta")
+                    if isinstance(delta, dict) and delta.get("stop_reason") == "content_filter":
+                        self.content_filtered = True
             text = text_delta_from_sse_line(line)
             if text:
                 found.append(text)
@@ -202,7 +212,7 @@ class MessagesTap:
         self.path = parsed.path.rstrip("/")
         self.port = 0
         self.local_base = ""
-        self._listeners: list[Callable[[str], None]] = []
+        self._listeners: list[tuple[Callable[[str], None], Callable[[str], None] | None]] = []
         self._lock = threading.Lock()
         self._ready = threading.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -221,7 +231,7 @@ class MessagesTap:
             raise self._error
         return self.local_base
 
-    def subscribe(self, callback: Callable[[str], None]) -> Callable[[], None]:
+    def subscribe(self, callback: Callable[[str], None], timing=None) -> Callable[[], None]:
         active = threading.Event()
         active.set()
 
@@ -229,14 +239,19 @@ class MessagesTap:
             if active.is_set():
                 callback(text)
 
+        def mark(stage: str) -> None:
+            if timing and active.is_set():
+                timing(stage)
+
+        subscription = (listener, mark if timing else None)
         with self._lock:
-            self._listeners.append(listener)
+            self._listeners.append(subscription)
 
         def off() -> None:
             active.clear()
             with self._lock:
                 try:
-                    self._listeners.remove(listener)
+                    self._listeners.remove(subscription)
                 except ValueError:
                     pass
 
@@ -247,7 +262,7 @@ class MessagesTap:
             return
         with self._lock:
             listeners = list(self._listeners)
-        for fn in listeners:
+        for fn, _ in listeners:
             try:
                 fn(text)
             except Exception:
@@ -348,8 +363,14 @@ class MessagesTap:
             fwd.pop("user-agent", None)
             for name in [key for key in fwd if key.startswith("x-deepseek-harness-")]:
                 fwd.pop(name, None)
+        for _, mark in listeners:
+            if mark:
+                mark("upstream_request")
         async with self._upstream_client() as client:
             async with client.stream(method, url, headers=fwd, content=body) as resp:
+                for _, mark in listeners:
+                    if mark:
+                        mark("upstream_headers")
                 ctype = resp.headers.get("content-type") or "application/octet-stream"
                 reason = resp.reason_phrase or "OK"
                 writer.write(
@@ -363,10 +384,14 @@ class MessagesTap:
                         continue
                     if parser is not None:
                         for text in parser.feed(chunk):
-                            for listener in listeners:
+                            for listener, _ in listeners:
                                 listener(text)
                     writer.write(f"{len(chunk):X}\r\n".encode("ascii") + chunk + b"\r\n")
                     await writer.drain()
+                if parser is not None and parser.content_filtered:
+                    request_id = resp.headers.get("x-request-id") or resp.headers.get("request-id") or ""
+                    safe_id = "".join(ch for ch in request_id[:96] if ch.isascii() and (ch.isalnum() or ch in "-_."))
+                    print(f"[harness] upstream content_filter host={urlsplit(self.origin).hostname} request_id={safe_id or '-'}")
                 writer.write(b"0\r\n\r\n")
                 await writer.drain()
 
@@ -389,11 +414,11 @@ def tap_base(upstream: str | None) -> str | None:
         return tap.local_base
 
 
-def subscribe_text(upstream: str | None, callback: Callable[[str], None]) -> Callable[[], None]:
+def subscribe_text(upstream: str | None, callback: Callable[[str], None], timing=None) -> Callable[[], None]:
     if not upstream:
         return lambda: None
     with _TAP_LOCK:
         tap = _TAPS.get(upstream.rstrip("/"))
     if tap is None:
         return lambda: None
-    return tap.subscribe(callback)
+    return tap.subscribe(callback, timing)

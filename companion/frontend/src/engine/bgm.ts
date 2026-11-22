@@ -5,6 +5,7 @@ export class BgmPlayer {
   private vol = 0.5;
   /** 1 = 用户音量；说话时 < 1，歌还在，只是让路给 TTS。 */
   private duck = 1;
+  private fadeRevision = 0;
 
   get ducked() {
     return this.duck < 0.99;
@@ -16,7 +17,7 @@ export class BgmPlayer {
 
   setVolume(v: number) {
     this.vol = Math.max(0, Math.min(1, v));
-    if (this.el) this.el.volume = this.mixedVol();
+    this.fadeTo(this.mixedVol(), 0);
   }
 
   getVolume() {
@@ -30,6 +31,7 @@ export class BgmPlayer {
   }
 
   fadeTo(target: number, ms = 300) {
+    const revision = ++this.fadeRevision;
     const el = this.el;
     if (!el) return;
     const from = el.volume;
@@ -40,7 +42,7 @@ export class BgmPlayer {
     }
     const t0 = performance.now();
     const step = () => {
-      if (this.el !== el) return;
+      if (this.el !== el || revision !== this.fadeRevision) return;
       const p = Math.min(1, (performance.now() - t0) / ms);
       el.volume = from + (to - from) * p;
       if (p < 1) requestAnimationFrame(step);
@@ -56,7 +58,7 @@ export class BgmPlayer {
     }
     if (this.el && this.url === next && !this.el.paused) {
       this.el.loop = opts?.loop === true;
-      this.el.volume = this.mixedVol();
+      this.fadeTo(this.mixedVol(), 0);
       return;
     }
     this.stop();

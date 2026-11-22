@@ -12,9 +12,10 @@ const X = 'https://x.com/iliuPIG';
 const GITHUB = 'https://github.com/liupig/xiaokeai';
 const GITHUB_SHOWN = 'github.com/liupig/xiaokeai';
 const DOWNLOADS = [
-  { name: '百度云盘', url: 'https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai' },
-  { name: 'Hugging Face', url: 'https://huggingface.co/datasets/liupigai/xiaokeai/tree/main' },
-  { name: 'Google Drive', url: 'https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link' },
+  { name: '中国 · 百度网盘', url: 'https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai' },
+  { name: '中国 · ModelScope 魔塔', url: 'https://modelscope.cn/datasets/liupig/xiaokeai' },
+  { name: '国外 · Hugging Face', url: 'https://huggingface.co/datasets/liupigai/xiaokeai/tree/main' },
+  { name: '国外 · Google Drive', url: 'https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link' },
 ];
 
 const show = Boolean(window.companionDesktop?.isShell);

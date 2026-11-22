@@ -94,7 +94,7 @@ def test_update_status_uses_local_timestamp(current_version, expected):
 def test_repository_release_file_is_valid():
     path = Path(__file__).resolve().parents[3] / "release.json"
     payload = validate_release(json.loads(path.read_text(encoding="utf-8")))
-    assert set(payload["downloads"]) == {"baidu", "huggingface", "google_drive"}
+    assert set(payload["downloads"]) == {"baidu", "huggingface", "modelscope", "github", "google_drive"}
 
 
 def test_sources_point_to_master_release_file():

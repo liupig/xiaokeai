@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { NButton, NInput, NTabPane, NTabs } from 'naive-ui';
 import { CAM_SHOTS } from '../../engine/camera';
+import { isAdvancedShot } from '../../engine/shotRules';
 import { stage, type StandSlot } from '../../engine/stage';
 import type { ActionKey, CamShotId, EmotionKey } from '../../engine/types';
 import Live2DPanel from '../live2d/Live2DPanel.vue';
@@ -25,7 +26,7 @@ const settings = useSettingsStore();
 
 const sizeShots = computed(() => CAM_SHOTS.filter((c) =>
   ['close', 'bust', 'half', 'threeQ', 'full', 'long'].includes(c.id)));
-const moveShots = computed(() => CAM_SHOTS.filter((c) =>
+const moveShots = computed(() => CAM_SHOTS.filter((c) => !isAdvancedShot(c.id) &&
   !['close', 'bust', 'half', 'threeQ', 'full', 'long'].includes(c.id)));
 const libraryCams = computed(() => assets.cameras.filter((c) => !isFramingCam(c)));
 const currentShot = ref<CamShotId>('full');

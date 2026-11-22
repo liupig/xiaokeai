@@ -12,9 +12,9 @@ import httpx
 from .narration import STAGE_RE, map_stage_inner
 
 TAG_RE = re.compile(
-    r"\[(emo|act|dance|cam|expr|intent|motion|outfit|param|preset|stand|draw|lookup|glance|play|watch):([^\[\]]{0,160})\]"
+    r"\[(duplex|emo|act|dance|cam|expr|intent|motion|outfit|param|preset|stand|draw|lookup|glance|play|watch):([^\[\]]{0,160})\]"
 )
-TAG_NAMES = {"emo", "act", "dance", "cam", "expr", "intent", "motion", "outfit", "param", "preset", "stand", "draw", "lookup", "glance", "play", "watch"}
+TAG_NAMES = {"duplex", "emo", "act", "dance", "cam", "expr", "intent", "motion", "outfit", "param", "preset", "stand", "draw", "lookup", "glance", "play", "watch"}
 
 
 def _could_be_tag(text: str) -> bool:
@@ -29,9 +29,13 @@ SYSTEM_PROTOCOL = """
 你在扮演一个 3D 虚拟陪玩角色。文字会转成语音，表情和动作由工作室导演根据你的意图自动选角。
 规则：
 1. 用口语化中文回复，每句不要太长，像真人聊天。
-2. 只输出高层表演标记（不要写动作文件名，跳舞除外）：
+2. 只输出高层表演标记（不要写动作文件名）：
    - 情绪（每次回复开头必须有）：[emo:happy] [emo:angry] [emo:sad] [emo:relaxed] [emo:neutral]
      可带强度 0~1，如 [emo:happy:0.4] 浅笑、[emo:happy:1] 非常开心。
+   - 局部表情（只有当前模型提供表情清单时）：[expr:表情名:强度:秒数]，也兼容 [expr:表情名]。
+     用清单里的原名，强度 0~1，时长 0.3~6 秒。比如清单有「頬染め」时，[expr:頬染め:0.65:2]。
+     标签写在它所修饰的那句话之前。一句最多叠两种，通常只加一种。对方表达难过先用安静的眼神，玩笑的反差可用挑眉或短笑。
+     情绪标签定整句基调，局部表情只强调一拍。普通聊天允许留白，不要每句加表情或动作。
    - 镜头 / 动作 / 站位是一套，先定景别，再配表演：
      · 特写 [cam:close]：悄悄话、心动。表情为主，只配 [intent:nod] [intent:look] [intent:shake]
      · 1/4 [cam:bust]：思考、害羞。可 [intent:think] [intent:shy]
@@ -44,9 +48,7 @@ SYSTEM_PROTOCOL = """
    - Live2D 资源（仅当系统提供能力清单时使用）：[motion:动作组:索引] [outfit:表情名:on/off] [param:参数ID=数值] [preset:预设名]；摘眼镜统一用 [outfit:glasses:off]。
    - 站位：用户说靠左/靠右/回中间时用 [stand:left] [stand:center] [stand:right]
      （站台左右位置，不是景别）。给站位前切全身。
-   - 跳舞：仅当用户明确要求时输出 [dance:]。点了舞名就写那个文件名。
-     说再跳一次、再来一次，写刚才那支。说换一个、换一支、别的，必须换一支。
-     没点名就写空的 [dance:]，不要自己挑熟的那几支。
+   - 用户明确要求跳舞时，统一输出 [dance:]。舞台从用户原话识别点名、重跳和换舞。不要输出动作文件名。
    - 镜头：只在「景别该变」时给一次 [cam:…]，当作建议交给导演，不要每句都给。
      聊天默认 half，亲密 close，跳舞 full。运镜交给导演，不要自己点 45 度 / 90 度。
      不要背口诀（不要固定半身、不要告别必须拉远）。
@@ -88,10 +90,10 @@ class TagStreamParser:
                 if kind == "tag":
                     name = m.group(1)
                     value = (m.group(2) or "").strip()
-                    if name not in ("dance", "glance") and not value:
-                        events.append({"type": "text", "delta": m.group(0)})
-                    else:
+                    if value or name in ("dance", "glance"):
                         events.append({"type": name, "value": value})
+                    elif name not in ("duplex", "emo", "expr"):
+                        events.append({"type": "text", "delta": m.group(0)})
                 else:
                     events.extend(map_stage_inner(m.group(1)))
                 self.buf = self.buf[m.end():]
@@ -125,6 +127,8 @@ class TagStreamParser:
         s = self.buf
         self.buf = ""
         if s.startswith("["):
+            if s.startswith(("[duplex:", "[emo:", "[expr:")) and _could_be_tag(s):
+                return []
             return [{"type": "text", "delta": s}]
         if s[:1] in ("（", "(", "【"):
             return map_stage_inner(s[1:].strip("）)】"))

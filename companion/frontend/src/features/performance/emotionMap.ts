@@ -21,5 +21,5 @@ export function applyEmotion(emo: EmotionKey, map: Record<string, string[]>, int
   stage.setEmotion(emo, intensity);
   for (const name of appliedMorphs) stage.setMorph(name, false);
   appliedMorphs = emo === 'neutral' ? [] : (map[emo] ?? []);
-  for (const name of appliedMorphs) stage.setMorph(name, true);
+  for (const name of appliedMorphs) stage.setMorph(name, intensity);
 }

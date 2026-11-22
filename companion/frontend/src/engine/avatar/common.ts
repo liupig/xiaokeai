@@ -35,7 +35,7 @@ export function measureArm(
   }
   root.updateMatrixWorld(true);
 
-  const targetDrop = 1.15; // 目标下垂约 66°
+  const targetDrop = 1.31; // 约 75°，留出手臂和衣摆之间的空间
   const down = best.sign * Math.max(0, targetDrop - drop0);
   const up = best.sign * -(drop0 + 0.35); // 抬到水平以上约 20°
   return { axis: best.axis, down, up };

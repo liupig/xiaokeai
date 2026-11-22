@@ -53,10 +53,7 @@ export class MeshActionController {
       const clipName = item.name.toLowerCase();
       return aliases.some((alias) => clipName.includes(alias));
     });
-    this.clipAction?.fadeOut(0.15);
-    this.clipAction = null;
-    this.mixer?.stopAllAction();
-    this.time = 0;
+    this.stop();
     this.fallback = clip ? '' : name;
     this.active = clip ? !!this.mixer : PROCEDURAL_ACTIONS.has(name);
     if (clip && this.mixer) {
@@ -65,13 +62,21 @@ export class MeshActionController {
         .setLoop(THREE.LoopOnce, 1)
         .fadeIn(0.2)
         .play();
-      this.clipAction.clampWhenFinished = true;
     }
     return this.active;
   }
 
+  stop() {
+    this.clipAction = null;
+    this.mixer?.stopAllAction();
+    this.time = 0;
+    this.fallback = '';
+    this.active = false;
+  }
+
   update(dt: number) {
     this.mixer?.update(dt);
+    if (!this.active && this.clipAction) this.stop();
     if (!this.active || !this.fallback) return;
     this.time += dt;
     const p = Math.min(1, this.time / 2);

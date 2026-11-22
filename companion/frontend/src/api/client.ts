@@ -73,6 +73,7 @@ export type ChatEvent =
   | { type: 'text'; delta: string }
   | { type: 'speech'; id: string; text: string; duplex_cmd: string; sentence_type: string; kind?: string }
   | { type: 'duplex'; delayed_sec: number }
+  | { type: 'duplex_decision'; duplex_cmd: string }
   | { type: 'emo'; value: string }
   | { type: 'act'; value: string }
   | { type: 'dance'; value: string }
@@ -109,6 +110,7 @@ export interface TalkLogLine {
 }
 
 export interface ChatExtra {
+  latency_id?: string;
   channel?: 'personal' | 'live';
   viewer_id?: string;
   viewer_name?: string;
@@ -812,6 +814,13 @@ export const api = {
       body: JSON.stringify(body),
     });
   },
+  recordChatPlaybackLatency(latencyId: string, stages: Record<string, number>) {
+    return fetch('/api/chat/playback-latency', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ latency_id: latencyId, stages_ms: stages }),
+    });
+  },
   clearChatHistory(characterId: number) {
     return request(`/api/chat/history/${characterId}`, { method: 'DELETE' });
   },
@@ -1312,6 +1321,7 @@ export const api = {
       viewer_name: extra.viewer_name || '',
       live_session_id: extra.live_session_id || '',
       life_context: lifeChatContext(characterId, mode === 'life'),
+      latency_id: extra.latency_id || '',
       scene_id: extra.scene_id || '',
       scene_text: extra.scene_text || '',
       scene_title: extra.scene_title || '',

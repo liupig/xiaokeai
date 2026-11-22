@@ -109,16 +109,19 @@ export function playAssetMotion(
 ) {
   if (isMotionRejected(asset)) return Promise.resolve(false);
   const dance = parseMotionCat(asset) === 'dance';
-  if (dance) stage.holdDance();
+  const reservation = dance ? stage.holdDance() : undefined;
   const bound = dance ? motionBgmUrl(asset) : undefined;
-  const play = (bgm?: string) => stage.playMotion(api.assetUrl(asset), {
-    once: opts?.once ?? (dance ? true : undefined),
-    holdLast: opts?.holdLast,
-    dance,
-    bgm,
-    camera: opts?.skipCamera ? undefined : motionCameraUrl(asset),
-    onEnded: opts?.onEnded,
-  });
+  const play = (bgm?: string) => {
+    if (reservation !== undefined && reservation !== stage.danceReservation) return Promise.resolve(false);
+    return stage.playMotion(api.assetUrl(asset), {
+      once: opts?.once ?? (dance ? true : undefined),
+      holdLast: opts?.holdLast,
+      dance,
+      bgm,
+      camera: opts?.skipCamera ? undefined : motionCameraUrl(asset),
+      onEnded: opts?.onEnded,
+    });
+  };
   if (dance && !bound) {
     return ensureDanceMusicLibrary().then(() => play(pickDanceLibraryBgm()));
   }

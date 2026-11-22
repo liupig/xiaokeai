@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import hashlib
 import os
 import tempfile
@@ -610,17 +611,19 @@ class Runtime:
         self._open_ids.add(session_id)
 
     def run_turn(
-        self, llm_conf: Dict[str, Any], *, cancel: threading.Event | None = None, **kwargs,
+        self, llm_conf: Dict[str, Any], *, cancel: threading.Event | None = None, timing=None, **kwargs,
     ) -> str:
         cancel = cancel or threading.Event()
         while not self._turn.acquire(timeout=0.1):
             if cancel.is_set() or self._closing.is_set():
                 raise TurnCancelled("这一轮已打断")
         try:
+            if timing:
+                timing("harness_lock")
             if cancel.is_set() or self._closing.is_set():
                 raise TurnCancelled("这一轮已打断")
             try:
-                return self._run_turn_locked(llm_conf, cancel=cancel, **kwargs)
+                return self._run_turn_locked(llm_conf, cancel=cancel, timing=timing, **kwargs)
             except BaseException:
                 # Failed/cancelled generations are not authoritative history.
                 # Rebuild from host-confirmed messages on the next turn.
@@ -661,6 +664,7 @@ class Runtime:
         on_delta,
         recall: str = "",
         cancel: threading.Event,
+        timing=None,
     ) -> str:
         harness = self.ensure(llm_conf)
         with self._active_lock:
@@ -712,6 +716,8 @@ class Runtime:
                 on_delta(delta)
 
         def on_live(text: str) -> None:
+            if timing:
+                timing("upstream_first_text")
             with speak_lock:
                 publish(growth.feed({
                     "type": "assistant/chunk",
@@ -723,14 +729,19 @@ class Runtime:
             if event is None:
                 return
             with speak_lock:
-                publish(growth.feed(event))
+                delta = growth.feed(event)
+                if delta and timing:
+                    timing("sdk_first_text")
+                publish(delta)
 
         from .stream_tap import subscribe_text
         upstream = messages_base((apply_llm_overlay(llm_conf).get("base_url") or "").strip() or None)
-        unsubscribe = subscribe_text(upstream, on_live)
+        unsubscribe = subscribe_text(upstream, on_live, timing) if timing else subscribe_text(upstream, on_live)
         try:
             with self._turn:
                 self._ensure_open(harness, session_id)
+                if timing:
+                    timing("harness_run")
                 try:
                     result = harness.start_session(session_id).run(
                         prompt,
@@ -842,6 +853,7 @@ async def stream_reply(
     cancel: threading.Event | None = None,
     valid=None,
     timeout: float = 180.0,
+    timing=None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """把 dsh 的助手正文喂进现有标签解析，事件形状和 stream_chat 一致。"""
     loop = asyncio.get_running_loop()
@@ -860,10 +872,14 @@ async def stream_reply(
             pass
 
     def on_delta(delta: str) -> None:
+        if timing:
+            timing("harness_first_delta")
         post("delta", delta)
 
     def work() -> None:
         try:
+            if timing:
+                timing("harness_queued")
             current.run_turn(
                 llm_conf,
                 character_id=character_id,
@@ -873,6 +889,7 @@ async def stream_reply(
                 on_delta=on_delta,
                 recall=recall,
                 cancel=cancel,
+                **({"timing": timing} if timing else {}),
             )
         except Exception as exc:
             print(f"[harness] {exc}")
@@ -908,11 +925,17 @@ async def stream_reply(
                         spoken = _keep_text(ev.get("delta") or "")
                         if not spoken:
                             continue
+                        if timing:
+                            timing("harness_first_clause")
                         ev = {"type": "text", "delta": spoken}
                         full_text += spoken
                     yield ev
                 continue
             if kind == "error":
+                if re.search(r"\bunsupported stop reason\s+content_filter\b", payload, re.IGNORECASE):
+                    delivered = True
+                    yield {"type": "error", "code": "content_filter", "message": "模型服务拦截了本次回复。"}
+                    return
                 failed = True
                 yield {"type": "error", "code": "harness", "message": payload}
                 break

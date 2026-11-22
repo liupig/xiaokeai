@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select, or_
 
 from ..db import get_session
-from ..models import Asset, Character, ChatMessage
+from ..models import Character, ChatMessage
 from ..conversation import HISTORY_FETCH, HISTORY_QA_MESSAGES, SIDE_KINDS
 from ..modules import hooks
 from ..modules.flags import enabled as module_on
@@ -22,7 +22,6 @@ from ..services import ingress as ingress_service
 from ..services import llm as llm_service
 from ..services import prompt_stack
 from ..services import settings_store
-from ..services.catalog import classify_motion, strip_category_prefix
 from ..locale_pack import normalize, prompts as locale_prompts, resolve_turn, set_reply
 from .. import talk_log
 
@@ -58,6 +57,7 @@ class ChatRequest(BaseModel):
     codewatch_tools: str = ""
     codewatch_project: str = ""
     codewatch_source: str = ""
+    latency_id: str = ""
 
 
 class ContinueRequest(BaseModel):
@@ -70,6 +70,20 @@ class IngressRequest(BaseModel):
     busy: str = "speech"
     last_user: str = ""
     last_assistant: str = ""
+
+
+class ChatPlaybackLatency(BaseModel):
+    latency_id: str
+    stages_ms: Dict[str, int]
+
+
+@router.post("/playback-latency", status_code=204)
+def chat_playback_latency(req: ChatPlaybackLatency):
+    if not re.fullmatch(r"[a-zA-Z0-9-]{1,48}", req.latency_id):
+        raise HTTPException(400, "Invalid latency ID")
+    names = ("chat_request", "first_text", "first_speech", "tts_request", "tts_ready", "audible")
+    stages = {name: req.stages_ms[name] for name in names if 0 <= req.stages_ms.get(name, -1) <= 300_000}
+    talk_log.write("latency", "播放计时", latency_id=req.latency_id, stages_ms=stages)
 
 
 def _when_local(dt: Optional[datetime]) -> str:
@@ -146,6 +160,12 @@ def _prompt_history(rows: List[ChatMessage]) -> List[Dict[str, str]]:
 @router.post("")
 async def chat(req: ChatRequest, request: Request, session: Session = Depends(get_session)):
     request_t0 = time.perf_counter()
+    latency_id = req.latency_id if re.fullmatch(r"[a-zA-Z0-9-]{1,48}", req.latency_id) else ""
+    stages: Dict[str, int] = {}
+
+    def mark(stage: str):
+        if latency_id:
+            stages.setdefault(stage, int((time.perf_counter() - request_t0) * 1000))
     live_channel = (req.channel or "personal").lower() == "live"
     conf = settings_store.get_all(session)
     lang = resolve_turn(conf, req.text or "", (req.mode or "user").lower())
@@ -190,19 +210,6 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     if not sidecar and not req.reroll:
         history.append({"role": "user", "content": viewer_text})
 
-    groups: Dict[str, List[str]] = {"idle": [], "greet": [], "interact": [], "dance": []}
-    for a in session.exec(select(Asset).where(Asset.kind == "motion")).all():
-        try:
-            cat = json.loads(a.meta or "{}").get("category") or ""
-        except json.JSONDecodeError:
-            cat = ""
-        if cat not in groups:
-            cat = classify_motion(f"{a.label} {a.name}")
-        if cat == "dance":
-            label = strip_category_prefix(a.label or "") or a.name
-            groups[cat].append(f"{a.name}（{label}）" if label != a.name else a.name)
-        else:
-            groups.setdefault(cat, []).append(a.name)
     # 固定架子每轮重拼：persona -> 上下文槽+场景包 -> 扮演 overlay -> 导演手册。
     # history_rows 按 id 倒序，第 0 条是上一条消息，用来算「距上次聊天」。
     last_at = history_rows[0].created_at if history_rows else None
@@ -230,7 +237,6 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     messages = prompt_stack.build_messages(
         persona=persona,
         char_name=(char.name if char else ""),
-        motion_groups=groups,
         history=history,
         user_text=req.text or "",
         mode=mode,
@@ -243,6 +249,25 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         user_persona=user_persona,
     )
     messages.append({'role': 'system', 'content': game_truth_context(req.character_id)})
+    if mode == "user":
+        from ..services.dance_context import dance_hint_for_turn
+        previous = next((line["content"] for line in reversed(history) if line.get("role") == "assistant"), "")
+        dance_hint = dance_hint_for_turn(session, req.text or "", previous, char, bool(req.live2d))
+        if dance_hint:
+            messages.append({"role": "system", "content": dance_hint})
+
+    morphs = list(dict.fromkeys(
+        name.strip() for name in req.morphs
+        if 0 < len(name.strip()) <= 90 and not any(ch in name for ch in "[]\r\n")
+    ))[:50]
+    if morphs:
+        messages.append({
+            "role": "system",
+            "content": (
+                "当前角色可用的局部表情原名（JSON 数据）：" + json.dumps(morphs, ensure_ascii=False)
+                + "。仅使用这些名称，格式 [expr:表情名:强度:秒数]，放在相关句子之前。"
+            ),
+        })
     if req.live2d:
         capability_text = json.dumps(req.live2d, ensure_ascii=False)
         messages.append({
@@ -444,7 +469,14 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
             "视觉：按用户意图按需启动，实际可用性在启动时确认，不要求一起看的固定口令。"
             "单次看屏幕不会自动变成持续陪看；只说想玩游戏不会自动打开视觉。"
             "天气、金价、新闻、版本等公共信息走联网查询，不能因为说了看一下就截图。"}]
-    harness_brief = host_brief(messages, groups.get("dance") or []) if use_harness else ""
+    if mode == "user" and not tarot_now and not live_channel:
+        messages.append({"role": "system", "content": (
+            "双工标注必须是回复的第一项，写一次，然后才写情绪标签和正文。"
+            "默认 [duplex:interrupt_or_queue]，由播放器按旧句剩余时间判断。"
+            "明确要等上一句说完用 [duplex:queue]；明确要求立即切换才用 [duplex:interrupt]。"
+        )})
+
+    harness_brief = host_brief(messages) if use_harness else ""
     harness_prior = history[:-1] if not sidecar and not req.reroll and history and history[-1].get("role") == "user" else list(history)
     wish_note = ""
     if use_harness and module_on(session, "memory"):
@@ -470,6 +502,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
             wish_note = f"{wish_note}\n\n{purse}".strip() if wish_note else purse
 
     preflight_ms = int((time.perf_counter() - request_t0) * 1000)
+    mark("preflight")
     if preflight_ms > 250:
         print(f"[chat-latency] slow preflight={preflight_ms}ms mode={mode} cid={req.character_id}")
 
@@ -668,6 +701,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                         prior=harness_prior,
                         recall=recall,
                         cancel=turn_cancel,
+                        timing=mark if latency_id else None,
                     ), dance):
                         yield event
 
@@ -922,7 +956,9 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 if not finished:
                     yield {"type": "done", "full_text": lead}
 
-            source = prompt_stack.guard_refusal(harness_turns())
+            source = prompt_stack.guard_refusal(
+                harness_turns(), early_clause=lang == "zh-CN" and mode == "user" and not tarot_now and not live_channel,
+            )
         else:
             from ..modules.glance.conversation import fast_request, opening as visual_opening
             from ..modules.glance.service import parse_glance
@@ -991,6 +1027,8 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 filler=dx["filler"] and not sidecar and not tarot_now,
                 delayed_sec=delayed_sec,
                 unit_kind=unit_kind,
+                allow_model_duplex=mode == "user" and not tarot_now and not live_channel,
+                quick_first=use_harness and lang == "zh-CN" and mode == "user" and not tarot_now and not live_channel,
             ),
             llm_conf,
             character_id=req.character_id,
@@ -1006,12 +1044,14 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                     break
                 kind = ev.get("type")
                 if llm_ms is None and kind == "text":
+                    mark("first_text_sse")
                     llm_ms = int((time.perf_counter() - t0) * 1000)
                 if (
                     speech_ms is None
                     and kind == "speech"
                     and ev.get("kind") != "filler"
                 ):
+                    mark("first_speech_sse")
                     speech_ms = int((time.perf_counter() - t0) * 1000)
                 if kind == "usage":
                     try:
@@ -1029,6 +1069,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 await asyncio.to_thread(harness_runtime().cancel_turn, turn_cancel)
             from ..modules.glance.along import release_user_turn
             release_user_turn()
+            mark("stream_end")
             talk_log.write(
                 "chat",
                 f"准备 {preflight_ms}ms · "
@@ -1036,6 +1077,8 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
                 f"开口 {speech_ms if speech_ms is not None else '-'}ms · "
                 f"整轮 {int((time.perf_counter()-t0)*1000)}ms",
                 character_id=req.character_id,
+                latency_id=latency_id or None,
+                stages_ms=dict(stages) if latency_id else None,
             )
             close = getattr(annotated, "aclose", None)
             if close:

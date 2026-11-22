@@ -373,7 +373,6 @@ class TestPromptStackLayers:
     def _base_kwargs(self, **kw):
         defaults = dict(
             persona="你是清宵。", char_name="清宵",
-            motion_groups={"dance": ["a.vmd"]},
             history=[{"role": "user", "content": "你好"}],
             user_text="你好", mode="user", last_at=None, character_id=0,
             boundary="strict",

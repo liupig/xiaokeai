@@ -1,3 +1,4 @@
+import { asksForDance, stopsCurrentDance } from '../performance/dancePick';
 import { canWakeTavern } from '../tavern/intent';
 import { isTarotVoiceCommand } from '../tarot/intent';
 import { deskActivity } from '../desk/activity';
@@ -26,8 +27,9 @@ export function localIngress(text: string, busy: IngressBusy): IngressAct | null
   const act = deskActivity();
   if (act === 'tarot' && isTarotVoiceCommand(t, tarotUi.phase || '')) return 'cut';
   if (act === 'dance') {
-    if (cutRe().test(t) || askRe().test(t)) return 'cut';
-    if (backRe().test(t) || dropRe().test(t)) return 'drop';
+    if (stopsCurrentDance(text) || isExplicitSpeechStop(text) || askRe().test(t) || asksForDance(text)) return 'cut';
+    if (backRe().test(t) || dropRe().test(t)
+      || /^(?:跳得?真好|跳的真好|跳得?好棒|好棒|太棒了|好看|跳得真不错|继续跳|接着跳)[呀啊哦。！!]*$/i.test(t)) return 'drop';
     if (t.length <= 2) return 'drop';
     return 'cut';
   }
@@ -48,6 +50,10 @@ export function peekIngressCut(text: string): boolean {
   if (t.length < 2) return false;
   if (deskActivity() === 'tarot' && isTarotVoiceCommand(t, tarotUi.phase || '')) return true;
   return cutRe().test(t) || askRe().test(t);
+}
+
+export function isExplicitSpeechStop(text: string) {
+  return /^(?:停|停下|停一下|别说了|先别说|不要说了|暂停|stop(?:talking)?|pause|やめて|待って|그만|стоп)[。！？!?]*$/i.test(norm(text));
 }
 
 export function fallbackIngress(busy: IngressBusy): IngressAct {

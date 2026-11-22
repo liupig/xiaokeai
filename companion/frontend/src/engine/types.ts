@@ -2,7 +2,7 @@ import type * as THREE from 'three';
 
 export type BoneKey =
   | 'hips' | 'spine' | 'chest' | 'head'
-  | 'leftUpperArm' | 'rightUpperArm' | 'rightLowerArm';
+  | 'leftUpperArm' | 'rightUpperArm' | 'leftLowerArm' | 'rightLowerArm';
 
 export type ExprKey = 'aa' | 'blink' | 'happy' | 'angry' | 'sad' | 'relaxed';
 export type EmotionKey = 'neutral' | 'happy' | 'angry' | 'sad' | 'relaxed';
@@ -14,7 +14,7 @@ export type TouchPose = 'squint' | 'fond' | 'shy' | 'dodge' | 'cover' | 'cold' |
 export type Axis = 'x' | 'y' | 'z';
 export type CamPreset = 'close' | 'half' | 'full';
 export type CamShotId =
-  | CamPreset
+  | CamPreset | 'tilt12'
   | 'bust' | 'threeQ' | 'long'
   | 'high45'
   | 'yawL45' | 'yawR45'
@@ -37,9 +37,10 @@ export interface Avatar {
   /** 模型自带的全部形态键名 */
   morphNames(): string[];
   /** 按名字直接驱动任意形态键 */
-  setMorph(name: string, v: number): void;
+  setMorph(name: string, v: number, blendWithPreset?: boolean): void;
   update(dt: number): void;
   playAction?(name: string): boolean;
+  stopAction?(): void;
   readonly actionActive?: boolean;
   /** 骨骼初始欧拉角追踪，动画在其基础上叠加 */
   base(obj: THREE.Object3D): THREE.Euler;
@@ -49,7 +50,7 @@ export interface Avatar {
 
 export type MorphEntry = { name: string; scale: number };
 export type MorphMap = Record<ExprKey, MorphEntry[]>;
-export type BoneMap = Record<BoneKey | 'leftLowerArm', string[]>;
+export type BoneMap = Record<BoneKey, string[]>;
 
 export interface QualityOptions {
   physics: boolean;

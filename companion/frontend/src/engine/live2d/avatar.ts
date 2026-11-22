@@ -1,3 +1,4 @@
+import { WINK_MORPH } from '../expression';
 import * as THREE from 'three';
 import type { Live2DModel } from 'untitled-pixi-live2d-engine/cubism';
 import type { ArmRig, Avatar, BoneKey, ExprKey, TouchZone } from '../types';
@@ -70,6 +71,9 @@ export class Live2DAvatar implements Avatar {
   private readonly expressionNames: string[] = [];
   private readonly expressionFiles = new Map<string, string>();
   private readonly expressionDefinitions = new Map<string, ExpressionDefinition>();
+  private readonly weightedExpressions = new Map<string, number>();
+  private readonly loadingWeightedExpressions = new Set<string>();
+  private readonly failedWeightedExpressions = new Set<string>();
   private readonly enabledExpressions = new Set<string>();
   private readonly expressionSeqs = new Map<string, number>();
   private readonly values = new Map<string, number>();
@@ -106,6 +110,7 @@ export class Live2DAvatar implements Avatar {
       if (!item.Name) continue;
       this.expressionNames.push(item.Name);
       this.expressionFiles.set(item.Name, model.internalModel.settings.resolveURL(item.File));
+      if (WINK_MORPH.test(item.Name)) this.loadWeightedExpression(item.Name);
     }
     const positions: [BoneKey, number][] = [
       ['hips', 0.85], ['spine', 1.05], ['chest', 1.2], ['head', 1.5],
@@ -146,7 +151,16 @@ export class Live2DAvatar implements Avatar {
     return [...this.parameterIds, ...this.expressionNames];
   }
 
-  setMorph(name: string, value: number) {
+  setMorph(name: string, value: number, blendWithPreset = false) {
+    const file = this.expressionFiles.get(name);
+    if (file && (blendWithPreset || this.weightedExpressions.has(name))) {
+      if (value <= 0) this.weightedExpressions.delete(name);
+      else {
+        this.weightedExpressions.set(name, value);
+        this.loadWeightedExpression(name);
+      }
+      return;
+    }
     const previous = this.manual.get(name) ?? 0;
     this.manual.set(name, value);
     if (this.expressionNames.includes(name)) {
@@ -154,6 +168,22 @@ export class Live2DAvatar implements Avatar {
       if (value > 0 && previous <= 0) void this.model.expression(name);
       else if (value <= 0 && previous > 0) manager?.resetExpression();
     }
+  }
+
+  private loadWeightedExpression(name: string) {
+    const file = this.expressionFiles.get(name);
+    if (!file || this.expressionDefinitions.has(name) || this.loadingWeightedExpressions.has(name)
+      || this.failedWeightedExpressions.has(name)) return;
+    this.loadingWeightedExpressions.add(name);
+    void fetch(file).then(response => {
+      if (!response.ok) throw new Error(response.statusText);
+      return response.json() as Promise<ExpressionDefinition>;
+    }).then(definition => {
+      this.expressionDefinitions.set(name, definition);
+    }).catch(error => {
+      this.failedWeightedExpressions.add(name);
+      console.warn('Live2D 表情加载失败：', name, error);
+    }).finally(() => this.loadingWeightedExpressions.delete(name));
   }
 
   private playAutoNative(group: string, index: number): boolean {
@@ -306,7 +336,7 @@ export class Live2DAvatar implements Avatar {
   }
 
   async setExpressionEnabled(name: string, enabled: boolean): Promise<void> {
-    if (!this.expressionFiles.has(name)) return;
+    if (!this.expressionFiles.has(name) || WINK_MORPH.test(name)) return;
     const seq = (this.expressionSeqs.get(name) ?? 0) + 1;
     this.expressionSeqs.set(name, seq);
     if (!this.expressionDefinitions.has(name)) {
@@ -417,6 +447,19 @@ export class Live2DAvatar implements Avatar {
 
   applyParameters() {
     const combined = new Map([...this.values, ...this.manual, ...this.persistent]);
+    for (const [name, weight] of this.weightedExpressions) {
+      for (const parameter of this.expressionDefinitions.get(name)?.Parameters ?? []) {
+        // 发声时保留口型。眨眼与眨单眼由当前表达参数合成。
+        if (/^(?:ParamMouthOpenY|ParamMouthForm)$/i.test(parameter.Id) && this.values.has('ParamMouthOpenY')) continue;
+        const index = this.parameterIds.indexOf(parameter.Id);
+        if (index < 0 || this.suppressed.has(parameter.Id) || !Number.isFinite(parameter.Value)) continue;
+        const base = combined.get(parameter.Id) ?? this.core.getParameterDefaultValue(index);
+        const blend = parameter.Blend ?? 'Add';
+        const target = blend === 'Multiply' ? base * parameter.Value
+          : blend === 'Overwrite' ? parameter.Value : base + parameter.Value;
+        combined.set(parameter.Id, THREE.MathUtils.lerp(base, target, weight));
+      }
+    }
     combined.set('ParamEyeBallX', this.gazeCurrent.x);
     combined.set('ParamEyeBallY', this.gazeCurrent.y);
     if (this.gazeEnabled && !this.actionActive) {
@@ -455,6 +498,7 @@ export class Live2DAvatar implements Avatar {
     this.gazeCurrent = { x: 0, y: 0 };
     this.values.clear();
     this.manual.clear();
+    this.weightedExpressions.clear();
     this.persistent.clear();
     this.suppressed.clear();
   }

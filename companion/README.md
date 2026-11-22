@@ -2,7 +2,7 @@
 
 开源免费的**本地 3D 陪玩 / 虚拟陪玩**：挑选 / 下载 3D 角色，配置人设与声音，通过文本或语音对话；角色用语音 + 口型 + 表情 + 动作 + 舞蹈实时回应。也可以陪你看电影、刷视频、听音乐：画面和声音留在本机，值得说的时候她才开口。
 
-不想自己装 Node / Python 时，用仓库根目录 [README · 体验包](../README.zh-CN.md#下载-windows-体验包)。2026-11-05 的 A、B 位于 Hugging Face 的 [`20261105173339/`](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261105173339) 目录；也可使用 [Google Drive](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) 或[百度网盘（提取码 xkai）](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)。下载相同时间戳的两包并解压到同一层，双击 `xiaoke-ai.exe`。
+不想自己装 Node / Python 时，用仓库根目录 [README · 体验包](../README.zh-CN.md#下载-windows-体验包)。2026-11-05 的 A、B 位于 Hugging Face 的 [`20261105173339/`](https://huggingface.co/datasets/liupigai/xiaokeai/tree/main/20261105173339) 目录；也可使用 [ModelScope 魔塔数据集](https://modelscope.cn/datasets/liupig/xiaokeai)、[Google Drive](https://drive.google.com/drive/folders/1mZcD4K90WgO2x2UxteAyMFsQlgTairPl?usp=drive_link) 或[百度网盘（提取码 xkai）](https://pan.baidu.com/s/1Y3KuQWG761eP08Uktx36Eg?pwd=xkai)。下载相同时间戳的两包并解压到同一层，双击 `xiaoke-ai.exe`。
 
 ## 功能一览
 

@@ -18,14 +18,22 @@ import { IdleAnimator } from './idle';
 import { Lipsync } from './lipsync';
 import { GLB_BONES, GLB_MORPHS, MMD_BONES, MMD_MORPHS } from './mappings';
 import { MotionPlayer } from './motion';
+import { isSmallPhysicsPart, PhysicsMotion } from './physicsMotion';
 import { isMotionRejected } from '../features/assets/motionMeta';
 import { StandController, type StandSlot } from './stand';
 import type { ActionKey, Avatar, BoneKey, CamPreset, CamShotId, EmotionKey, QualityOptions, TouchZone } from './types';
+
+import { outsideSafeFrame, predictFraming } from './framing';
+import { acceptsShot, safeAutomaticShot } from './shotRules';
 
 export type { StandSlot };
 
 const PHY_STEP = 1 / 65; // MMDPhysics 内部最小步长
 const MAX_PHY_STEPS = 4;
+// Bullet 的阻尼按时间衰减。保留模型中比下限更强的阻尼。
+const MIN_LINEAR_DAMPING = 0.45;
+const MIN_ANGULAR_DAMPING = 0.82;
+const PHY_SOLVER_ITERATIONS = 16;
 /** PMX 从 MMD 单位（约 8cm）换成米。物理库假定缩放是 1，会临时改掉它。 */
 const MMD_MODEL_SCALE = 0.08;
 
@@ -37,6 +45,53 @@ type AmmoWorldParts = {
 };
 
 type PhysicsHandle = MMDPhysics & { _ammoParts?: AmmoWorldParts | null };
+
+type BoneTransform = { pos: THREE.Vector3; quat: THREE.Quaternion };
+type PhysicsBodyParams = { type: number; boneIndex: number };
+type MmdRigidBodyParams = PhysicsBodyParams & {
+  positionDamping: number;
+  rotationDamping: number;
+};
+type PhysicsBone = {
+  bone: THREE.Bone;
+  drivesPosition: boolean;
+  animated: BoneTransform;
+  motion: PhysicsMotion;
+};
+
+function captureBone(bone: THREE.Bone, target: BoneTransform) {
+  target.pos.copy(bone.position);
+  target.quat.copy(bone.quaternion);
+}
+
+function restorePhysicsPose(bones: PhysicsBone[]) {
+  for (const { bone, animated } of bones) {
+    bone.position.copy(animated.pos);
+    bone.quaternion.copy(animated.quat);
+  }
+}
+
+/** 舞台的摆位、朝向和米制缩放只用于显示。Ammo 始终使用 PMX 模型本地坐标。 */
+function inMmdModelSpace<T>(mesh: THREE.Object3D, run: () => T): T {
+  const parent = mesh.parent;
+  const position = mesh.position.clone();
+  const quaternion = mesh.quaternion.clone();
+  const scale = mesh.scale.clone();
+  try {
+    mesh.parent = null;
+    mesh.position.set(0, 0, 0);
+    mesh.quaternion.identity();
+    mesh.scale.setScalar(1);
+    mesh.updateMatrixWorld(true);
+    return run();
+  } finally {
+    mesh.parent = parent;
+    mesh.position.copy(position);
+    mesh.quaternion.copy(quaternion);
+    mesh.scale.copy(scale);
+    mesh.updateMatrixWorld(true);
+  }
+}
 
 /** 刚体构造信息只在 new 的时候用，库本身不留引用，不销毁会跟着模型一起堆积。 */
 const trackedBodyInfos = new Set<object>();
@@ -50,9 +105,7 @@ function ammoDestroy(obj: object | null | undefined) {
 }
 
 /**
- * MMDPhysics 用 matrixWorld 判断缩放。update 把缩放临时改成 1 之后不刷新矩阵，
- * warmup 连续调用时下一次会误以为缩放是 1，把刚体位置写进仍是 0.08 的骨骼，角色变成十几倍。
- * 另外世界、碰撞配置、构造信息都不释放，wasm 堆大约 64MB，连换几次模型就会耗尽。
+ * 统一 update/warmup 使用的坐标，并跟踪库未释放的 Ammo 对象。
  */
 function installMmdPhysicsFix() {
   const ammo = (globalThis as { Ammo?: Record<string, unknown> }).Ammo;
@@ -70,21 +123,7 @@ function installMmdPhysicsFix() {
   };
   const origUpdate = proto.update;
   proto.update = function (delta: number) {
-    const mesh = this.mesh;
-    mesh.updateMatrixWorld(true);
-    const parent = mesh.parent;
-    const pos = mesh.position.clone();
-    const quat = mesh.quaternion.clone();
-    const scale = mesh.scale.clone();
-    try {
-      return origUpdate.call(this, delta);
-    } finally {
-      mesh.parent = parent;
-      mesh.position.copy(pos);
-      mesh.quaternion.copy(quat);
-      mesh.scale.copy(scale);
-      mesh.updateMatrixWorld(true);
-    }
+    return inMmdModelSpace(this.mesh, () => origUpdate.call(this, delta));
   };
   const origInit = proto._init;
   proto._init = function (mesh, rigidBodyParams, constraintParams) {
@@ -111,6 +150,8 @@ function installMmdPhysicsFix() {
     const broadphase = new lib.btDbvtBroadphase();
     const solver = new lib.btSequentialImpulseConstraintSolver();
     const world = new lib.btDiscreteDynamicsWorld(dispatcher, broadphase, solver, config);
+    // 多段裙摆和长发的关节链需要多几次求解才能稳定收敛。
+    world.getSolverInfo().set_m_numIterations(PHY_SOLVER_ITERATIONS);
     this._ammoParts = { config, dispatcher, broadphase, solver };
     return world;
   };
@@ -273,6 +314,11 @@ export class Stage {
   private bgmGen = 0;
   /** 舞+歌正在播：说话 / 走路 / 闲时动作不许把歌掐掉 */
   private _danceLive = false;
+  private danceRequest = 0;
+
+  get danceReservation() {
+    return this.danceRequest;
+  }
 
   get danceLive() {
     return this._danceLive;
@@ -324,15 +370,23 @@ export class Stage {
   private physicsHeld: MMDPhysics | null = null;
   private physicsGen = 0;
   /** 物理库会改 mesh 的缩放和 parent，抛错前先记下，用来改回去 */
-  private mmdHoldParent: THREE.Object3D | null = null;
-  private mmdHoldPos = new THREE.Vector3();
-  private mmdHoldQuat = new THREE.Quaternion();
-  private mmdHoldScale = new THREE.Vector3(1, 1, 1);
   /** 开物理之前的姿势。初始化或步进失败时拉回来，避免骨骼停在被拉大的位置。 */
-  private mmdPose: { bone: THREE.Bone; pos: THREE.Vector3; quat: THREE.Quaternion }[] = [];
   private modelKind = '';
   private headAuditActive = false;
+  private reviewCameraActive = false;
+  private reviewPosePaused = false;
+  private framingSample: { root: THREE.Object3D; time: number; points: THREE.Vector3[]; size: CamShotId } | null = null;
+  private framingElapsed = 0;
+  private framingClipped = 0;
+  private framingSpeed = 0;
+  private lastAutomaticCutAt = 0;
+  private framingBones: { root: THREE.Object3D; limbs: THREE.Object3D[] } | null = null;
+  private automaticFrame: { size: CamShotId; move?: CamShotId; onChange?: (move?: CamShotId) => void; recovered: boolean } | null = null;
   private phyAcc = 0;
+  private physicsBones: PhysicsBone[] = [];
+  private physicsRenderRotation = new THREE.Quaternion();
+  private physicsRenderOffset = new THREE.Vector3();
+  private physicsResetPending = false;
   private disposed = false;
   /** 每次拆掉画布加一，旧的渲染循环看到对不上就停 */
   private loopGen = 0;
@@ -1082,16 +1136,10 @@ export class Stage {
 
     // 先保留 T-pose 作为 Mixamo 重定向基准，再放低手臂。
     this.motion.attach(mmd);
-    for (const [key, rig] of [['leftUpperArm', av.armL], ['rightUpperArm', av.armR]] as const) {
-      const b = av.bone(key);
-      if (b) b.rotation[rig.axis] = av.base(b)[rig.axis] + rig.down;
-    }
-    mmd.updateMatrixWorld(true);
-
-    // 停止动作恢复自然姿势，避免从 T-pose 瞬间拉回把挂饰链抽飞。
-    this.motion.captureInitialPose();
-    this.motion.onPhysicsReset = () => this.physics?.reset();
-    this.rememberMmdPose(mmd);
+    this.captureMotionIdle(mmd, av);
+    this.motion.onPhysicsReset = () => {
+      this.physicsResetPending = this.physics !== null;
+    };
     const info = this.finishSetup(mmd, url, 'pmx', true);
     await this.attachPhysics();
     return info;
@@ -1099,9 +1147,10 @@ export class Stage {
 
   private detachPhysics() {
     this.physicsGen += 1;
-    try { this.physics?.reset(); } catch { /* */ }
     this.physics = null;
     this.phyAcc = 0;
+    this.physicsBones = [];
+    this.physicsResetPending = false;
   }
 
   /** 关掉并且释放 wasm 里的刚体。换模型、初始化失败时用；普通开关只 detach，留着下次复用。 */
@@ -1111,49 +1160,9 @@ export class Stage {
     this.physics = null;
     this.physicsHeld = null;
     this.phyAcc = 0;
+    this.physicsBones = [];
+    this.physicsResetPending = false;
     releaseMmdPhysics(held);
-  }
-
-  private rememberMmdPose(mesh: THREE.SkinnedMesh) {
-    this.mmdPose = mesh.skeleton.bones.map((bone) => ({
-      bone,
-      pos: bone.position.clone(),
-      quat: bone.quaternion.clone(),
-    }));
-  }
-
-  private restoreMmdPose() {
-    if (!this.mmdPose.length) return;
-    for (const item of this.mmdPose) {
-      item.bone.position.copy(item.pos);
-      item.bone.quaternion.copy(item.quat);
-    }
-    this.modelRoot?.updateMatrixWorld(true);
-  }
-
-  /**
-   * MMDPhysics 发现缩放不是 1 时，会把 mesh.scale 改成 1、parent 摘掉，算完再改回。
-   * 初始化或步进一旦抛错（刚体太多、wasm 堆耗尽），改回那一步不会执行，
-   * 角色就停在 1/0.08 = 12.5 倍，关物理也缩不回去。
-   */
-  private holdMmdMesh(mesh: THREE.Object3D) {
-    this.mmdHoldParent = mesh.parent;
-    this.mmdHoldPos.copy(mesh.position);
-    this.mmdHoldQuat.copy(mesh.quaternion);
-    const s = mesh.scale;
-    if (Math.abs(s.x - MMD_MODEL_SCALE) > 0.02
-        || Math.abs(s.y - MMD_MODEL_SCALE) > 0.02
-        || Math.abs(s.z - MMD_MODEL_SCALE) > 0.02) {
-      s.setScalar(MMD_MODEL_SCALE);
-    }
-    this.mmdHoldScale.copy(mesh.scale);
-  }
-
-  private restoreMmdMesh(mesh: THREE.Object3D) {
-    mesh.parent = this.mmdHoldParent;
-    mesh.position.copy(this.mmdHoldPos);
-    mesh.quaternion.copy(this.mmdHoldQuat);
-    mesh.scale.copy(this.mmdHoldScale);
   }
 
   /** 物理库抛错后的兜底：缩放被留在 1、parent 被摘掉时，下一帧改回来。 */
@@ -1170,18 +1179,73 @@ export class Stage {
   }
 
   private stepMmdPhysics(dt: number) {
-    const mesh = this.modelRoot;
     const physics = this.physics;
-    if (!mesh || !physics) return;
-    this.holdMmdMesh(mesh);
+    if (!physics) return;
+    const bones = this.physicsBones;
+    for (const { bone, animated } of bones) captureBone(bone, animated);
     try {
       physics.update(dt);
+      for (const { bone, motion, animated } of bones) {
+        motion.sample(bone, animated.quat, animated.pos, dt);
+      }
     } catch (e) {
       console.warn('MMD 物理步进失败，已关闭：', e);
-      this.restoreMmdPose();
       this.dropPhysics();
     } finally {
-      if (this.modelRoot === mesh) this.restoreMmdMesh(mesh);
+      restorePhysicsPose(bones);
+      physics.mesh.updateMatrixWorld(true);
+    }
+  }
+
+  private initializePhysicsBones(physics: MMDPhysics) {
+    const bones = new Map<THREE.Bone, boolean>();
+    for (const { bone, params } of physics.bodies) {
+      const { type, boneIndex } = params as PhysicsBodyParams;
+      if (type === 0 || boneIndex === -1 || !bone) continue;
+      bones.set(bone, type === 1 || bones.get(bone) === true);
+    }
+    this.physicsBones = Array.from(bones, ([bone, drivesPosition]) => {
+      const snapshot = () => ({ pos: bone.position.clone(), quat: bone.quaternion.clone() });
+      const small = isSmallPhysicsPart(bone.name);
+      let smallAncestors = 0;
+      if (small) {
+        for (let parent = bone.parent; parent; parent = parent.parent) {
+          if (isSmallPhysicsPart(parent.name)) smallAncestors++;
+        }
+      }
+      return {
+        bone, drivesPosition, animated: snapshot(),
+        motion: new PhysicsMotion(small, bone.position.length(), smallAncestors),
+      };
+    });
+  }
+
+  private resetMmdPhysics(physics: MMDPhysics) {
+    const mesh = physics.mesh;
+    const ammo = (globalThis as unknown as {
+      Ammo: { btVector3: new (x: number, y: number, z: number) => object };
+    }).Ammo;
+    const zero = new ammo.btVector3(0, 0, 0);
+    try {
+      inMmdModelSpace(mesh, () => physics.reset());
+      for (const { params, body } of physics.bodies) {
+        if ((params as PhysicsBodyParams).type === 0) continue;
+        const rigidBody = body as {
+          setLinearVelocity(value: object): void;
+          setAngularVelocity(value: object): void;
+          clearForces(): void;
+          activate(force: boolean): void;
+        };
+        rigidBody.setLinearVelocity(zero);
+        rigidBody.setAngularVelocity(zero);
+        rigidBody.clearForces();
+        rigidBody.activate(true);
+      }
+      for (const { motion } of this.physicsBones) {
+        motion.reset();
+      }
+    } finally {
+      ammoDestroy(zero);
     }
   }
 
@@ -1191,7 +1255,8 @@ export class Stage {
     if (this.physicsHeld) {
       if (gen !== this.physicsGen || !this.quality.physics) return;
       this.physics = this.physicsHeld;
-      try { this.physics.reset(); } catch { /* */ }
+      this.initializePhysicsBones(this.physics);
+      this.physicsResetPending = true;
       return;
     }
     const mmd = this.modelRoot as THREE.SkinnedMesh | null;
@@ -1202,27 +1267,31 @@ export class Stage {
       installMmdPhysicsFix();
       const ud = (mmd.geometry as THREE.BufferGeometry).userData.MMD;
       if (!ud?.rigidBodies?.length) return;
+      const bodyParams = (ud.rigidBodies as MmdRigidBodyParams[]).map((body) => {
+        if (body.type === 0) return body;
+        const small = isSmallPhysicsPart(mmd.skeleton.bones[body.boneIndex]?.name ?? '');
+        return {
+          ...body,
+          positionDamping: Math.max(body.positionDamping, small ? 0.74 : MIN_LINEAR_DAMPING),
+          rotationDamping: Math.max(body.rotationDamping, small ? 0.97 : MIN_ANGULAR_DAMPING),
+        };
+      });
       let created: MMDPhysics | null = null;
-      this.holdMmdMesh(mmd);
+      let bones: PhysicsBone[] = [];
       try {
-        created = new MMDPhysics(mmd, ud.rigidBodies, ud.constraints);
+        created = inMmdModelSpace(mmd, () => new MMDPhysics(mmd, bodyParams, ud.constraints));
+        this.initializePhysicsBones(created);
+        bones = this.physicsBones;
         created.warmup(60);
-        if (gen !== this.physicsGen || !this.quality.physics) {
-          releaseMmdPhysics(created);
-          return;
-        }
         this.physics = created;
         this.physicsHeld = created;
       } catch (e) {
         console.warn('MMD 物理初始化失败，继续以无物理模式运行：', e);
         releaseMmdPhysics(created);
-        this.restoreMmdPose();
-        if (gen === this.physicsGen) {
-          this.physics = null;
-          this.physicsHeld = null;
-        }
+        this.physicsBones = [];
       } finally {
-        this.restoreMmdMesh(mmd);
+        restorePhysicsPose(bones);
+        mmd.updateMatrixWorld(true);
       }
     } catch (e) {
       console.warn('MMD 物理初始化失败，继续以无物理模式运行：', e);
@@ -1258,6 +1327,13 @@ export class Stage {
     return this.ammoReady;
   }
 
+  private captureMotionIdle(root: THREE.Object3D, avatar: Avatar) {
+    this.idle.placeRest(avatar);
+    if (avatar.isVRM) this.vrm?.humanoid.update();
+    root.updateMatrixWorld(true);
+    this.motion.captureInitialPose();
+  }
+
   private finishSetup(root: THREE.Object3D, url: string, format: string,
                       supportsVmd: boolean): ModelInfo {
     this.scene.add(root);
@@ -1272,7 +1348,11 @@ export class Stage {
     });
     this.modelRoot = root;
     this.modelKind = format;
-    if (format !== 'pmx') this.motion.attach(root, format, this.vrm);
+    if (format !== 'pmx') {
+      this.motion.attach(root, format, this.vrm);
+      if (this.avatar) this.captureMotionIdle(root, this.avatar);
+    }
+    void this.motion.loadIdle('/assets/motions/idle-breathing.xkmotion');
     // 保持当前站位（换模型不强制回中心）
     root.position.x = this.stand.x;
     root.position.y = this.petMode ? this.stand.y : 0;
@@ -1303,6 +1383,7 @@ export class Stage {
   }
 
   private unloadModel() {
+    this.danceRequest += 1;
     this.bgmGen += 1;
     this._danceLive = false;
     this.bgm.stop();
@@ -1311,10 +1392,11 @@ export class Stage {
     this.camRig.stopVmd();
     this.stand.reset();
     this.camRig.resetFocus();
+    this.automaticFrame = null;
+    this.framingSample = null;
     this.walkLocActive = false;
     this.walkLocUrl = '';
     this.dropPhysics();
-    this.mmdPose = [];
     this.modelKind = '';
     this.expr.reset();
     this.director.reset();
@@ -1340,11 +1422,11 @@ export class Stage {
   }) {
     // 用户主动播别的动作时，取消「到位停走路」的所有权
     if (url !== this.walkLocUrl) this.walkLocActive = false;
-    this.emit('onMotionWillPlay');
     const isDance = !!opts?.dance;
     if (!isDance && this._danceLive) {
       return Promise.resolve(false);
     }
+    this.emit('onMotionWillPlay');
     const gen = ++this.bgmGen;
     this.bgm.onEnded = null;
     const finish = () => {
@@ -1352,38 +1434,44 @@ export class Stage {
       this.bgm.onEnded = null;
       this.bgm.stop();
       this._danceLive = false;
-      if (opts?.camera) this.camRig.stopVmd();
+      if (opts?.camera && !this.reviewCameraActive) this.camRig.stopVmd();
       opts?.onEnded?.();
     };
     this.motion.onStopped = finish;
-    if (opts?.camera) void this.camRig.playVmd(opts.camera);
-    if (isDance && opts.bgm) {
-      this._danceLive = true;
-      this.bgm.play(opts.bgm, { loop: false });
-      if (this.bgm.ducked) this.bgm.setDuck(0.55, 180);
-      this.bgm.onEnded = () => {
-        if (gen === this.bgmGen) this.motion.stop();
-      };
-      return this.motion.play(url, { once: false }).then((ok) => {
-        if (!ok) finish();
-        return ok;
-      });
-    }
     this._danceLive = isDance;
     this.bgm.stop();
-    return this.motion.play(url, { once: opts?.once, holdLast: opts?.holdLast }).then((ok) => {
+    const onStart = () => {
+      if (gen !== this.bgmGen) return;
+      if (opts?.camera && !this.reviewCameraActive) {
+        this.automaticFrame = null;
+        void this.camRig.playVmd(opts.camera);
+      }
+      if (isDance && opts?.bgm) {
+        this.bgm.play(opts.bgm, { loop: false });
+        if (this.bgm.ducked) this.bgm.setDuck(0.55, 180);
+        this.bgm.onEnded = () => {
+          if (gen === this.bgmGen) this.motion.stop();
+        };
+      }
+    };
+    const withMusic = isDance && !!opts?.bgm;
+    return this.motion.play(url, {
+      once: withMusic ? false : opts?.once, holdLast: withMusic ? false : opts?.holdLast, onStart,
+      releaseAvatarAction: this.avatar?.actionActive ? this.avatar.stopAction : undefined,
+    }).then((ok) => {
       if (!ok) finish();
       return ok;
     });
   }
 
-  stopMotion() {
+  stopMotion(opts?: { keepCamera?: boolean }) {
+    this.danceRequest += 1;
     this.bgmGen += 1;
     this._danceLive = false;
     this.walkLocActive = false;
     this.bgm.stop();
     this.motion.stop();
-    this.camRig.stopVmd();
+    if (!opts?.keepCamera) this.camRig.stopVmd();
   }
 
   /** 非舞蹈拍一上场就停歌，不要等动作真正开播（中间可能空 1 秒多）。 */
@@ -1401,6 +1489,7 @@ export class Stage {
   /** 舞已经定了、歌可能还在加载：先占住，别让走路/说话动作把即将开的歌掐掉。 */
   holdDance() {
     this._danceLive = true;
+    return ++this.danceRequest;
   }
 
   setEmotion(e: EmotionKey, intensity = 0.85) {
@@ -1413,11 +1502,20 @@ export class Stage {
   }
 
   playAction(name: string): boolean {
+    if (this.motion.active) return false;
     return this.avatar?.playAction?.(name) ?? false;
   }
 
   setMorph(name: string, on: boolean | number) {
     this.expr.setMorphTarget(name, on);
+  }
+
+  setPerformanceExpression(name: string, weight: number, seconds: number) {
+    this.expr.setCue(name, weight, seconds);
+  }
+
+  releasePerformanceExpressions() {
+    this.expr.releaseCues();
   }
 
   resetMorphs() {
@@ -1751,6 +1849,13 @@ export class Stage {
     return this.stand.slot;
   }
 
+  placeReviewStand(slot: StandSlot) {
+    if (this.petMode || this.modelKind === 'live2d') return;
+    this.stand.slot = slot;
+    this.stand.placeX(this.stand.slotX(slot));
+    this.stand.update(0, this.modelRoot);
+  }
+
   /** 从动作库挑走路循环，到位后停掉 */
   private async startWalkLocomotion() {
     if (this._danceLive) return;
@@ -1786,7 +1891,8 @@ export class Stage {
   private finishWalkLocomotion() {
     if (!this.walkLocActive) return;
     this.walkLocActive = false;
-    if (this.motion.currentUrl === this.walkLocUrl && !this._danceLive) {
+    // 到位时走路资源可能还在加载或过渡，尚未成为 currentUrl。
+    if (!this._danceLive) {
       this.bgmGen += 1;
       this.bgm.stop();
       this.motion.stop();
@@ -1800,11 +1906,151 @@ export class Stage {
       this.externalController.playShot(id);
       return;
     }
-    this.camRig.playShot(this.clampCamSize(id), instant, duration);
+    if (this.reviewCameraActive) return;
+    this.automaticFrame = null;
+    this.camRig.playShot(this.clampCamSize(safeAutomaticShot(id)), instant, duration);
+  }
+
+  setReviewCameraActive(active: boolean) {
+    this.reviewCameraActive = active;
+    this.automaticFrame = null;
+    if (!active) {
+      this.setReviewPosePaused(false);
+      this.setReviewSafeArea(false);
+    }
+  }
+
+  setReviewSafeArea(visible: boolean) {
+    this.host?.classList.toggle('review-safe-area', visible);
+  }
+
+  framingLimbPoints() {
+    const root = this.modelRoot;
+    if (!root) return [];
+    if (this.framingBones?.root !== root) {
+      const limbs: THREE.Object3D[] = [];
+      const name = /^(?:左|右)(?:手首|足首)(?:[._-].*)?$|(?:left|right)[_. -]?(?:hand|foot)$/i;
+      root.traverse(object => { if (name.test(object.name)) limbs.push(object); });
+      this.framingBones = { root, limbs };
+    }
+    return this.framingBones.limbs.map(bone => bone.getWorldPosition(new THREE.Vector3()));
+  }
+
+  get bodyFramingSpeed() {
+    return this.framingSpeed;
+  }
+
+  private framingPoints(size: CamShotId) {
+    const av = this.avatar;
+    if (!av || !this.modelRoot) return [];
+    this.modelRoot.updateMatrixWorld(true);
+    const points: THREE.Vector3[] = [];
+    const head = av.bone('head');
+    if (head) {
+      const p = head.getWorldPosition(new THREE.Vector3());
+      points.push(p, p.clone().add(new THREE.Vector3(0, 0.12, 0)));
+    }
+    if (size === 'close') return points;
+    for (const key of ['leftUpperArm', 'rightUpperArm'] as const) {
+      const bone = av.bone(key);
+      if (bone) points.push(bone.getWorldPosition(new THREE.Vector3()));
+    }
+    if (size === 'full' || size === 'long') {
+      points.push(...this.framingLimbPoints());
+      points.push(new THREE.Vector3(this.stand.x, 0, 0));
+    }
+    return points;
+  }
+
+  setReviewPosePaused(paused: boolean) {
+    this.reviewPosePaused = paused;
+    if (!paused && this.camRig) this.camRig.vmdFrozen = false;
+  }
+
+  seekReviewCamera(seconds: number) {
+    this.camRig?.seekVmd(seconds);
+  }
+
+  playReviewShot(size: CamShotId, move?: CamShotId, instant = false) {
+    if (this.petMode || !this.camRig) return;
+    if (this.modelKind === 'live2d' && this.externalController) {
+      this.externalController.playShot(size);
+      return;
+    }
+    this.camRig.focusX = this.stand.x;
+    const framedSize = this.clampCamSize(size);
+    this.camRig.playFramedShot(framedSize, acceptsShot(framedSize, move) ? move : undefined, instant, undefined, { points: this.framingPoints(framedSize), fallback: false });
+  }
+
+  get reviewOwnsCamera() {
+    return this.reviewCameraActive;
+  }
+
+  get automaticShotSize() {
+    return this.automaticFrame?.size;
+  }
+
+  playAutomaticFraming(size: CamShotId, move?: CamShotId, idleMove?: IdleMoveKind, onChange?: (move?: CamShotId) => void, recovery = false, sameMotion = false) {
+    if (this.petMode || !this.camRig || this.reviewCameraActive) return;
+    const now = Date.now();
+    if (sameMotion && (!this.motion.reframePlayback || this.stand.isMoving)) return;
+    const interval = sameMotion ? 1400 : 4000;
+    if (!recovery && this.automaticFrame
+      && (now - this.lastAutomaticCutAt < interval || (!sameMotion && !this.danceLive && this.director.state === 'speaking'))) return;
+    if (this.modelKind === 'live2d' && this.externalController) {
+      this.externalController.playShot(size);
+      return { size, move: undefined };
+    }
+    const framedSize = this.clampCamSize(size);
+    this.camRig.focusX = this.stand.x;
+    const points = this.framingPoints(framedSize);
+    const previous = this.framingSample;
+    const fit = previous && previous.root === this.modelRoot
+      && this.clock.elapsedTime - previous.time <= 0.25
+      ? predictFraming(points, previous.points.slice(0, points.length), this.clock.elapsedTime - previous.time)
+      : points;
+    const actual = this.camRig.playFramedShot(framedSize, acceptsShot(framedSize, move) ? move : undefined,
+      false, this.camera.fov, { points: fit, fallback: !!move }, idleMove);
+    this.automaticFrame = { size: framedSize, move: actual, onChange, recovered: false };
+    this.framingClipped = 0;
+    if (!recovery) this.lastAutomaticCutAt = now;
+    return { size: framedSize, move: actual };
+  }
+
+  private monitorAutomaticFraming(dt: number) {
+    this.framingElapsed += dt;
+    if (this.framingElapsed < 0.1 || !this.modelRoot || this.petMode || this.reviewCameraActive || this.headAuditActive) return;
+    const elapsed = this.framingElapsed;
+    this.framingElapsed = 0;
+    const frame = this.automaticFrame;
+    const size: CamShotId = 'full';
+    const points = this.framingPoints(size);
+    const time = this.clock.elapsedTime;
+    const before = this.framingSample;
+    this.framingSample = { root: this.modelRoot, time, points, size };
+    const gap = time - (before?.time ?? time);
+    this.framingSpeed = before?.root === this.modelRoot && before.size === size && gap > 0 && gap < 0.3
+      && before.points.length === points.length
+      ? points.reduce((peak, point, i) => Math.max(peak, point.distanceTo(before.points[i]) / gap), 0)
+      : 0;
+    if (!frame || this.camRig.driving || !points.length) return;
+    const usedPoints = frame.size === 'full' || frame.size === 'long' ? points : this.framingPoints(frame.size);
+    this.camera.updateMatrixWorld(true);
+    if (!outsideSafeFrame(this.camera, usedPoints)) {
+      frame.recovered = false;
+      this.framingClipped = 0;
+      return;
+    }
+    this.framingClipped += elapsed;
+    if (frame.recovered || this.framingClipped < 0.3) return;
+    this.playAutomaticFraming(frame.size, undefined, undefined, frame.onChange, true);
+    if (this.automaticFrame) this.automaticFrame.recovered = true;
+    if (frame.move) frame.onChange?.();
   }
 
   playIdleCut(size: CamShotId, move: IdleMoveKind, duration?: number) {
-    if (this.petMode) return;
+    this.automaticFrame = null;
+    if (this.petMode || this.reviewCameraActive) return;
     if (this.modelKind === 'live2d' && this.externalController) {
       this.externalController.playShot(size);
       return;
@@ -1812,10 +2058,15 @@ export class Stage {
     this.camRig.playIdleCut(this.clampCamSize(size), move, duration);
   }
 
-  playCameraVmd(url: string, opts?: { once?: boolean }) {
-    if (this.petMode || this.camSizeLock?.length) return Promise.resolve();
+  playCameraVmd(url: string, opts?: { once?: boolean; review?: boolean; adapt?: boolean }) {
+    if (this.petMode || this.camSizeLock?.length || (this.reviewCameraActive && !opts?.review)) return Promise.resolve();
+    this.automaticFrame = null;
     this.stand.placeXY(this.stand.x, this.stand.y);
     return this.camRig.playVmd(url, opts);
+  }
+
+  preloadReviewCamera(url: string, adapt: boolean) {
+    return this.camRig?.preloadVmd(url, adapt);
   }
 
   /** 景别锁：特写/半身近的落到 3/4，远景落到全身；运镜（偏转/俯仰）原样放行 */
@@ -1831,6 +2082,7 @@ export class Stage {
   }
 
   stopCamera() {
+    this.automaticFrame = null;
     this.camRig.stopVmd();
     this.camRig.playShot('full');
   }
@@ -2105,7 +2357,7 @@ export class Stage {
       this.camRig.update(dt);
       if (!this.camRig.driving) {
         const fov = 32 - this.director.camPush * 0.6;
-        if (Math.abs(this.camera.fov - fov) > 0.002) {
+        if (!this.reviewCameraActive && Math.abs(this.camera.fov - fov) > 0.002) {
           this.camera.fov = fov;
           this.camera.updateProjectionMatrix();
         }
@@ -2114,7 +2366,7 @@ export class Stage {
     }
     for (const s of this.platformSpin) s.obj.rotation.y += s.speed * dt;
 
-    if (this.avatar && !this.headAuditActive) {
+    if (this.avatar && !this.headAuditActive && !this.reviewPosePaused) {
       const av = this.avatar;
       av.beginFrame();
 
@@ -2123,14 +2375,30 @@ export class Stage {
       if (!this.applyPluginPose()) {
         const actionActive = this.motion.active || !!av.actionActive;
         this.expr.update(av, dt);
-        if (!actionActive) this.idle.update(av, dt, t);
+        if (actionActive) this.idle.pause();
+        else {
+          this.idle.update(av, dt, t);
+          this.motion.updateIdle(dt);
+        }
         this.motion.update(dt);
         // 表演导演：在闲置姿态之上叠加视线/微表演层（VMD 播放时自动让位）
         this.director.update(av, dt, actionActive);
       }
 
+      av.update(dt);
+
       // 固定步长补帧并保留余量；补步上限防止低性能设备陷入追帧。
       if (this.physics) {
+        if (this.physicsResetPending) {
+          this.physicsResetPending = false;
+          this.phyAcc = 0;
+          try {
+            this.resetMmdPhysics(this.physics);
+          } catch (e) {
+            console.warn('MMD 物理重置失败，已关闭：', e);
+            this.dropPhysics();
+          }
+        }
         this.phyAcc += dt;
         let steps = 0;
         while (this.physics && this.phyAcc >= PHY_STEP && steps < MAX_PHY_STEPS) {
@@ -2142,14 +2410,41 @@ export class Stage {
       }
       this.keepMmdModelScale();
 
-      av.update(dt); // VRM 内部更新（表情/弹簧骨），MMD 为空操作
       this.motion.pinHold();
     }
 
+    this.monitorAutomaticFraming(dt);
     this.emit('onFrame', dt);
 
-    if (this.renderer) this.renderScene();
+    if (this.renderer) this.renderAnimatedFrame();
   };
+
+  get reviewCameraMoving() {
+    return !!this.camRig?.driving && !this.camRig.vmdFrozen;
+  }
+
+  private renderAnimatedFrame() {
+    if (!this.physicsBones.length || this.motion.holding || this.headAuditActive || this.physicsResetPending) {
+      this.renderScene();
+      return;
+    }
+    // 插值只用于画面，避免把显示姿态反馈给下一次动画或物理步进。
+    const alpha = this.phyAcc / PHY_STEP;
+    const bones = this.physicsBones;
+    for (const { bone, drivesPosition, motion, animated } of bones) {
+      captureBone(bone, animated);
+      if (drivesPosition) {
+        bone.position.add(this.physicsRenderOffset.lerpVectors(motion.previousOffset, motion.offset, alpha));
+      }
+      bone.quaternion.multiply(this.physicsRenderRotation.slerpQuaternions(motion.previousRotation, motion.rotation, alpha));
+    }
+    try {
+      this.renderScene();
+    } finally {
+      restorePhysicsPose(bones);
+      this.modelRoot?.updateMatrixWorld(true);
+    }
+  }
 
   private renderScene() {
     if (this.composer) this.composer.render();
@@ -2159,7 +2454,7 @@ export class Stage {
   /** 当场再渲一帧后导出 JPEG，不改主循环的 preserveDrawingBuffer。 */
   async captureStill(maxW = 1280): Promise<Blob> {
     if (!this.renderer) throw new Error('舞台未初始化');
-    this.renderScene();
+    this.renderAnimatedFrame();
     const src = this.renderer.domElement;
     const scale = Math.min(1, maxW / Math.max(src.width, 1));
     const w = Math.max(1, Math.round(src.width * scale));

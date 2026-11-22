@@ -27,7 +27,7 @@ def wants_harness(
     }
 
 
-def host_brief(messages: Sequence[Dict[str, str]], dance_names: Sequence[str] | None = None) -> str:
+def host_brief(messages: Sequence[Dict[str, str]]) -> str:
     """从已经叠好的提示里留下身份和场合。导演手册留在 chat 技能正文里。"""
     parts: List[str] = []
     system_index = 0
@@ -41,10 +41,6 @@ def host_brief(messages: Sequence[Dict[str, str]], dance_names: Sequence[str] | 
         if system_index > 1 and "[emo:happy]" in content and "[dance:]" in content:
             continue
         parts.append(content)
-    names = [name.strip() for name in (dance_names or []) if str(name).strip()]
-    reading = any("【当前扮演】" in part or "【这一轮任务】" in part for part in parts)
-    if names and not reading:
-        parts.append("可用舞蹈（文件名）：\n" + "\n".join(names[:48]))
     if not parts:
         return ""
     # The first system message is the persona; everything else (including

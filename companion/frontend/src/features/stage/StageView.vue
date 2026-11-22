@@ -74,6 +74,14 @@ onBeforeUnmount(() => {
   inset: 0;
 }
 
+.stage.review-safe-area::after {
+  content: '';
+  position: absolute;
+  inset: 5%;
+  z-index: 1;
+  border: 1px dashed rgba(255, 255, 255, 0.65);
+  pointer-events: none;
+}
 .stage :deep(canvas) {
   display: block;
 }
