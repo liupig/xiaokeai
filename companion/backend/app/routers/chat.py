@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select, or_
 
 from ..db import get_session
-from ..models import Character, ChatMessage
+from ..models import Character, CharacterLife, ChatMessage
 from ..conversation import HISTORY_FETCH, HISTORY_QA_MESSAGES, SIDE_KINDS
 from ..modules import hooks
 from ..modules.flags import enabled as module_on
@@ -195,6 +195,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     from ..modules.character.card import compose_persona, compose_user_persona, parse_lorebook
     from ..modules.character import lorebook as lorebook_engine
     persona = compose_persona(char) if char else ""
+    char_name = char.name if char else ""
     user_persona = compose_user_persona(conf.get("user_persona"))
 
     history_query = select(ChatMessage).where(ChatMessage.character_id == req.character_id)
@@ -236,7 +237,7 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         note_game_truth(req.character_id, req.text or '')
     messages = prompt_stack.build_messages(
         persona=persona,
-        char_name=(char.name if char else ""),
+        char_name=char_name,
         history=history,
         user_text=req.text or "",
         mode=mode,
@@ -390,6 +391,23 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
     # putting ledger IPC on every ordinary chat delayed the SSE response by up to 30s.
     life_jobs = []
     life_job_names = []
+    personal_character = char and not live_channel and not isolate and not playing
+    if personal_character and char.character_life_enabled:
+        from ..modules.character_life.service import context as character_life_context
+
+        life_jobs.append(character_life_context(
+            req.character_id, char_name, persona, llm_conf,
+            refresh=mode == "user" and not req.reroll,
+        ))
+        life_job_names.append("character_life")
+    elif personal_character and session.exec(
+        select(CharacterLife.character_id).where(CharacterLife.character_id == req.character_id)
+    ).first() is not None:
+        messages[0] = {"role": "system", "content": (
+            messages[0]["content"] + "\n\n【当前角色设定】\n"
+            "当前使用原始角色档案和世界书。此前对话中与原始档案冲突的职业、年龄、住处和生活经历"
+            "属于另一段叙事背景，不能用来回答当前角色的现状。"
+        )}
     if mode in ('user', 'life', 'continue', 'proactive'):
         from ..modules.life.service import awareness_context
         life_ctx = req.life_context if isinstance(req.life_context, dict) else {}
@@ -413,6 +431,10 @@ async def chat(req: ChatRequest, request: Request, session: Session = Depends(ge
         for name, note in zip(life_job_names, results):
             if isinstance(note, Exception):
                 print(f'[life] {name} context unavailable: {type(note).__name__}')
+            elif note and name == "character_life":
+                messages[0] = {"role": "system", "content": (
+                    note + "\n\n【原始角色档案·性格与故事起点】\n" + messages[0]["content"]
+                )}
             elif note:
                 messages.append({'role': 'system', 'content': note})
     if mode == "touch" and module_on(session, "touch"):

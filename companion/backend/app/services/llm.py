@@ -332,7 +332,8 @@ async def stream_chat(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]
 
 
 async def complete_json(llm_conf: Dict[str, Any], messages: List[Dict[str, str]],
-                        max_tokens: int = 800, timeout: float = 60) -> Optional[Any]:
+                        max_tokens: int = 800, timeout: float = 60, *,
+                        json_schema: Optional[Dict[str, Any]] = None) -> Optional[Any]:
     """非流式 JSON 补全。失败返回 None。"""
     llm_conf = _conf(llm_conf)
     base_url = (llm_conf.get("base_url") or "").rstrip("/")
@@ -342,6 +343,12 @@ async def complete_json(llm_conf: Dict[str, Any], messages: List[Dict[str, str]]
     payload = build_payload(llm_conf, messages)
     payload["stream"] = False
     payload["max_tokens"] = max(int(llm_conf.get("max_tokens") or 0), max_tokens)
+    if json_schema and api_key == "ollama":
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "response", "schema": json_schema, "strict": True},
+        }
+        payload["reasoning_effort"] = "none"
     connect = min(10.0, max(2.0, timeout))
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=connect),

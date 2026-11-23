@@ -4,7 +4,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from .paths import DB_PATH
 
 # 只有需要改变 SQLite 结构时才递增。旧库在首次 DDL 前自动留下回滚副本。
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 engine = create_engine(
     f"sqlite:///{DB_PATH}",
@@ -59,6 +59,7 @@ def _migrate_columns() -> None:
                     'ALTER TABLE "character" ADD COLUMN boundary VARCHAR '
                     "DEFAULT 'strict'"))
         char_alters = {
+            "character_life_enabled": "BOOLEAN NOT NULL DEFAULT 0",
             "personality": "VARCHAR DEFAULT ''",
             "scenario": "VARCHAR DEFAULT ''",
             "mes_example": "VARCHAR DEFAULT ''",

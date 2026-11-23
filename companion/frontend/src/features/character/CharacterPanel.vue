@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import {
   NButton, NDrawer, NDrawerContent, NInput, NInputNumber, NPopconfirm, NSelect,
-  NSwitch, useMessage,
+  useMessage,
 } from 'naive-ui';
 import type { CharacterItem } from '../../api/client';
 import { api } from '../../api/client';
@@ -24,7 +24,6 @@ const chat = useChatStore();
 const message = useMessage();
 
 const editing = ref<CharacterItem | null>(null);
-
 // 情绪映射编辑：每种情绪可叠加模型自带的形态键
 const EMO_KEYS = ['happy', 'angry', 'sad', 'relaxed'] as const;
 const emotionMap = ref<Record<string, string[]>>({});
@@ -157,10 +156,11 @@ watch(() => props.show, (v) => {
 });
 
 async function switchTo(id: number) {
+  const selected = characters.list.find((character) => character.id === id);
+  if (!selected) return;
+  fillEditor(selected);
   await characters.switchTo(id);
-  if (characters.current) {
-    fillEditor(characters.current);
-  }
+  if (characters.currentId !== id) return;
   await chat.loadHistory();
   await chat.beginVisit();
 }

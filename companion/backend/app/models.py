@@ -26,6 +26,7 @@ class Asset(SQLModel, table=True):
 class Character(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
+    character_life_enabled: bool = False
     model_asset_id: int = 0
     persona: str = ""  # 人设 system prompt（酒馆卡的 description 原样落这里）
     boundary: str = "free"  # 聊天尺度：strict清爽 | warm心动 | flirt可撩 | lover恋人 | free自由（默认，仅保违法/未成年底线）
@@ -46,6 +47,13 @@ class Character(SQLModel, table=True):
     source_card: str = ""  # 原始酒馆卡 JSON：导出时按原结构回写，保留未知字段
     avatar_path: str = ""  # 角色封面 PNG（相对数据目录），导入酒馆卡时留档
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class CharacterLife(SQLModel, table=True):
+    __tablename__ = "character_life"
+    character_id: int = Field(primary_key=True, foreign_key="character.id")
+    as_of: str
+    state: str
 
 
 class ChatMessage(SQLModel, table=True):

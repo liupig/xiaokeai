@@ -111,6 +111,8 @@ def test_schema_upgrade_preserves_rows_and_creates_rollback(tmp_path: Path, monk
     # 10-28 风格的旧表：没有后来增加的 kind / full_content。
     con.execute("CREATE TABLE chatmessage (id INTEGER PRIMARY KEY, character_id INTEGER, role VARCHAR, content VARCHAR, created_at DATETIME)")
     con.execute("INSERT INTO chatmessage VALUES (1, 7, 'user', '旧消息', '2026-10-28 12:00:00')")
+    con.execute("CREATE TABLE character (id INTEGER PRIMARY KEY, name VARCHAR)")
+    con.execute("INSERT INTO character VALUES (7, '旧角色')")
     con.commit()
     con.close()
 
@@ -121,17 +123,19 @@ def test_schema_upgrade_preserves_rows_and_creates_rollback(tmp_path: Path, monk
     monkeypatch.setattr(db_module, "engine", create_engine(f"sqlite:///{db_path}"))
 
     db_module.init_db()
-    backup = db_path.with_name("app.before-schema-v1.db")
+    backup = db_path.with_name(f"app.before-schema-v{db_module.SCHEMA_VERSION}.db")
     assert backup and backup.is_file()
     con = sqlite3.connect(db_path)
     row = con.execute("SELECT content, kind, full_content FROM chatmessage").fetchone()
     columns = {r[1] for r in con.execute("PRAGMA table_info(chatmessage)")}
     version = con.execute("PRAGMA user_version").fetchone()[0]
+    life_enabled = con.execute("SELECT character_life_enabled FROM character WHERE id=7").fetchone()[0]
     con.close()
 
     assert row == ("旧消息", "qa", "")
     assert {"kind", "full_content"} <= columns
     assert version == db_module.SCHEMA_VERSION
+    assert life_enabled == 0
     assert backup_before_schema_change(db_path, 1) is None
     old = sqlite3.connect(backup)
     assert old.execute("SELECT content FROM chatmessage").fetchone()[0] == "旧消息"

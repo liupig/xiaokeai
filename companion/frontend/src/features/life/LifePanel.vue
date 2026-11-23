@@ -9,6 +9,8 @@ import { useSettingsStore } from '../../stores/settings';
 import { beginMeal, beginRide, beginTeaTime, endLifePreview, enterLifeStage, leaveLifeStage, returnLifeHome, setLifeHome, stageLife, visitLifeDestination, recordLifeGift, configureLifeItems, setLifeInteraction } from './stageLife';
 import { isPetShell } from '../shell/mode';
 import JourneyPanel from '../journey/JourneyPanel.vue';
+import CharacterLifeJournal from './CharacterLifeJournal.vue';
+import { t } from '../../i18n';
 import type { JourneyReward } from '../../api/client';
 import { api } from '../../api/client';
 
@@ -339,7 +341,11 @@ function exportMemories() {
     <n-drawer-content title="我们的空间" closable :native-scrollbar="false">
       <div class="life">
         <header class="life-head"><div><div class="eyebrow">A LITTLE PLACE FOR US</div><h1>一起生活，慢慢抵达</h1><p class="intro">每一次选择都会留在共同生活里。普通陪伴一直免费。</p></div><div class="wallet"><small>共同生活基金</small><strong>{{ formatCoins(Math.floor(coins.balanceMilli / 1000)) }}</strong><span>金币 · 当前约 {{ Math.max(1, Math.round(coins.perMin || 2)) }}/分钟</span></div></header>
-        <nav><button v-for="x in [['space','空间'],['home','住宅'],['meal','餐桌'],['gift','心意'],['decor','布置'],['visit','出门'],['memory','回忆'],['orders','记录']]" :key="x[0]" :class="{active: tab === x[0]}" @click="tab = x[0]">{{ x[1] }}</button><button v-if="settings.modules.journey !== false" :class="{active: tab === 'journey'}" @click="tab = 'journey'">我们的故事</button></nav>
+        <nav>
+          <button v-for="x in [['space','空间'],['home','住宅'],['meal','餐桌'],['gift','心意'],['decor','布置'],['visit','出门'],['memory','回忆'],['orders','记录']]" :key="x[0]" :class="{active: tab === x[0]}" @click="tab = x[0]">{{ x[1] }}</button>
+          <button v-if="characters.currentId" type="button" :class="{ active: tab === 'character-life' }" :aria-pressed="tab === 'character-life'" @click="tab = 'character-life'">{{ t('mod.characterLife') }}</button>
+          <button v-if="settings.modules.journey !== false" :class="{active: tab === 'journey'}" @click="tab = 'journey'">我们的故事</button>
+        </nav>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
         <section v-if="tab === 'space'" class="home-card">
           <p class="eyebrow">OUR LITTLE CORNER</p><h2>回到我们的家</h2><p>选一处喜欢的住处，把熟悉的物件和共同经历留在这里。</p>
@@ -382,6 +388,7 @@ function exportMemories() {
           <p v-if="!data?.memories.length" class="empty-state">还没有回忆。送出心意、搬入新家或一起做点什么之后，都可以回来记下一笔。</p><p v-else-if="!visibleMemories.length" class="empty-state">没有找到包含“{{ memorySearch }}”的回忆。</p>
         </section>
         <JourneyPanel v-else-if="tab === 'journey'" :show="show" />
+        <CharacterLifeJournal v-else-if="tab === 'character-life'" :show="show" />
         <section v-else class="orders-page"><div class="section-lead"><div><p class="eyebrow">LIFE LEDGER</p><h2>共同生活记录</h2><p>每一笔金币去向都清楚保留，未完成订单不会重复扣款。</p></div></div><div class="order-filters"><button v-for="filter in [['all','全部'],['gift','心意'],['meal','餐饮'],['home','住宅'],['vehicle','出行'],['done','已完成']]" :key="filter[0]" :class="{active:orderFilter===filter[0]}" @click="orderFilter=filter[0]">{{ filter[1] }}</button></div><div class="order-list"><article v-for="o in visibleOrders" :key="o.id" class="record order-record"><div class="order-art"><img :src="productArt(data?.catalog.find(x => x.id === o.item_id) || { id:'card', category:'gift', name:'生活记录', icon:'card', price:0, description:'' })" alt="" /></div><div><small>{{ new Date(o.created * 1000).toLocaleString() }}</small><strong>{{ data?.catalog.find(x => x.id === o.item_id)?.name || '已下架物品' }}</strong><span>{{ formatCoins(o.price) }} 金币</span></div><b :class="`state-${o.state}`">{{ o.state === 'done' ? '已完成' : o.state === 'failed' ? '未扣款' : '确认中' }}</b></article></div><p v-if="!visibleOrders.length" class="empty-state">这个分类还没有记录。</p></section>
         <div v-if="selected" class="dialog" role="dialog" aria-label="确认购买"><div class="purchase-sheet"><img class="purchase-art" :src="productArt(selected)" :alt="selected.name" /><small v-if="selected.brand">{{ selected.brand }} · {{ selected.tier }}</small><h3>{{ selected.name }}</h3><p>{{ selected.description }}</p><div v-if="selected.reference_price" class="reference-row"><span>{{ selected.category === 'vehicle' ? '原价' : '现实参考' }}</span><b>{{ selected.reference_price }}</b></div><div class="reference-row primary" v-if="selected.category !== 'vehicle'"><span>{{ selected.category === 'meal' ? '本次餐点' : '共同生活价' }}</span><b>{{ formatCoins(selected.price) }} 金币</b></div><p v-if="selected.category === 'meal'" class="meal-once-note">食品按份购买，这一份上桌后即消费，不会进入永久收藏。</p><p v-else class="goal-time">按当前速度 {{ companionship(selected.price) }}，它应该是值得期待的目标。</p><textarea v-if="selected.category === 'gift'" v-model="note" maxlength="200" placeholder="想说的话（可不填）" /><button class="buy-main" :disabled="busy" @click="buy">{{ selected.category === 'meal' ? '购买并端上餐桌' : selected.category === 'vehicle' ? `按原价支付 ${formatCoins(selected.price)} 金币` : '确认收藏 · 永久拥有' }}</button><button :disabled="busy" @click="selected = null">再想想</button></div></div>
         <div v-if="dragging" class="food-ghost" :style="{ left: `${dragPoint.x}px`, top: `${dragPoint.y}px` }"><img :src="`/assets/life/${dragging.art}.png`" :alt="dragging.name" /><span>拖到角色身上</span></div>

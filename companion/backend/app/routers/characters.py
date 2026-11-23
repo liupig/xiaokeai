@@ -4,13 +4,14 @@ from pathlib import Path
 from typing import List
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
-from sqlmodel import Session, select
+from pydantic import BaseModel
+from sqlmodel import Session, delete, or_, select
 
 from ..db import get_session
 from ..models import (
-    Asset, Character, ChatMessage, MemoryEpisode, MemoryExtractCursor, MemoryFact,
+    Asset, Character, CharacterLife, ChatMessage, MemoryEpisode, MemoryExtractCursor, MemoryFact,
     PinnedMessage,
 )
 from ..modules.character import exporter as card_exporter
@@ -37,6 +38,7 @@ def list_characters(session: Session = Depends(get_session)) -> List[Character]:
 @router.post("")
 def create_character(char: Character, session: Session = Depends(get_session)) -> Character:
     char.id = None
+    char.character_life_enabled = False
     session.add(char)
     session.commit()
     session.refresh(char)
@@ -162,6 +164,65 @@ def character_avatar(char_id: int, session: Session = Depends(get_session)) -> F
     return FileResponse(fp)
 
 
+@router.get("/{char_id}/life-journal")
+def life_journal(char_id: int, session: Session = Depends(get_session)):
+    from ..modules.character_life.service import public_journal
+
+    character = session.get(Character, char_id)
+    if character is None:
+        raise HTTPException(404, "角色不存在")
+    enabled = character.character_life_enabled
+    row = session.get(CharacterLife, char_id) if enabled else None
+    if row is None:
+        return {"enabled": enabled, "journal": None}
+    spoken = session.exec(select(ChatMessage.content).where(
+        ChatMessage.character_id == char_id, ChatMessage.role == "assistant",
+        or_(ChatMessage.kind == "qa", ChatMessage.kind.is_(None)),
+    ).order_by(ChatMessage.id.desc()).limit(100)).all()
+    return {"enabled": enabled, "journal": public_journal(row, list(spoken))}
+
+
+@router.post("/{char_id}/life-journal")
+async def prepare_life_journal(char_id: int, session: Session = Depends(get_session)):
+    from ..modules.character_life.service import prepare_journal
+
+    character = session.get(Character, char_id)
+    if character is None:
+        raise HTTPException(404, "角色不存在")
+    if not character.character_life_enabled:
+        return {"enabled": False, "journal": None}
+    session.rollback()
+    ready = await prepare_journal(char_id)
+    result = life_journal(char_id, session)
+    if not ready and result["enabled"]:
+        # 仍有旧手账时照常展示，日期使用户能看出最后一次更新。
+        journal = result["journal"]
+        if journal and any(value for key, value in journal.items() if key != "as_of"):
+            return result
+        raise HTTPException(503, "角色人生暂未生成，请检查对话模型配置后重试")
+    return result
+
+
+class LifeJournalToggle(BaseModel):
+    enabled: bool
+
+
+@router.put("/{char_id}/life-journal/enabled")
+def update_life_journal(char_id: int, body: LifeJournalToggle, background: BackgroundTasks,
+                        session: Session = Depends(get_session)):
+    from ..modules.character_life.service import warm_journal
+
+    character = session.get(Character, char_id)
+    if character is None:
+        raise HTTPException(404, "角色不存在")
+    if character.character_life_enabled != body.enabled:
+        character.character_life_enabled = body.enabled
+        session.commit()
+        if body.enabled:
+            background.add_task(warm_journal, char_id)
+    return {"enabled": body.enabled}
+
+
 @router.delete("/{char_id}")
 def delete_character(char_id: int, session: Session = Depends(get_session)):
     char = session.get(Character, char_id)
@@ -174,6 +235,7 @@ def delete_character(char_id: int, session: Session = Depends(get_session)):
     cursor = session.get(MemoryExtractCursor, char_id)
     if cursor is not None:
         session.delete(cursor)
+    session.exec(delete(CharacterLife).where(CharacterLife.character_id == char_id))
     session.delete(char)
     session.commit()
     try:

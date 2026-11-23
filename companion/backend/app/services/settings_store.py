@@ -213,6 +213,8 @@ def _read_all(session: Session) -> Dict[str, Any]:
             continue
         if isinstance(value, dict) and isinstance(result.get(row.key), dict):
             result[row.key].update(value)
+            if row.key == "modules":
+                result[row.key].pop("character_life", None)
         else:
             result[row.key] = value
     return result

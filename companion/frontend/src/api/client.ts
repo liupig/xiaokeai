@@ -21,6 +21,7 @@ export interface MusicTrack {
 export interface CharacterItem {
   id: number;
   name: string;
+  character_life_enabled?: boolean;
   model_asset_id: number;
   persona: string;
   /** 聊天尺度：strict=不接暧昧 | flirt=可撩擦边不露骨 */
@@ -40,6 +41,19 @@ export interface CharacterItem {
   card_version?: string;
   source_format?: string; // native | tavern_v1/v2/v3
   avatar_path?: string;   // 有封面时可用 /api/characters/{id}/avatar
+}
+
+export interface CharacterLifeJournal {
+  as_of: string;
+  journal_title?: string;
+  journal_trace?: string;
+  follow_up_on?: string;
+  milestones?: { date: string; text: string }[];
+  entries?: { date: string; title: string; text: string }[];
+  journal_today?: string;
+  journal_plan?: string;
+  journal_month?: string;
+  discussed: { date: string; text: string }[];
 }
 
 export interface DownloadTask {
@@ -641,6 +655,17 @@ export const api = {
   },
   characterAvatarUrl(id: number) {
     return `/api/characters/${id}/avatar`;
+  },
+  characterLifeJournal(id: number, signal: AbortSignal) {
+    return request<{ enabled: boolean; journal: CharacterLifeJournal | null }>(
+      `/api/characters/${id}/life-journal`, { method: 'POST', signal });
+  },
+  setCharacterLifeEnabled(id: number, enabled: boolean) {
+    return request<{ enabled: boolean }>(`/api/characters/${id}/life-journal/enabled`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
   },
   speakGreeting(id: number) {
     return request<{ spoken: boolean; text: string; message_id: number | null }>(

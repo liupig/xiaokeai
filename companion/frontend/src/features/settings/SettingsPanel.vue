@@ -889,7 +889,7 @@ watch(() => settings.modules.live_douyin, (on) => {
   }
 }, { immediate: true });
 
-async function toggleMod(key: 'memory' | 'scenes' | 'rewrite' | 'keepsake' | 'tarot' | 'tavern' | 'codewatch' | 'touch' | 'harness' | 'glance' | 'live_douyin' | 'live' | 'play' | 'journey', on: boolean) {
+async function toggleMod(key: keyof typeof settings.modules, on: boolean) {
   const prev = settings.modules[key];
   settings.modules[key] = on;
   try {
