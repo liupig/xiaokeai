@@ -196,6 +196,7 @@ async def tts_endpoint(req: TTSRequest, request: Request, session: Session = Dep
                 400,
                 "阿里合成需要百炼 API Key（sk-）。填在设置 → AI 对话，和识别、向量共用这一把。",
             )
+        cancel = threading.Event()
         agen = tts_cosy.synthesize_pcm(req.text, voice, api_key)
         try:
             first = await _first_local_audio(request, agen, cancel)
