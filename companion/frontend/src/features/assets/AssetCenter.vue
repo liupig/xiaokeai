@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import StagePanel from '../hud/StagePanel.vue';
 import { computed, ref } from 'vue';
 import {
-  NButton, NDrawer, NDrawerContent, NEmpty, NInput, NPopconfirm, NProgress,
+  NButton, NEmpty, NInput, NPopconfirm, NProgress,
   NRadioButton, NRadioGroup, NSelect, NSpin, NTabPane, NTabs, NTag, NUpload,
   useMessage, type UploadCustomRequestOptions,
 } from 'naive-ui';
@@ -200,9 +201,8 @@ async function downloadWork(work: OnlineWork) {
 </script>
 
 <template>
-  <n-drawer :show="show" @update:show="(v: boolean) => emit('update:show', v)"
-            :width="520" placement="right" show-mask="transparent" to="body">
-    <n-drawer-content :title="t('top.assets')" closable :native-scrollbar="false">
+  <StagePanel :show="show" :title="t('top.assets')" size="medium"
+              @update:show="(v: boolean) => emit('update:show', v)">
     <div class="toolbar">
       <n-input v-model:value="downloadUrl" :placeholder="t('assets.urlPh')" clearable
                @keydown.enter="startDownload" />
@@ -225,7 +225,7 @@ async function downloadWork(work: OnlineWork) {
       </div>
     </div>
 
-    <n-tabs type="line" default-value="online">
+    <n-tabs type="line" default-value="online" class="asset-tabs">
       <n-tab-pane name="online" :tab="t('assets.online')">
         <p class="hint">{{ t('assets.onlineHint') }}</p>
         <div class="chips">
@@ -250,7 +250,7 @@ async function downloadWork(work: OnlineWork) {
                    :description="t('assets.emptyOnline')" style="padding: 30px 0" />
           <div class="cards online-cards">
             <div v-for="w in onlineResults" :key="w.work_uuid" class="card">
-              <img v-if="w.cover" :src="w.cover" class="cover" loading="lazy" />
+              <img v-if="w.cover" alt="" :src="w.cover" class="cover" loading="lazy" />
               <div class="card-title" :title="w.work_name">{{ w.work_name }}</div>
               <div class="card-meta">
                 <n-tag v-if="onlineKind === 'motion'" size="tiny" :bordered="false"
@@ -372,22 +372,31 @@ async function downloadWork(work: OnlineWork) {
         </div>
       </n-tab-pane>
     </n-tabs>
-    </n-drawer-content>
-  </n-drawer>
+  </StagePanel>
 </template>
 
 <style scoped>
-.toolbar {
+.toolbar, .online-bar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
+.toolbar {
+  padding: 12px;
+  border: 1px solid var(--panel-line);
+  border-radius: 14px;
+  background: var(--panel-card);
+}
+.toolbar :deep(.n-input), .online-bar :deep(.n-input) { flex: 1 1 160px; }
+.toolbar :deep(.n-upload) { width: auto; }
+.asset-tabs { margin-top: 16px; }
 
 .hint {
   margin: 8px 0 4px;
   font-size: 12px;
   line-height: 1.55;
-  opacity: 0.65;
+  color: var(--panel-muted);
 }
 
 .chips {
@@ -421,17 +430,18 @@ async function downloadWork(work: OnlineWork) {
 
 .lib-bar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding-top: 8px;
 }
 
 .lib-bar :deep(.n-input) {
-  flex: 1;
+  flex: 1 1 140px;
 }
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 174px), 1fr));
   gap: 10px;
   padding-top: 10px;
 }
@@ -465,23 +475,14 @@ async function downloadWork(work: OnlineWork) {
 
 .card-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
 }
 
-.online-bar {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.online-bar :deep(.n-input) {
-  flex: 1;
-}
-
 .cover {
   width: 100%;
-  height: 96px;
+  aspect-ratio: 16 / 10;
   object-fit: cover;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.04);

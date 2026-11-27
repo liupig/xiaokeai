@@ -214,6 +214,7 @@ companion/package-lock.json
 *.WAV
 *.mp4
 *.webm
+!/companion/frontend/src/features/stage/xiaoke-startup-lossless.webm
 *.rar
 *.zip
 *.7z

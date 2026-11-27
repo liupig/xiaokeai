@@ -58,3 +58,27 @@ html.is-desktop .n-drawer-container {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
 }
+
+.stage-ripple {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ripple-color, #f6dbbf) 74%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--ripple-color, #f6dbbf) 43%, transparent);
+}
+.stage-ripple::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border: 1px solid color-mix(in srgb, var(--ripple-color, #f6dbbf) 68%, transparent);
+  border-radius: 50%;
+  animation: stage-ripple 3.4s ease-out infinite;
+}
+@keyframes stage-ripple {
+  0% { transform: scale(.7); opacity: .7; }
+  65%, 100% { transform: scale(2.25); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-ripple::after { animation: none; opacity: .45; }
+}

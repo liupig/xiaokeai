@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, computed, nextTick, ref, watch } from 'vue';
+import { defineAsyncComponent, computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { NButton, NInput, NInputNumber, NPopover, useMessage } from 'naive-ui';
 import { isClipStt, micAvailable, speechInput } from '../voice/stt';
 import { speechPlayer } from '../voice/tts';
@@ -24,7 +24,35 @@ const TarotDock = defineAsyncComponent(() => import('../tarot/Dock.vue'));
 const CodewatchDock = defineAsyncComponent(() => import('../codewatch/Dock.vue'));
 
 const chat = useChatStore();
-const collapsed = ref(false);
+const collapsed = ref(true);
+const dock = ref<HTMLElement>();
+const restoreButton = ref<HTMLButtonElement>();
+const emit = defineEmits<{ 'dock-size': [width: number, height: number] }>();
+const clipOptionsOpen = ref(false);
+
+function minimizeChat(event: Event) {
+  const keyboard = event instanceof KeyboardEvent
+    || (event.currentTarget instanceof HTMLElement && event.currentTarget.matches(':focus-visible'));
+  clipOptionsOpen.value = false;
+  collapsed.value = true;
+  if (keyboard) void nextTick(() => restoreButton.value?.focus());
+}
+
+function activateChat(event: MouseEvent) {
+  collapsed.value = false;
+  if (event.detail === 0) void nextTick(() => dock.value?.querySelector<HTMLElement>('.chat-input input')?.focus());
+}
+
+watch(dock, (element, _previous, onCleanup) => {
+  if (!element) {
+    emit('dock-size', 0, 0);
+    return;
+  }
+  const observer = new ResizeObserver(() => emit('dock-size', element.offsetWidth, element.offsetHeight));
+  observer.observe(element);
+  onCleanup(() => observer.disconnect());
+});
+onBeforeUnmount(() => emit('dock-size', 0, 0));
 const characters = useCharacterStore();
 const settings = useSettingsStore();
 const message = useMessage();
@@ -357,10 +385,12 @@ async function toggleMsgPin(id?: number) {
 </script>
 
 <template>
-  <div class="chat-dock" :class="{ collapsed }">
-    <button v-if="collapsed" type="button" class="chat-restore" @click="collapsed = false"><XkIcon name="expand" :size="18" />展开对话</button>
-    <template v-else>
-    <MemoryPanel v-if="mods.memory" />
+  <div class="chat-corner" :class="{ 'chat-corner--open': !collapsed }">
+    <button v-if="collapsed" ref="restoreButton" type="button" class="chat-restore"
+            :aria-label="t('stageShell.chatOpen')" :title="t('stageShell.chatOpen')" @click="activateChat">
+      <span class="stage-ripple" aria-hidden="true"></span>
+    </button>
+    <div v-else ref="dock" class="chat-dock" @keydown.esc.stop="minimizeChat">
     <div class="chat-head">
       <span class="dot" :class="{ busy: chat.sending }" />
       <span class="title">{{ t('chat.with', { name: partnerName }) }}</span>
@@ -370,8 +400,9 @@ async function toggleMsgPin(id?: number) {
       </button>
       <button v-if="mods.memory" class="head-btn" :class="{ on: memorySession.open }"
               @click="memorySession.open = !memorySession.open">{{ t('chat.memory') }}{{ memCount ? ` ${memCount}` : '' }}</button>
-      <button type="button" class="chat-minimize" @click="collapsed = true" aria-label="收起聊天"><XkIcon name="collapse" :size="18" /></button>
+      <button type="button" class="chat-minimize" @click="minimizeChat" :aria-label="t('stageShell.chatClose')"><XkIcon name="collapse" :size="18" /></button>
     </div>
+    <MemoryPanel v-if="mods.memory" />
     <ScenePicker v-if="scenesOn" class="scene-slot" />
     <div v-show="histOpen" ref="messagesEl" class="messages" @scroll="onMsgScroll" @wheel="onMsgWheel">
       <button v-if="hasOlder" type="button" class="older" @click="loadOlder(true)">{{ t('chat.older') }}</button>
@@ -441,7 +472,7 @@ async function toggleMsgPin(id?: number) {
         <XkIcon name="snap" :size="18" />
       </n-button>
       <span v-if="mods.keepsake" class="rec-pair">
-        <n-popover trigger="click" placement="top"
+        <n-popover v-model:show="clipOptionsOpen" trigger="click" placement="top"
                    :disabled="keepsakeSession.recording || keepsakeSession.saving">
           <template #trigger>
             <button class="dur" type="button"
@@ -503,7 +534,7 @@ async function toggleMsgPin(id?: number) {
         <span>{{ t('chat.send') }}</span>
       </n-button>
     </div>
-    </template>
+    </div>
   </div>
 </template>
 
@@ -518,20 +549,23 @@ async function toggleMsgPin(id?: number) {
   color: #ffb3b3;
   overflow-wrap: anywhere;
 }
-/* 左下停靠的对话面板：不遮挡居中的人物 */
-.chat-dock {
+.chat-corner {
   position: absolute;
-  left: 20px;
-  bottom: 20px;
-  width: min(372px, calc(100vw - 40px));
+  right: 0;
+  bottom: 0;
   z-index: 10;
+  -webkit-app-region: no-drag;
+}
+.chat-corner--open { padding: 0 12px 12px 0; }
+.chat-dock {
+  width: var(--stage-chat-span, min(390px, calc(100vw - 24px)));
   display: flex;
   flex-direction: column;
   border-radius: 16px;
-  background: rgba(15, 15, 26, 0.66);
+  background: rgba(48, 34, 66, 0.88);
   backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.4);
+  border: 1px solid #dfc3ff40;
+  box-shadow: 0 6px 18px rgba(16, 11, 22, .22);
   overflow: visible;
 }
 
@@ -541,6 +575,13 @@ async function toggleMsgPin(id?: number) {
   gap: 8px;
   padding: 10px 14px 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.chat-dock :deep(.mem) {
+  position: relative;
+  inset: auto;
+  margin: 0;
+  flex-shrink: 0;
+  border-radius: 0;
 }
 
 .dot {
@@ -563,6 +604,10 @@ async function toggleMsgPin(id?: number) {
 }
 
 .chat-head .title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.3px;
@@ -843,10 +888,19 @@ async function toggleMsgPin(id?: number) {
   font-size: 15px;
   color: #e4c56a;
 }
-.chat-restore { position: absolute; right: 10px; bottom: 10px; z-index: 2; padding: 8px 13px; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; background: rgba(18,28,51,.9); color: rgba(235,235,245,.85); cursor: pointer; }
-.chat-restore:hover { background: rgba(78,76,150,.9); }
-.chat-dock { resize: both; overflow: hidden; min-width: 330px; min-height: 150px; max-width: min(92vw, 760px); max-height: 82vh; }
-.chat-dock.collapsed { min-height: 0; height: 46px; width: 150px; resize: none; }
+.chat-restore {
+  position: relative;
+  display: grid;
+  width: 64px;
+  height: 64px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.chat-restore:focus-visible { outline: 2px solid #f1d4bc; outline-offset: -7px; border-radius: 50%; }
+.chat-dock { box-sizing: border-box; max-height: min(64vh, 620px); overflow: auto; }
+@media (max-width: 699px) { .chat-dock { max-height: 44vh; } }
 .chat-minimize { margin-left: auto; width: 26px; height: 26px; border: 0; border-radius: 8px; background: transparent; color: rgba(235,235,245,.58); font-size: 20px; line-height: 20px; cursor: pointer; }
 .chat-minimize:hover { background: rgba(255,255,255,.1); color: #fff; }
 </style>

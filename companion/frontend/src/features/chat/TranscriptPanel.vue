@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import StagePanel from '../hud/StagePanel.vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
-import { NDrawer, NDrawerContent, NTabPane, NTabs } from 'naive-ui';
+import { NTabPane, NTabs } from 'naive-ui';
 import { api, type TalkLogLine } from '../../api/client';
 import { useChatStore } from '../../stores/chat';
 import { friendlyWhen } from './when';
@@ -47,9 +48,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <n-drawer :show="show" @update:show="(v: boolean) => emit('update:show', v)"
-            :width="460" placement="right" show-mask="transparent" to="body">
-    <n-drawer-content :title="t('top.log')" closable :native-scrollbar="false">
+  <StagePanel :show="show" :title="t('top.log')" size="medium"
+              @update:show="(v: boolean) => emit('update:show', v)">
       <n-tabs v-model:value="tab" type="line" size="small">
         <n-tab-pane name="talk" :tab="t('log.talk')">
           <p class="hint">{{ t('log.talkHint') }}</p>
@@ -84,21 +84,23 @@ onUnmounted(() => {
           </div>
         </n-tab-pane>
       </n-tabs>
-    </n-drawer-content>
-  </n-drawer>
+  </StagePanel>
 </template>
 
 <style scoped>
 .hint {
   font-size: 12px;
-  opacity: 0.55;
+  color: var(--panel-muted);
   margin: 0 0 12px;
   line-height: 1.5;
 }
-.empty { font-size: 13px; opacity: 0.45; padding: 24px 0; }
+.empty { font-size: 13px; color: var(--panel-muted); padding: 28px 14px; text-align: center; border: 1px dashed var(--panel-line); border-radius: 12px; }
 .turn {
-  padding: 10px 0 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--panel-line);
+  border-radius: 12px;
+  background: var(--panel-card);
 }
 .meta {
   display: flex;
@@ -108,23 +110,25 @@ onUnmounted(() => {
   font-size: 12px;
 }
 .who { font-weight: 600; }
-.turn.user .who { color: #93c5fd; }
+.turn.user { background: #ebc5a10b; }
+.turn.user .who { color: var(--panel-accent); }
 .turn.assistant .who { color: #c4b5fd; }
-.time { opacity: 0.45; font-variant-numeric: tabular-nums; }
+.time { color: var(--panel-muted); font-variant-numeric: tabular-nums; }
 .body { font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .block { margin-top: 6px; }
 .tag {
   display: inline-block;
   font-size: 11px;
-  opacity: 0.55;
+  color: var(--panel-muted);
   margin-bottom: 4px;
 }
 .block.spoken .tag { color: #86efac; opacity: 0.9; }
 .ok { margin-top: 6px; font-size: 12px; color: #86efac; opacity: 0.8; }
 .wait { margin-top: 6px; font-size: 12px; opacity: 0.4; }
 .log {
+  overflow-wrap: anywhere;
   display: grid;
-  grid-template-columns: 76px 64px 1fr;
+  grid-template-columns: minmax(50px, 76px) minmax(42px, 64px) minmax(0, 1fr);
   gap: 8px;
   align-items: start;
   padding: 6px 0;
@@ -132,7 +136,7 @@ onUnmounted(() => {
   line-height: 1.45;
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
-.log .time { opacity: 0.45; font-variant-numeric: tabular-nums; }
+.log .time { color: var(--panel-muted); font-variant-numeric: tabular-nums; }
 .log .kind { opacity: 0.75; }
 .log .txt { word-break: break-word; }
 .log.user .kind { color: #93c5fd; }

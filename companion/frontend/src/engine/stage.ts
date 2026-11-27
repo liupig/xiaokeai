@@ -372,6 +372,7 @@ export class Stage {
   private physics: MMDPhysics | null = null;
   private physicsHeld: MMDPhysics | null = null;
   private physicsGen = 0;
+  private physicsAfterFirstFrame = false;
   /** 物理库会改 mesh 的缩放和 parent，抛错前先记下，用来改回去 */
   /** 开物理之前的姿势。初始化或步进失败时拉回来，避免骨骼停在被拉大的位置。 */
   private modelKind = '';
@@ -393,6 +394,20 @@ export class Stage {
   private disposed = false;
   /** 每次拆掉画布加一，旧的渲染循环看到对不上就停 */
   private loopGen = 0;
+  private presentationPaused = false;
+
+  setPresentationPaused(paused: boolean) {
+    if (this.presentationPaused === paused) return;
+    this.presentationPaused = paused;
+    const generation = ++this.loopGen;
+    if (!paused && this.renderer && !this.disposed && this.pageVisible) {
+      requestAnimationFrame(() => {
+        if (generation !== this.loopGen || this.disposed || !this.pageVisible) return;
+        this.clock.getDelta();
+        this.animate();
+      });
+    }
+  }
   private loadSeq = 0;
   private magnoliaMaterials: MagnoliaMaterials | null = null;
   private bgSeq = 0;
@@ -402,7 +417,33 @@ export class Stage {
   private ammoReady: Promise<unknown> | null = null;
   private pageVisible = true;
   private host: HTMLElement | null = null;
-  private onResize: (() => void) | null = null;
+  private chatCompositionInset = { right: 0, bottom: 0 };
+
+  setChatCompositionInset(right: number, bottom: number) {
+    this.chatCompositionInset = { right, bottom };
+    this.applyChatCompositionInset();
+  }
+
+  private applyChatCompositionInset() {
+    if (!this.camera || !this.host || this.petMode) return;
+    const width = this.host.clientWidth;
+    const height = this.host.clientHeight;
+    if (!width || !height) return;
+    const right = Math.min(this.chatCompositionInset.right, width * .5);
+    const bottom = Math.min(this.chatCompositionInset.bottom, height * .48);
+    if (!right && !bottom) {
+      this.camera.clearViewOffset();
+      return;
+    }
+    const scale = (height - bottom) / height;
+    const viewWidth = width / scale;
+    const viewHeight = height / scale;
+    this.camera.setViewOffset(width, height,
+      (width - viewWidth + right / scale) / 2,
+      (height - viewHeight + bottom / scale) / 2,
+      viewWidth, viewHeight);
+  }
+  private resizeObserver: ResizeObserver | null = null;
   private onVis: (() => void) | null = null;
 
   private quality: QualityOptions = { physics: false, pixelRatioCap: 2, lightLevel: 1 };
@@ -589,17 +630,18 @@ export class Stage {
 
     this.buildPlatform();
 
-    this.onResize = () => {
+    this.resizeObserver = new ResizeObserver(() => {
       const w = container.clientWidth || window.innerWidth;
       const h = container.clientHeight || window.innerHeight;
       this.camera.aspect = w / h;
-      this.camera.updateProjectionMatrix();
+      if (this.petMode) this.camera.updateProjectionMatrix();
+      else this.applyChatCompositionInset();
       this.applyPixelRatio();
       this.renderer.setSize(w, h);
       this.syncPostProcessingSize(w, h);
       if (this.petMode) this.layoutPetDesk();
-    };
-    window.addEventListener('resize', this.onResize);
+    });
+    this.resizeObserver.observe(container);
     this.onVis = () => {
       const vis = document.visibilityState !== 'hidden';
       if (vis && !this.pageVisible) {
@@ -633,7 +675,7 @@ export class Stage {
     this.applyLights();
     if (wantPhysics === false) {
       this.detachPhysics();
-    } else if (wantPhysics === true) {
+    } else if (wantPhysics === true && !this.physicsAfterFirstFrame) {
       void this.attachPhysics();
     }
   }
@@ -1145,7 +1187,7 @@ export class Stage {
     this.unloadModel();
   }
 
-  private async setupMMD(mmd: THREE.SkinnedMesh, url: string): Promise<ModelInfo> {
+  private setupMMD(mmd: THREE.SkinnedMesh, url: string): ModelInfo {
     // MMD 单位约 8cm，缩放到米制
     mmd.scale.setScalar(MMD_MODEL_SCALE);
     mmd.updateMatrixWorld(true);
@@ -1175,9 +1217,8 @@ export class Stage {
     this.motion.onPhysicsReset = () => {
       this.physicsResetPending = this.physics !== null;
     };
-    const info = this.finishSetup(mmd, url, 'pmx', true);
-    await this.attachPhysics();
-    return info;
+    this.physicsAfterFirstFrame = true;
+    return this.finishSetup(mmd, url, 'pmx', true);
   }
 
   private detachPhysics() {
@@ -1439,6 +1480,7 @@ export class Stage {
   }
 
   private unloadModel() {
+    this.physicsAfterFirstFrame = false;
     this.loadSeq++;
     this.characterLighting.clear();
     this.magnoliaMaterials?.dispose();
@@ -2370,9 +2412,9 @@ export class Stage {
     // Invalidate pending texture loads and force the new scene to reload its backdrop.
     this.bgSeq += 1;
     this.bgUrl = '';
-    if (this.onResize) window.removeEventListener('resize', this.onResize);
+    this.resizeObserver?.disconnect();
     if (this.onVis) document.removeEventListener('visibilitychange', this.onVis);
-    this.onResize = null;
+    this.resizeObserver = null;
     this.onVis = null;
     if (this.scene) {
       try { this.unloadModel(); } catch { /* 模型可能已经卸过 */ }
@@ -2398,7 +2440,7 @@ export class Stage {
 
   // ---------- 主循环 ----------
   private animate = () => {
-    if (this.disposed || !this.pageVisible) return;
+    if (this.disposed || !this.pageVisible || this.presentationPaused) return;
     const gen = this.loopGen;
     requestAnimationFrame(() => {
       if (gen !== this.loopGen || this.disposed) return;
@@ -2476,7 +2518,17 @@ export class Stage {
     this.monitorAutomaticFraming(dt);
     this.emit('onFrame', dt);
 
-    if (this.renderer) this.renderAnimatedFrame();
+    if (this.renderer) {
+      this.renderAnimatedFrame();
+      if (this.physicsAfterFirstFrame) {
+        this.physicsAfterFirstFrame = false;
+        const model = this.loadSeq;
+        requestAnimationFrame(() => {
+          if (this.disposed || this.loadSeq !== model) return;
+          void this.attachPhysics();
+        });
+      }
+    }
   };
 
   get reviewCameraMoving() {

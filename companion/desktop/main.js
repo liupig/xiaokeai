@@ -61,6 +61,7 @@ const shellState = {
   tray: { minimize: true, close: true },
 };
 const roleOf = new WeakMap();
+const startupWindows = new WeakSet();
 const parked = new WeakSet();
 let swapping = false;
 let replacing = false;
@@ -152,10 +153,12 @@ function usable(b) {
   });
 }
 
-function shellPage(mode) {
+function shellPage(mode, switching = false) {
   const u = new URL(HOME);
   if (mode === 'pet') u.searchParams.set('shell', 'pet');
   else u.searchParams.delete('shell');
+  if (mode === 'stage' && switching) u.searchParams.set('entry', 'mode-switch');
+  else u.searchParams.delete('entry');
   return u.toString();
 }
 
@@ -265,9 +268,13 @@ function webPrefs() {
   };
 }
 
-function attachPage(win, mode) {
+function attachPage(win, mode, switching = false) {
   roleOf.set(win, mode);
   win.setMenuBarVisibility(false);
+  win.webContents.on('context-menu', (_event, params) => {
+    if (!startupWindows.has(win) || !params.selectionText.trim()) return;
+    Menu.buildFromTemplate([{ role: 'copy' }]).popup({ window: win });
+  });
   win.once('ready-to-show', () => reveal(win));
   win.webContents.once('did-finish-load', () => reveal(win));
   setTimeout(() => reveal(win), 4000);
@@ -276,11 +283,16 @@ function attachPage(win, mode) {
   win.on('resize', save);
   win.on('close', (e) => {
     if (!win.isMinimized()) remember(win, true);
+    if (startupWindows.has(win)) return;
     if (!trayMenu.shouldHideToTray('close', shellState.tray, { quitting, swapping })) return;
     e.preventDefault();
     hideToTray(win);
   });
   win.on('minimize', () => {
+    if (startupWindows.has(win)) {
+      if (!win.isDestroyed()) win.restore();
+      return;
+    }
     if (!trayMenu.shouldHideToTray('minimize', shellState.tray, { quitting, swapping })) return;
     const gen = summonGen;
     // 先让这下点击松开，再从最小化状态恢复出来，然后藏进托盘。
@@ -296,7 +308,7 @@ function attachPage(win, mode) {
   });
 
   let tries = 0;
-  const page = shellPage(mode);
+  const page = shellPage(mode, switching);
   const load = () => {
     if (win.isDestroyed()) return;
     win.loadURL(page);
@@ -321,7 +333,7 @@ function attachPage(win, mode) {
   });
 }
 
-function createStageWindow() {
+function createStageWindow(switching = false) {
   const b = usable(shellState.stage) ? shellState.stage : null;
   const opts = {
     width: b ? b.width : 1440,
@@ -333,9 +345,10 @@ function createStageWindow() {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#141420',
-    roundedCorners: true,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: false,
+    frame: false,
+    roundedCorners: false,
+    minimizable: switching,
+    resizable: switching,
     webPreferences: webPrefs(),
   };
   if (b) {
@@ -343,8 +356,18 @@ function createStageWindow() {
     opts.y = b.y;
   }
   const win = new BrowserWindow(opts);
-  attachPage(win, 'stage');
+  if (!switching) setStartupWindow(win, true);
+  attachPage(win, 'stage', switching);
   return win;
+}
+
+function setStartupWindow(win, active) {
+  if (active) startupWindows.add(win);
+  else startupWindows.delete(win);
+  win.setMinimizable(!active);
+  win.setResizable(!active);
+  win.setAlwaysOnTop(active, active ? 'screen-saver' : 'normal');
+  if (active && win.isVisible()) win.moveTop();
 }
 
 function plainDisplay(display) {
@@ -543,8 +566,8 @@ function createPetWindow() {
   return win;
 }
 
-function openWindow() {
-  return shellState.mode === 'pet' ? createPetWindow() : createStageWindow();
+function openWindow(switching = false) {
+  return shellState.mode === 'pet' ? createPetWindow() : createStageWindow(switching);
 }
 
 function retireWindow(win) {
@@ -598,7 +621,7 @@ function applyShellMode(mode) {
   swapping = true;
   let created = null;
   try {
-    created = openWindow();
+    created = openWindow(true);
   } catch (err) {
     console.error('[shell] switch window failed', err);
     swapping = false;
@@ -846,6 +869,7 @@ ipcMain.on('set-tray-locale', (_e, lang) => {
 ipcMain.on('window-minimize', (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (!win || win.isDestroyed()) return;
+  if (startupWindows.has(win)) return;
   if (trayMenu.shouldHideToTray('minimize', shellState.tray, { quitting, swapping })) {
     hideToTray(win);
     return;
@@ -856,8 +880,15 @@ ipcMain.on('window-minimize', (e) => {
 ipcMain.on('window-maximize', (e) => {
   const target = BrowserWindow.fromWebContents(e.sender);
   if (!target || target.isDestroyed()) return;
+  if (startupWindows.has(target)) return;
   if (target.isMaximized()) target.unmaximize();
   else target.maximize();
+});
+
+ipcMain.on('window-startup', (e, active) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win.isDestroyed() || roleOf.get(win) !== 'stage' || typeof active !== 'boolean') return;
+  setStartupWindow(win, active);
 });
 
 ipcMain.on('window-close', (e) => {
@@ -875,6 +906,7 @@ if (!gotLock) {
   app.on('before-quit', () => { quitting = true; });
   app.whenReady().then(() => {
     loadState();
+    shellState.mode = 'stage';
     grantPermissions();
     createTray();
     openWindow();

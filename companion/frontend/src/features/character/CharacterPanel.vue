@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import PanelGroup from '../hud/PanelGroup.vue';
+import StagePanel from '../hud/StagePanel.vue';
 import { computed, ref, watch } from 'vue';
 import {
-  NButton, NDrawer, NDrawerContent, NInput, NInputNumber, NPopconfirm, NSelect,
+  NButton, NInput, NInputNumber, NPopconfirm, NSelect,
   useMessage,
 } from 'naive-ui';
 import type { CharacterItem } from '../../api/client';
@@ -250,20 +252,21 @@ function avatarUrl(c: CharacterItem): string {
 </script>
 
 <template>
-  <n-drawer :show="show" @update:show="(v: boolean) => emit('update:show', v)"
-            :width="480" placement="right" show-mask="transparent" to="body">
-    <n-drawer-content :title="t('char.title')" closable :native-scrollbar="false">
+  <StagePanel :show="show" :title="t('char.title')" size="medium"
+              @update:show="(v: boolean) => emit('update:show', v)">
     <div class="body">
       <div class="list">
-        <div v-for="c in characters.list" :key="c.id"
-             class="item" :class="{ active: c.id === characters.currentId }"
-             @click="switchTo(c.id!)">
-          <img v-if="avatarUrl(c)" class="item-avatar img" :src="avatarUrl(c)" alt="" />
-          <span v-else class="item-avatar">{{ c.name.slice(0, 1) }}</span>
-          <span>{{ c.name }}</span>
+        <div class="character-grid">
+          <button v-for="c in characters.list" :key="c.id" type="button"
+                  class="item" :aria-pressed="c.id === characters.currentId" :title="c.name"
+                  @click="switchTo(c.id!)">
+            <img v-if="avatarUrl(c)" class="item-avatar img" :src="avatarUrl(c)" alt="" />
+            <span v-else class="item-avatar">{{ c.name.slice(0, 1) }}</span>
+            <span class="item-name">{{ c.name }}</span>
+          </button>
         </div>
-        <n-button dashed size="small" @click="createNew">+ {{ t('char.new') }}</n-button>
         <div class="list-actions">
+          <n-button dashed size="small" @click="createNew">+ {{ t('char.new') }}</n-button>
           <n-button size="small" :loading="importing" @click="pickImport">
             {{ t('char.import') }}
           </n-button>
@@ -292,90 +295,99 @@ function avatarUrl(c: CharacterItem): string {
       </div>
 
       <div v-if="editing" class="form">
-        <label>{{ t('char.name') }}</label>
-        <n-input v-model:value="editing.name" />
-        <label>{{ t('char.model') }}</label>
-        <n-select v-model:value="editing.model_asset_id" :options="modelOptions" />
-        <label>{{ t('char.voice') }}</label>
-        <n-select v-model:value="editing.voice" :options="voiceOptions" filterable
-                  :fallback-option="false" :placeholder="t('char.voicePh')"
-                  :disabled="settings.tts.engine !== 'edge' && settings.tts.engine !== 'qwen' && settings.tts.engine !== 'cosy' && settings.tts.engine !== 'volc' && settings.tts.engine !== 'openai' && settings.tts.engine !== 'eleven' && settings.tts.engine !== 'gemini' && settings.tts.engine !== 'mimo'" />
-        <label>{{ t('char.boundary') }}</label>
-        <n-select :value="editing.boundary || 'free'" :options="boundaryOptions"
-                  @update:value="(v: string) => { if (editing) editing.boundary = v; }" />
-        <label>{{ t('char.persona') }}</label>
-        <n-select :value="null" :options="personaOptions()" size="small"
-                  :placeholder="t('char.personaPh')"
-                  @update:value="applyTemplate" />
-        <n-input v-model:value="editing.persona" type="textarea" :rows="14"
-                 :placeholder="t('char.personaBody')" />
-        <label>{{ t('char.personality') }}</label>
-        <n-input v-model:value="editing.personality" type="textarea" :rows="2"
-                 :placeholder="t('char.personalityPh')" />
-        <label>{{ t('char.scenario') }}</label>
-        <n-input v-model:value="editing.scenario" type="textarea" :rows="2"
-                 :placeholder="t('char.scenarioPh')" />
-        <label>{{ t('char.mesExample') }}</label>
-        <n-input v-model:value="editing.mes_example" type="textarea" :rows="3"
-                 :placeholder="t('char.mesExamplePh')" />
-        <label>{{ t('char.greeting') }}</label>
-        <div class="greeting-row">
-          <n-input v-model:value="editing.greeting" />
-          <n-button size="tiny" :disabled="greetingVariants.length < 2"
-                    @click="nextGreeting">{{ t('char.greetingNext') }}</n-button>
-        </div>
-        <label>{{ t('char.greetings') }}</label>
-        <n-input v-model:value="greetingsText" type="textarea" :rows="2"
-                 :placeholder="t('char.greetingsPh')" />
-        <label>{{ t('char.tags') }}</label>
-        <n-input v-model:value="editing.tags" :placeholder="t('char.tagsPh')" />
-        <label>{{ t('char.creator') }}</label>
-        <n-input v-model:value="editing.creator" />
-
-        <div class="lorebook-head">
-          <label>{{ t('char.lorebook') }}</label>
-          <n-button size="tiny" dashed @click="lorebookRows.push(emptyLorebookRow())">
-            + {{ t('char.lorebookAdd') }}
-          </n-button>
-        </div>
-        <p class="hint">{{ t('char.lorebookHint') }}</p>
-        <div v-for="(row, idx) in lorebookRows" :key="idx" class="lorebook-row">
-          <div class="lb-bar">
-            <n-input v-model:value="row.keys" size="small"
-                     :placeholder="t('char.lorebookKeysPh')" />
-            <n-input-number v-model:value="row.order" size="small" :min="0" :max="9999"
-                            style="width: 84px" :placeholder="t('char.lorebookOrder')" />
-            <n-select v-model:value="row.position" size="small" :options="lorebookPositionOptions"
-                      style="width: 104px" />
-            <n-switch v-model:value="row.enabled" size="small" />
-            <n-button size="tiny" quaternary type="error"
-                      @click="lorebookRows.splice(idx, 1)">×</n-button>
+        <PanelGroup tone="teal" :title="t('char.form.identity')">
+          <label>{{ t('char.name') }}</label>
+          <n-input v-model:value="editing.name" />
+          <label>{{ t('char.model') }}</label>
+          <n-select v-model:value="editing.model_asset_id" :options="modelOptions" />
+          <label>{{ t('char.voice') }}</label>
+          <n-select v-model:value="editing.voice" :options="voiceOptions" filterable
+                    :fallback-option="false" :placeholder="t('char.voicePh')"
+                    :disabled="settings.tts.engine !== 'edge' && settings.tts.engine !== 'qwen' && settings.tts.engine !== 'cosy' && settings.tts.engine !== 'volc' && settings.tts.engine !== 'openai' && settings.tts.engine !== 'eleven' && settings.tts.engine !== 'gemini' && settings.tts.engine !== 'mimo'" />
+          <label>{{ t('char.boundary') }}</label>
+          <n-select :value="editing.boundary || 'free'" :options="boundaryOptions"
+                    @update:value="(v: string) => { if (editing) editing.boundary = v; }" />
+        </PanelGroup>
+        <PanelGroup tone="violet" :title="t('char.persona')" collapsible>
+          <label>{{ t('char.persona') }}</label>
+          <n-select :value="null" :options="personaOptions()" size="small"
+                    :placeholder="t('char.personaPh')"
+                    @update:value="applyTemplate" />
+          <n-input v-model:value="editing.persona" type="textarea" :rows="14"
+                   :placeholder="t('char.personaBody')" />
+          <label>{{ t('char.personality') }}</label>
+          <n-input v-model:value="editing.personality" type="textarea" :rows="2"
+                   :placeholder="t('char.personalityPh')" />
+          <label>{{ t('char.scenario') }}</label>
+          <n-input v-model:value="editing.scenario" type="textarea" :rows="2"
+                   :placeholder="t('char.scenarioPh')" />
+          <label>{{ t('char.mesExample') }}</label>
+          <n-input v-model:value="editing.mes_example" type="textarea" :rows="3"
+                   :placeholder="t('char.mesExamplePh')" />
+        </PanelGroup>
+        <PanelGroup tone="rose" :title="t('char.greeting')">
+          <label>{{ t('char.greeting') }}</label>
+          <div class="greeting-row">
+            <n-input v-model:value="editing.greeting" />
+            <n-button size="tiny" :disabled="greetingVariants.length < 2"
+                      @click="nextGreeting">{{ t('char.greetingNext') }}</n-button>
           </div>
-          <n-input v-model:value="row.content" type="textarea" :rows="2" size="small"
-                   :placeholder="t('char.lorebookContentPh')" />
-          <div class="lb-flags">
-            <label class="lb-flag">
-              <n-switch v-model:value="row.constant" size="small" />
-              <span>{{ t('char.lorebookConstant') }}</span>
-            </label>
-            <label class="lb-flag">
-              <n-switch v-model:value="row.selective" size="small" />
-              <span>{{ t('char.lorebookSelective') }}</span>
-            </label>
-            <n-input v-if="row.selective" v-model:value="row.selective_keys" size="small"
-                     :placeholder="t('char.lorebookSecPh')" style="flex: 1" />
-          </div>
-        </div>
+          <label>{{ t('char.greetings') }}</label>
+          <n-input v-model:value="greetingsText" type="textarea" :rows="2"
+                   :placeholder="t('char.greetingsPh')" />
+          <label>{{ t('char.tags') }}</label>
+          <n-input v-model:value="editing.tags" :placeholder="t('char.tagsPh')" />
+          <label>{{ t('char.creator') }}</label>
+          <n-input v-model:value="editing.creator" />
 
-        <label>{{ t('char.idle') }}</label>
-        <n-select v-model:value="editing.idle_motion" :options="motionOptions" />
-        <label>{{ t('char.morph') }}</label>
-        <div v-for="key in EMO_KEYS" :key="key" class="emo-row">
-          <span class="emo-label">{{ t('emo.' + key) }}</span>
-          <n-select v-model:value="emotionMap[key]" multiple filterable clearable
-                    size="small" :options="morphOptions"
-                    :placeholder="t('char.morphPh', { name: t('emo.' + key) })" />
-        </div>
+        </PanelGroup>
+        <PanelGroup tone="amber" :title="t('char.lorebook')" collapsible>
+          <div class="lorebook-head">
+            <n-button size="tiny" dashed @click="lorebookRows.push(emptyLorebookRow())">
+              + {{ t('char.lorebookAdd') }}
+            </n-button>
+          </div>
+          <p class="hint">{{ t('char.lorebookHint') }}</p>
+          <div v-for="(row, idx) in lorebookRows" :key="idx" class="lorebook-row">
+            <div class="lb-bar">
+              <n-input v-model:value="row.keys" size="small"
+                       :placeholder="t('char.lorebookKeysPh')" />
+              <n-input-number v-model:value="row.order" size="small" :min="0" :max="9999"
+                              style="width: 84px" :placeholder="t('char.lorebookOrder')" />
+              <n-select v-model:value="row.position" size="small" :options="lorebookPositionOptions"
+                        style="width: 104px" />
+              <n-switch v-model:value="row.enabled" size="small" />
+              <n-button size="tiny" quaternary type="error"
+                        @click="lorebookRows.splice(idx, 1)">×</n-button>
+            </div>
+            <n-input v-model:value="row.content" type="textarea" :rows="2" size="small"
+                     :placeholder="t('char.lorebookContentPh')" />
+            <div class="lb-flags">
+              <label class="lb-flag">
+                <n-switch v-model:value="row.constant" size="small" />
+                <span>{{ t('char.lorebookConstant') }}</span>
+              </label>
+              <label class="lb-flag">
+                <n-switch v-model:value="row.selective" size="small" />
+                <span>{{ t('char.lorebookSelective') }}</span>
+              </label>
+              <n-input v-if="row.selective" v-model:value="row.selective_keys" size="small"
+                       :placeholder="t('char.lorebookSecPh')" style="flex: 1" />
+            </div>
+          </div>
+
+        </PanelGroup>
+        <PanelGroup tone="blue" :title="t('char.form.performance')" collapsible>
+          <label>{{ t('char.idle') }}</label>
+          <n-select v-model:value="editing.idle_motion" :options="motionOptions" />
+          <label>{{ t('char.morph') }}</label>
+          <div v-for="key in EMO_KEYS" :key="key" class="emo-row">
+            <span class="emo-label">{{ t('emo.' + key) }}</span>
+            <n-select v-model:value="emotionMap[key]" multiple filterable clearable
+                      size="small" :options="morphOptions"
+                      :placeholder="t('char.morphPh', { name: t('emo.' + key) })" />
+          </div>
+        </PanelGroup>
         <div class="form-actions">
           <n-button type="primary" @click="save">{{ t('settings.save') }}</n-button>
           <n-popconfirm @positive-click="removeCurrent">
@@ -389,8 +401,7 @@ function avatarUrl(c: CharacterItem): string {
         </div>
       </div>
     </div>
-    </n-drawer-content>
-  </n-drawer>
+  </StagePanel>
 </template>
 
 <style scoped>
@@ -402,10 +413,21 @@ function avatarUrl(c: CharacterItem): string {
 }
 
 .list {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--panel-line);
+  border-radius: 14px;
+  background: var(--panel-card);
+}
+.character-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 86px), 1fr));
   gap: 6px;
+  max-height: 196px;
+  overflow: auto;
+  scrollbar-width: thin;
 }
 
 .item {
@@ -415,7 +437,11 @@ function avatarUrl(c: CharacterItem): string {
   padding: 8px 10px;
   border-radius: 8px;
   cursor: pointer;
-  border: 1px solid transparent;
+  border: 1px solid var(--panel-line);
+  max-width: 100%;
+  color: var(--panel-ink);
+  background: #211b2866;
+  font: inherit;
   font-size: 14px;
 }
 
@@ -423,16 +449,15 @@ function avatarUrl(c: CharacterItem): string {
   background: rgba(255, 255, 255, 0.06);
 }
 
-.item.active {
-  background: rgba(91, 91, 214, 0.18);
-  border-color: rgba(91, 91, 214, 0.5);
-}
+.item[aria-pressed="true"] { background: #ebc5a11a; border-color: #ebc5a168; }
+.item:focus-visible { outline: 2px solid var(--panel-accent); outline-offset: 2px; }
+.item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .item-avatar {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #5b5bd6;
+  background: #785568;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -449,7 +474,7 @@ function avatarUrl(c: CharacterItem): string {
 .sources-toggle {
   background: none;
   border: none;
-  color: #8b8bd6;
+  color: var(--panel-accent);
   font-size: 12px;
   text-align: left;
   padding: 0;
@@ -458,7 +483,7 @@ function avatarUrl(c: CharacterItem): string {
 }
 
 .sources-toggle:hover {
-  color: #b0b0ff;
+  color: #ffe6d0;
 }
 
 .sources {
@@ -472,7 +497,7 @@ function avatarUrl(c: CharacterItem): string {
 }
 
 .sources a {
-  color: #b0b0ff;
+  color: var(--panel-accent);
   text-decoration: none;
   display: flex;
   flex-direction: column;
@@ -496,6 +521,7 @@ function avatarUrl(c: CharacterItem): string {
 
 .list-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-left: auto;
   width: 100%;
@@ -515,7 +541,7 @@ function avatarUrl(c: CharacterItem): string {
 
 .hint {
   font-size: 12px;
-  opacity: 0.55;
+  color: var(--panel-muted);
   margin: 0;
 }
 
@@ -530,12 +556,14 @@ function avatarUrl(c: CharacterItem): string {
 
 .lb-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
 
 .lb-flags {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
@@ -550,8 +578,8 @@ function avatarUrl(c: CharacterItem): string {
 }
 
 .form {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 

@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { defineAsyncComponent, onMounted, onUnmounted, ref, computed } from 'vue';
+import { defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, computed, watch } from 'vue';
 import { NConfigProvider, NMessageProvider, NModal, NSpace, darkTheme, zhCN, dateZhCN, enUS, dateEnUS, jaJP, dateJaJP, koKR, dateKoKR } from 'naive-ui';
 import { i18n } from './i18n';
 import StageView from './features/stage/StageView.vue';
+import StageWelcome from './features/stage/StageWelcome.vue';
+import type { ReplyLang } from './i18n';
 import TopBar from './features/hud/TopBar.vue';
 import DeskChrome from './features/hud/DeskChrome.vue';
 import BrandLogo from './components/BrandLogo.vue';
@@ -11,6 +13,7 @@ import ChatBar from './features/chat/ChatBar.vue';
 import SpeechCaption from './features/chat/SpeechCaption.vue';
 import LiveBeatHud from './features/hud/LiveBeatHud.vue';
 import { stage } from './engine/stage';
+import { live2dStage } from './engine/live2d';
 import { caster } from './features/performance/caster';
 import { shots } from './features/performance/shotConductor';
 import { repertoire } from './features/performance/repertoire';
@@ -32,12 +35,13 @@ import PetBar from './features/shell/PetBar.vue';
 import CoinPill from './features/coins/CoinPill.vue';
 import UserCenter from './features/coins/UserCenter.vue';
 import DrawCard from './features/draw/DrawCard.vue';
-import { startCoins } from './features/coins/session';
+import { lifePanelOpen, startCoins, userCenterOpen } from './features/coins/session';
 import { availableRelease, checkUpdate, CURRENT_VERSION, DEFAULT_DOWNLOADS, ignore, UPDATE_URL } from './features/update/updateService';
 import type { ReleaseInfo } from './features/update/updateService';
 import JourneyToasts from './features/journey/JourneyToasts.vue';
 
 const QuickPanel = defineAsyncComponent(() => import('./features/hud/QuickPanel.vue'));
+const MusicPanel = defineAsyncComponent(() => import('./features/hud/MusicPanel.vue'));
 const update = ref<ReleaseInfo | null>(null);
 const onUpdate = (event: Event) => { update.value = (event as CustomEvent<ReleaseInfo>).detail; };
 const openUpdate = () => window.open(UPDATE_URL, '_blank', 'noopener');
@@ -68,9 +72,18 @@ const CodewatchHud = defineAsyncComponent(() => import('./features/codewatch/Hud
 const DanmakuStage = defineAsyncComponent(() => import('./features/live/DanmakuStage.vue'));
 const LiveDesk = defineAsyncComponent(() => import('./features/live/LiveDesk.vue'));
 
-/** 右侧面板互斥：同一时间只显示一个 */
-type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake' | 'log';
+// 舞台工作区同一时间只显示一个面板。
+type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake' | 'log' | 'live' | 'music';
 const activePanel = ref<PanelKey | null>(null);
+const chatDockHeight = ref(0);
+function updateChatDock(width: number, height: number) {
+  chatDockHeight.value = height;
+  const compact = window.innerWidth < 700;
+  stage.setChatCompositionInset(
+    compact || !width ? 0 : width + 24,
+    !compact || !height ? 0 : height + 18,
+  );
+}
 
 const naiveLocale = computed(() => {
   const ui = String((i18n.global.locale as { value?: string }).value || 'zh-CN');
@@ -87,7 +100,20 @@ const naiveDate = computed(() => {
   return dateZhCN;
 });
 
+watch(lifePanelOpen, (open) => {
+  if (!open) return;
+  userCenterOpen.value = false;
+  activePanel.value = null;
+}, { flush: 'sync' });
+watch(userCenterOpen, (open) => {
+  if (!open) return;
+  lifePanelOpen.value = false;
+  activePanel.value = null;
+}, { flush: 'sync' });
+
 function togglePanel(p: PanelKey) {
+  lifePanelOpen.value = false;
+  userCenterOpen.value = false;
   activePanel.value = activePanel.value === p ? null : p;
 }
 
@@ -100,6 +126,67 @@ const assets = useAssetsStore();
 const characters = useCharacterStore();
 const settings = useSettingsStore();
 const chat = useChatStore();
+const stageMounted = ref(isPetShell);
+const stageEntered = ref(isPetShell);
+const needsLanguage = ref(false);
+const savingLanguage = ref(false);
+const languageFailed = ref(false);
+const preparingCharacter = ref(false);
+let warmCharacter: Promise<void> = Promise.resolve();
+let continueStartup: (() => void) | undefined;
+let stageWarmupStarted = false;
+
+function preloadStage() {
+  if (stageWarmupStarted) return;
+  stageWarmupStarted = true;
+  stageMounted.value = true;
+  void nextTick(() => {
+    stage.setBackground(settings.quality.background_color, settings.quality.background_image);
+    settings.applyQuality();
+  });
+  warmCharacter = loadStartupCharacter();
+}
+
+async function loadStartupCharacter() {
+  if (preparingCharacter.value) return;
+  preparingCharacter.value = true;
+  characters.modelError = '';
+  try {
+    await Promise.all([assets.refresh(), characters.loadList()]);
+    if (!characters.currentId) throw new Error(t('top.none'));
+    await characters.switchTo(characters.currentId);
+  } catch (error) {
+    characters.modelError = error instanceof Error ? error.message : String(error);
+  } finally {
+    preparingCharacter.value = false;
+  }
+}
+
+function isModeSwitch() {
+  const url = new URL(window.location.href);
+  if (!window.companionDesktop?.isShell || url.searchParams.get('entry') !== 'mode-switch') return false;
+  url.searchParams.delete('entry');
+  window.history.replaceState(window.history.state, '', url);
+  return true;
+}
+
+async function enterStage(language: ReplyLang) {
+  if (savingLanguage.value || stageEntered.value) return;
+  savingLanguage.value = true;
+  const retryLanguage = languageFailed.value;
+  languageFailed.value = false;
+  try {
+    if (retryLanguage || !settings.locale_set || settings.locale.ui !== language) {
+      await settings.setLocale({ ui: language, reply: language });
+      settings.locale_set = true;
+    }
+    continueStartup?.();
+  } catch {
+    languageFailed.value = true;
+  } finally {
+    savingLanguage.value = false;
+  }
+}
 
 onMounted(async () => {
   window.addEventListener('xiaokeai:update', onUpdate);
@@ -112,9 +199,27 @@ onMounted(async () => {
     installPetWander();
   }
   await settings.load().catch(() => {});
+  const showWelcome = !isPetShell && !isModeSwitch();
+  window.companionDesktop?.setStartupWindow?.(showWelcome);
+  stage.setPresentationPaused(showWelcome);
+  live2dStage.setPresentationPaused(showWelcome);
+  if (showWelcome) {
+    await new Promise<void>((resolve) => {
+      continueStartup = resolve;
+      needsLanguage.value = true;
+    });
+    continueStartup = undefined;
+  }
+  preloadStage();
+  stageEntered.value = true;
+  needsLanguage.value = false;
+  if (showWelcome) {
+    window.companionDesktop?.setStartupWindow?.(false);
+    stage.setPresentationPaused(false);
+    live2dStage.setPresentationPaused(false);
+  }
   bindLiveHost();
-  await assets.refresh().catch(() => {});
-  await characters.loadList().catch(() => {});
+  await warmCharacter;
   await chat.loadHistory().catch(() => {});
   const sceneP = (settings.modules.scenes && characters.currentId)
     ? import('./features/scenes/session').then((m) => m.restoreOrRotateScene({
@@ -122,10 +227,7 @@ onMounted(async () => {
         lastChatAt: chat.lastUserChatAt(),
       })).catch(() => {})
     : Promise.resolve();
-  const modelP = characters.currentId
-    ? characters.switchTo(characters.currentId).catch(() => {})
-    : Promise.resolve();
-  await Promise.all([sceneP, modelP]);
+  await sceneP;
   const along = await import('./features/glance/along');
   along.installAlong();
   if (settings.modules.codewatch) {
@@ -176,13 +278,11 @@ onUnmounted(() => {
     <n-message-provider placement="top">
       <n-modal :show="!!update" @update:show="(v: boolean) => { if (!v) dismissUpdate(); }" preset="card" class="update-modal" :bordered="false" :segmented="{ content: true, footer: true }" style="width: min(470px, calc(100vw - 32px))">
         <template #header>
-          <div class="update-header"><div class="update-orb"><BrandLogo :size="28" /></div><div><div class="update-kicker">XIAOKE.AI</div><div class="update-title">发现新版本</div></div></div>
+          <div class="update-header"><div class="update-orb"><BrandLogo :size="28" /></div><div><div class="update-title">发现新版本</div><span class="update-version">v{{ update?.version }}</span></div></div>
         </template>
         <div class="update-body">
-          <div class="update-lead">让陪伴，再近一步。</div>
-          <span class="update-version">v{{ update?.version }}</span>
           <div v-if="update?.notes?.zh" class="update-notes">{{ update.notes.zh }}</div>
-          <div class="update-section-label">下载安装包 <span>选择你习惯的下载方式</span></div>
+          <h3 class="update-section-label">下载安装包</h3>
           <div class="update-downloads">
             <button type="button" @click="openDownload(update?.downloads?.baidu || DEFAULT_DOWNLOADS.baidu)"><span>百度网盘</span><small>中国 · 提取码 {{ update?.baidu_password || 'xkai' }}</small></button>
             <button type="button" @click="openDownload(update?.downloads?.modelscope || DEFAULT_DOWNLOADS.modelscope)"><span>ModelScope 魔塔</span><small>中国</small></button>
@@ -194,27 +294,37 @@ onUnmounted(() => {
           <div class="update-actions"><button type="button" class="update-primary" @click="openUpdate">前往官网更新 <span>↗</span></button><div class="update-secondary"><button type="button" @click="dismissUpdate">下次提醒</button><button type="button" @click="neverUpdate">不再提醒此版本</button></div></div>
         </template>
       </n-modal>
-      <div class="layout">
+        <StageWelcome v-if="needsLanguage" :language="settings.locale.ui"
+                      :saving="savingLanguage"
+                      :failed="languageFailed" @preload-stage="preloadStage" @continue="enterStage" />
+      <div v-if="!stageEntered && !needsLanguage" class="stage-boot" aria-busy="true"><BrandLogo :size="42" /></div>
+      <div v-if="stageMounted" class="layout" :inert="!stageEntered"
+           :class="{ 'has-stage-nav': !isPetShell && !tavernUi.on }"
+           :style="{ '--chat-dock-height': chatDockHeight + 'px' }">
+        <div class="stage-viewport"><StageView :starting-model="preparingCharacter" @retry-model="loadStartupCharacter" /></div>
+        <template v-if="stageEntered">
         <button v-if="isPetShell && availableRelease" type="button" data-pet-hit class="update-badge update-badge-pet" @click="showUpdateEntry"><span></span>有新版本</button>
-        <StageView />
         <DrawCard />
         <DeskChrome v-if="!isPetShell && !tavernUi.on" />
-        <CoinPill v-if="isPetShell" class="pet-coin" />
+        <CoinPill v-if="isPetShell" class="pet-coin" data-pet-hit />
         <UserCenter />
         <ContentSetup />
         <TopBar v-if="!isPetShell && !tavernUi.on" :active="activePanel" :update-available="!!availableRelease" :update-label="updateCheckLabel" @check-update="showUpdateEntry" @toggle="togglePanel" />
-        <LiveBeatHud v-if="!isPetShell && !tavernUi.on && !tarotLayerOn && !wishUi.on && (!activePanel || activePanel === 'characters')" />
+        <LiveBeatHud v-if="!isPetShell" v-show="!tavernUi.on" />
         <MocapOverlay v-if="!isPetShell" />
         <SpeechCaption />
         <TarotLayer v-if="tarotLayerOn" />
         <TavernLayer v-if="settings.modules.tavern && tavernUi.on" />
         <WishLayer v-if="wishUi.on" />
         <CodewatchHud v-if="!isPetShell && settings.modules.codewatch" />
-        <LiveDesk v-if="!isPetShell && settings.modules.live" />
+        <LiveDesk v-if="!isPetShell" :show="!tavernUi.on && activePanel === 'live'"
+                  @update:show="(v: boolean) => setPanel('live', v)" />
         <DanmakuStage v-if="!isPetShell && (settings.modules.live || settings.modules.live_douyin)" />
         <QuickPanel :show="activePanel === 'quick'"
                     @update:show="(v: boolean) => setPanel('quick', v)" />
-        <ChatBar v-if="!isPetShell && !tavernUi.on" />
+        <MusicPanel v-if="!isPetShell" :show="activePanel === 'music' && !tavernUi.on"
+                    @update:show="(v: boolean) => setPanel('music', v)" />
+        <ChatBar v-if="!isPetShell && !tavernUi.on" @dock-size="updateChatDock" />
         <PetBar v-if="isPetShell" />
         <AssetCenter :show="activePanel === 'assets'"
                      @update:show="(v: boolean) => setPanel('assets', v)" />
@@ -229,6 +339,7 @@ onUnmounted(() => {
         <TranscriptPanel :show="activePanel === 'log'"
                          @update:show="(v: boolean) => setPanel('log', v)" />
         <JourneyToasts v-if="settings.modules.journey !== false" />
+        </template>
       </div>
     </n-message-provider>
   </n-config-provider>
@@ -239,6 +350,70 @@ onUnmounted(() => {
   /* provider 包裹层无高度，直接铺满视口 */
   position: fixed;
   inset: 0;
+}
+.stage-boot {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #161229;
+}
+.stage-viewport { position: absolute; inset: 0; }
+.has-stage-nav {
+  background: #211b28;
+  --stage-panel-span: min(492px, 52vw);
+  --stage-nav-width: 160px;
+  --stage-nav-compact-width: 70px;
+  --stage-nav-clearance: 12px;
+  --stage-chat-span: min(390px, 36vw);
+}
+.has-stage-nav .stage-viewport {
+  inset: 0 0 0 var(--stage-content-left, 0px);
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 20%, #3f3258, #292037);
+}
+.has-stage-nav:has(.stage-panel--small) { --stage-panel-span: min(366px, 52vw); }
+.has-stage-nav:has(.stage-panel--large) { --stage-panel-span: min(702px, 52vw); }
+.has-stage-nav:has(.review-current) :deep(.chat-corner),
+.has-stage-nav:has(.review-current) :deep(.caption-layer) { display: none; }
+.has-stage-nav:has(.chat-corner--open):not(:has(.review-current)) :deep(.beat-monitor) {
+  --beat-bottom: calc(var(--chat-dock-height) + 24px);
+}
+@media (min-width: 700px) {
+  .has-stage-nav:has(.chat-corner--open):not(:has(.review-current)) {
+    --stage-content-right: calc(var(--stage-chat-span) + 24px);
+  }
+}
+@media (max-width: 699px) {
+  .has-stage-nav { --stage-chat-span: calc(100vw - 24px); }
+  .has-stage-nav:has(.chat-corner--open):not(:has(.review-current)) {
+    --stage-content-bottom: calc(var(--chat-dock-height) + 18px);
+  }
+}
+@media (min-width: 960px) {
+  .has-stage-nav:has(.stage-panel) {
+    --stage-content-left: calc(var(--stage-nav-clearance) + var(--stage-panel-span) + 12px);
+  }
+}
+@media (max-width: 959px) {
+  .has-stage-nav:has(.stage-panel) { --stage-panel-span: 100%; }
+  .has-stage-nav:has(.stage-panel) :deep(.chat-corner) { display: none; }
+  .has-stage-nav:has(.stage-panel) { --stage-content-right: 0px; --stage-content-bottom: 0px; }
+}
+@media (min-width: 700px) and (max-width: 959px) {
+  .has-stage-nav:has(.review-current) {
+    --stage-panel-span: min(380px, 46vw);
+    --stage-content-left: calc(var(--stage-nav-clearance) + var(--stage-panel-span) + 12px);
+  }
+}
+@media (max-width: 640px) {
+  .has-stage-nav { --stage-nav-width: var(--stage-nav-compact-width); }
+}
+.has-stage-nav:has(.stage-panel) {
+  --stage-nav-clearance: calc(var(--stage-nav-width) + 24px);
+}
+.has-stage-nav:has(.stage-panel):has(.stage-nav.compact) {
+  --stage-nav-clearance: calc(var(--stage-nav-compact-width) + 24px);
 }
 .update-badge { position: absolute; top: 72px; right: 24px; z-index: 40; display: flex; align-items: center; gap: 8px; padding: 9px 14px; border: 1px solid #b8a3ff55; border-radius: 999px; background: #252039ed; color: #ddd3ff; box-shadow: 0 4px 18px #0003; font: inherit; font-size: 12px; cursor: pointer; -webkit-app-region: no-drag; }
 .update-badge:hover { background: #393052; }
@@ -254,43 +429,42 @@ onUnmounted(() => {
 }
 
 :global(.update-modal.n-card) {
-  overflow: hidden;
-  border: 1px solid rgba(167, 139, 250, 0.28);
-  border-radius: 26px;
-  background: linear-gradient(145deg, rgba(30, 27, 51, 0.985), rgba(18, 21, 38, 0.985));
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.48), 0 0 36px rgba(124, 92, 224, 0.16);
+  border: 1px solid #e8c5d035;
+  border-radius: 20px;
+  background: radial-gradient(ellipse at top left, #483444, transparent 60%), #231e2a;
+  box-shadow: 0 24px 70px #0f0b18a8;
 }
 :global(.n-modal-mask) { background: rgba(5, 7, 18, .58) !important; backdrop-filter: blur(5px); }
-:global(.update-modal .n-card-header) { padding: 26px 30px 22px; }
-:global(.update-modal .n-card__content) { padding: 28px 30px 30px; }
-:global(.update-modal .n-card__footer) { padding: 20px 30px 24px; }
+:global(.update-modal .n-card-header),
+:global(.update-modal .n-card__content),
+:global(.update-modal .n-card__footer) { padding: 18px clamp(16px, 4vw, 26px); }
 .update-header { display: flex; align-items: center; gap: 12px; }
-.update-orb { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 15px; background: linear-gradient(145deg, #8b6cf6, #4f66d8); box-shadow: 0 8px 22px rgba(112, 91, 224, .35); }
-.update-kicker { color: #a99afb; font-size: 10px; font-weight: 800; letter-spacing: .18em; }
-.update-title { margin-top: 4px; color: #f8f6ff; font-size: 24px; font-weight: 800; letter-spacing: -.03em; }
-.update-body { position: relative; padding: 2px 0 4px; }
-.update-lead { color: rgba(245, 243, 255, .92); font-size: 16px; font-weight: 650; }
-.update-version { display: inline-block; margin-top: 14px; padding: 5px 10px; border: 1px solid rgba(167, 139, 250, .35); border-radius: 999px; background: rgba(139, 108, 246, .14); color: #c6b8ff; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
-.update-notes { margin-top: 16px; padding: 15px 16px; border: 1px solid rgba(255, 255, 255, .07); border-radius: 14px; background: rgba(255, 255, 255, .055); color: rgba(235, 232, 248, .76); font-size: 14px; line-height: 1.65; }
-.update-downloads { display: grid; gap: 7px; margin-top: 14px; }
-.update-downloads button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 1px solid rgba(167, 139, 250, .16); border-radius: 11px; background: rgba(116, 96, 190, .09); color: rgba(245, 243, 255, .88); font: inherit; text-align: left; cursor: pointer; transition: background .15s, border-color .15s, transform .15s; }
-.update-downloads button:hover { border-color: rgba(167, 139, 250, .5); background: rgba(139, 108, 246, .18); transform: translateY(-1px); }
-.update-downloads small { color: rgba(214, 205, 250, .58); font-size: 11px; }
-.update-actions { display: flex; flex-direction: column; gap: 10px; }
-.update-primary { width: 100%; height: 44px; border: 0 !important; border-radius: 13px; background: linear-gradient(135deg, #9073ff, #6379ea) !important; box-shadow: 0 8px 22px rgba(105, 92, 224, .32); font-size: 15px; font-weight: 700; }
-.update-secondary { display: flex; justify-content: center; gap: 4px; }
-.update-secondary button { flex: 1; height: 38px; border: 1px solid #ffffff14; border-radius: 10px; background: #ffffff05; color: #a6a3b8; font: inherit; font-size: 12px; cursor: pointer; }
-.update-secondary button:hover { background: #ffffff0d; color: #eeeaff; }
-.update-primary { color: white; cursor: pointer; font-family: inherit; display: flex; justify-content: center; align-items: center; gap: 12px; }
-.update-primary:hover { filter: brightness(1.12); }
-.update-secondary { gap: 10px; }
-.update-section-label { display: flex; justify-content: space-between; margin-top: 24px; font-size: 12px; font-weight: 600; color: #d5cee8; }
-.update-section-label span { font-weight: 400; color: #858196; font-size: 11px; }
-.update-downloads { margin-top: 10px; }
-.update-downloads button { min-height: 48px; padding: 12px 16px; background: #ffffff04; border-color: #ffffff12; justify-content: center; text-align: center; }
-.update-downloads button:first-child { background: #9c82ff0c; border-color: #a68aff30; }
-.update-lead { font-size: 22px; font-weight: 600; letter-spacing: .02em; }
-.update-version { font-family: ui-monospace, monospace; font-weight: 400; font-size: 11px; }
-.update-notes { white-space: pre-wrap; max-height: 140px; overflow-y: auto; border: 0; border-left: 2px solid #a68aff70; border-radius: 0; background: transparent; padding: 2px 0 2px 14px; }
-.update-primary span { margin-left: 3px; font-size: 16px; }
+.update-orb { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 13px; background: #e8bd9830; }
+.update-title { color: #f6ece9; font-size: 20px; font-weight: 650; }
+.update-version { color: #ebc5a1; font: 12px/1.4 ui-monospace, monospace; }
+.update-section-label { font-size: 13px; font-weight: 600; color: #f6ece9; }
+.update-notes { white-space: pre-wrap; max-height: 140px; overflow-y: auto; margin-bottom: 16px; padding: 6px 12px; border-left: 2px solid #ebc5a16b; color: #bcb0ba; font-size: 13px; line-height: 1.65; }
+.update-downloads { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.update-downloads button {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid #e8c5d021;
+  border-radius: 11px;
+  background: #ffffff08;
+  color: #f6ece9;
+  text-align: start;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.update-downloads button:hover { background: #ebc5a118; border-color: #ebc5a168; }
+.update-downloads small { color: #bcb0ba; font-size: 11px; }
+.update-actions { display: grid; gap: 8px; }
+.update-primary { min-height: 42px; border: 0; border-radius: 10px; background: #ebc5a1; color: #2b1e25; font: inherit; font-weight: 650; cursor: pointer; }
+.update-primary:hover { background: #f8d8b9; }
+.update-primary span { margin-left: 5px; }
+.update-secondary { display: flex; gap: 8px; }
+.update-secondary button { flex: 1; min-height: 36px; border: 1px solid #e8c5d021; border-radius: 9px; background: transparent; color: #bcb0ba; font: inherit; font-size: 12px; cursor: pointer; }
+.update-secondary button:hover { background: #ffffff0d; color: #f6ece9; }
 </style>

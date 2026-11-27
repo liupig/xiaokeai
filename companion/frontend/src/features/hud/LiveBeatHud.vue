@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { NButton, useMessage } from 'naive-ui';
+import { computed, nextTick, ref, useId } from 'vue';
+import { lightTheme, NButton, NConfigProvider, useMessage } from 'naive-ui';
 import {
   liveNow,
   liveCamera,
@@ -14,24 +14,30 @@ import { useAssetsStore } from '../../stores/assets';
 import { useSettingsStore } from '../../stores/settings';
 import { stripCatPrefix } from '../assets/motionMeta';
 
-const OPEN_KEY = 'xiaoke.livebeat.open';
+const open = ref(false);
+const hoverBlocked = ref(false);
+const trigger = ref<HTMLButtonElement>();
+const closeButton = ref<HTMLButtonElement>();
+const headingId = useId();
+const panelId = useId();
+
+function activate(event: MouseEvent) {
+  open.value = true;
+  if (event.detail === 0) void nextTick(() => closeButton.value?.focus());
+}
+
+function close(event: Event) {
+  hoverBlocked.value = true;
+  open.value = false;
+  if (event instanceof KeyboardEvent || (event.currentTarget instanceof HTMLElement && event.currentTarget.matches(':focus-visible'))) {
+    void nextTick(() => trigger.value?.focus());
+  }
+}
 const message = useMessage();
 const settings = useSettingsStore();
 const assets = useAssetsStore();
 const banning = ref(false);
 const banned = ref(new Set<string>());
-const open = ref(false);
-try {
-  open.value = localStorage.getItem(OPEN_KEY) === '1';
-} catch { /* */ }
-
-function toggle() {
-  open.value = !open.value;
-  try {
-    localStorage.setItem(OPEN_KEY, open.value ? '1' : '0');
-  } catch { /* */ }
-}
-
 const now = computed(() => liveNow.value);
 
 function labelsOf(beat: ApprovedBeat) {
@@ -101,92 +107,103 @@ async function ban(id: string) {
 </script>
 
 <template>
-  <div class="hud glass" :class="{ shut: !open }">
-    <button type="button" class="cap" @click="toggle">
-      {{ t('beat.title') }}
-      <span class="fold">{{ open ? t('common.close') : t('beat.expand') }}</span>
-    </button>
-    <template v-if="open && now && labels">
-      <div class="chips">
-        <span v-if="labels.size" class="chip"><em>{{ t('beat.size') }}</em>{{ labels.size }}</span>
-        <span v-if="labels.cam" class="chip"><em>{{ t('beat.cam') }}</em>{{ labels.cam }}</span>
-        <span class="chip"><em>{{ t('beat.stand') }}</em>{{ labels.stand }}</span>
-        <span class="chip" :class="{ dim: !now.motion }">
-          <em>{{ t('beat.act') }}</em>{{ actionText }}
-        </span>
-      </div>
-      <n-button size="tiny" type="error" ghost
-                :disabled="banning || currentBanned || !now.appliedApprovedCam"
-                :loading="banning && !currentBanned"
-                @click="ban(now.beat.id)">
-        {{ currentBanned ? t('beat.gone') : t('beat.bad') }}
-      </n-button>
-    </template>
-    <p v-else-if="open" class="empty">{{ t('beat.empty') }}</p>
-    <div v-if="open && recent.length" class="recent">
-      <div class="sub">{{ t('beat.recent') }}</div>
-      <div v-for="b in recent" :key="b.id" class="row">
-        <span class="line">{{ lineOf(b) }}</span>
-        <n-button size="tiny" quaternary type="error"
-                  :disabled="banning || banned.has(b.id)"
-                  @click="ban(b.id)">
-          {{ banned.has(b.id) ? t('beat.gone') : t('beat.drop') }}
-        </n-button>
-      </div>
+  <div class="beat-monitor" @pointerleave="hoverBlocked = false">
+    <div class="beat-hotspot" @pointerenter="(event) => { if (!open && !hoverBlocked && event.pointerType === 'mouse') open = true; }">
+      <button v-show="!open" ref="trigger" type="button" class="beat-trigger"
+              :aria-label="t('beat.title')" :title="t('beat.title')" :aria-expanded="open"
+              :aria-controls="open ? panelId : undefined" @click="activate">
+        <span class="stage-ripple" aria-hidden="true"></span>
+      </button>
     </div>
+    <section v-if="open" :id="panelId" class="beat-panel" :aria-labelledby="headingId" @keydown.esc.stop="close">
+      <header class="beat-header">
+        <h2 :id="headingId">{{ t('beat.title') }}</h2>
+        <button ref="closeButton" type="button" class="beat-close" :aria-label="t('common.close')"
+                :title="t('common.close')" @click="close">×</button>
+      </header>
+      <n-config-provider :theme="lightTheme" class="beat-body">
+        <template v-if="now && labels">
+          <div class="chips">
+            <span v-if="labels.size" class="chip"><em>{{ t('beat.size') }}</em>{{ labels.size }}</span>
+            <span v-if="labels.cam" class="chip"><em>{{ t('beat.cam') }}</em>{{ labels.cam }}</span>
+            <span class="chip"><em>{{ t('beat.stand') }}</em>{{ labels.stand }}</span>
+            <span class="chip" :class="{ dim: !now.motion }">
+              <em>{{ t('beat.act') }}</em>{{ actionText }}
+            </span>
+          </div>
+          <n-button size="tiny" type="error" ghost
+                    :disabled="banning || currentBanned || !now.appliedApprovedCam"
+                    :loading="banning && !currentBanned"
+                    @click="ban(now.beat.id)">
+            {{ currentBanned ? t('beat.gone') : t('beat.bad') }}
+          </n-button>
+        </template>
+        <p v-else class="empty">{{ t('beat.empty') }}</p>
+        <div v-if="recent.length" class="recent">
+          <div class="sub">{{ t('beat.recent') }}</div>
+          <div v-for="b in recent" :key="b.id" class="row">
+            <span class="line">{{ lineOf(b) }}</span>
+            <n-button size="tiny" quaternary type="error"
+                      :disabled="banning || banned.has(b.id)"
+                      @click="ban(b.id)">
+              {{ banned.has(b.id) ? t('beat.gone') : t('beat.drop') }}
+            </n-button>
+          </div>
+        </div>
+      </n-config-provider>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.hud {
+.beat-monitor {
+  --beat-top: max(16.6667%, calc(var(--desk-chrome, 0px) + 10px));
+  --panel-muted: #514653;
+  --panel-line: #79647752;
   position: absolute;
-  top: calc(68px + var(--desk-chrome, 0px));
-  right: 16px;
-  z-index: 8;
-  width: min(340px, calc(100vw - 32px));
-  padding: 10px 12px 12px;
+  top: var(--beat-top);
+  right: 12px;
+  bottom: var(--beat-bottom, 18px);
+  width: min(314px, calc(100% - 24px));
+  z-index: 12;
   pointer-events: none;
+  -webkit-app-region: no-drag;
 }
-.hud.shut {
-  width: auto;
-  padding: 7px 10px;
-  border-radius: 999px;
-  background: rgba(16, 16, 28, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(16px);
-}
-.hud :deep(.n-button),
-.hud .cap {
-  pointer-events: auto;
-}
-.cap {
-  appearance: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  margin: 0 0 8px;
-  padding: 0;
+.beat-hotspot { position: absolute; top: 0; right: 0; width: 52px; }
+.beat-trigger {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
   border: 0;
   background: transparent;
-  color: inherit;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  opacity: 0.55;
   cursor: pointer;
-  text-align: left;
+  pointer-events: auto;
+  --ripple-color: #c1dcf0;
 }
-.shut .cap { margin: 0; }
-.fold {
-  margin-left: auto;
-  letter-spacing: 0.04em;
-  opacity: 0.7;
+.beat-trigger:focus-visible { outline: 2px solid #cae5f5; outline-offset: -3px; border-radius: 10px; }
+.beat-close:focus-visible { outline: 2px solid #775278; outline-offset: -3px; }
+.beat-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  border: 1px solid var(--panel-line);
+  border-radius: 15px;
+  background: #faf3f7;
+  color: #302533;
+  box-shadow: 0 6px 20px #2b183422;
+  pointer-events: auto;
 }
+.beat-header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--panel-line); }
+.beat-header h2 { margin: 0; color: #50374f; font-size: 14px; font-weight: 650; }
+.beat-close { flex: none; width: 30px; height: 30px; border: 1px solid var(--panel-line); border-radius: 8px; background: transparent; color: var(--panel-muted); font: 20px/1 system-ui; cursor: pointer; }
+.beat-close:hover { background: #eadbe7; color: #302533; }
+.beat-body { overflow: auto; min-height: 0; padding: 12px; scrollbar-width: thin; }
 .sub {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  opacity: 0.45;
-  margin: 10px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--panel-muted);
+  margin: 16px 0 8px;
 }
 .chips {
   display: flex;
@@ -200,8 +217,8 @@ async function ban(id: string) {
   gap: 5px;
   padding: 4px 8px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #f0e5ee;
+  border: 1px solid #e5d6e2;
   font-size: 13px;
   font-weight: 600;
 }
@@ -209,25 +226,30 @@ async function ban(id: string) {
   font-style: normal;
   font-weight: 500;
   font-size: 10px;
-  opacity: 0.5;
+  color: var(--panel-muted);
 }
-.chip.dim { opacity: 0.45; }
+.chip.dim { color: var(--panel-muted); }
 .empty {
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-  opacity: 0.5;
+  color: var(--panel-muted);
+  padding: 24px 12px;
+  border: 1px dashed var(--panel-line);
+  border-radius: 12px;
+  text-align: center;
 }
 .row {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 0;
+  padding: 9px 0;
+  border-top: 1px solid var(--panel-line);
 }
 .line {
   flex: 1;
   font-size: 11px;
   line-height: 1.4;
-  opacity: 0.72;
+  color: var(--panel-muted);
 }
 </style>

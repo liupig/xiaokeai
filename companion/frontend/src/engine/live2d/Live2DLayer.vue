@@ -20,7 +20,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .live2d-layer {
   position: absolute;
-  inset: 0;
+  inset: 0 var(--stage-content-right, 0px) var(--stage-content-bottom, 0px) 0;
   pointer-events: none;
   z-index: 1;
 }

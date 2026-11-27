@@ -71,9 +71,9 @@ onUnmounted(() => cancelAnimationFrame(raf));
 <style scoped>
 .caption-layer {
   position: absolute;
-  left: calc(20px + min(372px, 100vw - 40px) + 16px);
-  right: 24px;
-  bottom: 8vh;
+  left: var(--stage-content-left, var(--stage-nav-clearance, 24px));
+  right: calc(var(--stage-content-right, 0px) + 24px);
+  bottom: calc(var(--stage-content-bottom, 0px) + clamp(64px, 12vh, 132px));
   z-index: 9;
   pointer-events: none;
   display: flex;

@@ -46,7 +46,6 @@ export const liveDesk = reactive({
     sources: Array<{ nickname: string; content: string; kind: string }>;
   }>,
   boardOpen: true,
-  deskOpen: false,
 });
 
 let timer: ReturnType<typeof setInterval> | null = null;

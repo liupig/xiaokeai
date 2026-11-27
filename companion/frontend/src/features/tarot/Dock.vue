@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { NButton, NPopover } from 'naive-ui';
+import { NButton, NPopover, useMessage } from 'naive-ui';
 import { useCharacterStore } from '../../stores/character';
 import { useSettingsStore } from '../../stores/settings';
 import { t } from '../../i18n';
@@ -74,6 +74,7 @@ const KO_PLAYS = [
 
 const characters = useCharacterStore();
 const settings = useSettingsStore();
+const message = useMessage();
 const plays = computed(() => {
   const ui = settings.locale.ui;
   if (ui === 'ja') return JA_PLAYS;
@@ -93,6 +94,9 @@ async function go(spread: string) {
   try {
     const { beginPlay } = await import('./session');
     await beginPlay(characters.currentId, spread, question.value.trim());
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : String(error));
+    open.value = true;
   } finally {
     busy.value = false;
   }
@@ -202,9 +206,10 @@ async function redeal() {
 
 <style scoped>
 .pop {
-  width: 268px;
-  max-height: min(72vh, 560px);
+  width: min(268px, calc(100vw - 48px));
+  max-height: min(60dvh, 420px);
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 2px 2px 4px;
 }
 .lead {

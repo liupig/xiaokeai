@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { NButton, NDrawer, NDrawerContent } from 'naive-ui';
+import StagePanel from '../hud/StagePanel.vue';
+import { computed, ref, watch } from 'vue';
+import { NButton, NModal } from 'naive-ui';
 import { api } from '../../api/client';
 import { useCharacterStore } from '../../stores/character';
 import { useSettingsStore } from '../../stores/settings';
@@ -11,7 +12,7 @@ import {
   isKeepsakeBgUrl, keepsakeSession, refreshKeepsakes,
 } from './session';
 
-defineProps<{ show: boolean }>();
+const props = defineProps<{ show: boolean }>();
 const emit = defineEmits<{ (e: 'update:show', v: boolean): void }>();
 
 const characters = useCharacterStore();
@@ -33,10 +34,9 @@ function isCurrentBg(url: string) {
   return u && (keepsakeSession.bgOverride === u || settings.quality.background_image === u);
 }
 
-async function onShow(v: boolean) {
-  emit('update:show', v);
-  if (v && characters.currentId) await refreshKeepsakes(characters.currentId);
-}
+watch(() => props.show, (show) => {
+  if (show && characters.currentId) void refreshKeepsakes(characters.currentId);
+});
 
 async function drop(id: number) {
   await api.deleteKeepsake(id);
@@ -69,10 +69,9 @@ async function clearKeepsakeBg() {
 </script>
 
 <template>
-  <n-drawer :show="show" @update:show="onShow" :width="420" placement="right"
-            show-mask="transparent" to="body">
-    <n-drawer-content :title="t('top.keepsake')" closable :native-scrollbar="false">
-      <p class="hint">{{ t('keep.hint') }}</p>
+  <StagePanel :show="show" :title="t('top.keepsake')" size="medium"
+              @update:show="(v: boolean) => emit('update:show', v)">
+      <p v-if="keepsakeSession.items.length" class="hint">{{ t('keep.hint') }}</p>
       <div v-if="overlayOn" class="bar">
         <span>{{ t('keep.asBg') }}</span>
         <n-button size="tiny" type="primary" secondary @click="clearKeepsakeBg">{{ t('keep.back') }}</n-button>
@@ -83,8 +82,9 @@ async function clearKeepsakeBg() {
           <video v-if="it.kind === 'clip'" controls playsinline preload="metadata">
             <source :src="mediaUrl(it.url)" :type="it.mime || 'video/mp4'" />
           </video>
-          <img v-else :src="mediaUrl(it.url)" :alt="it.caption || t('keep.still')"
-               class="still" @click="zoom = mediaUrl(it.url)" />
+          <button v-else class="still" type="button" @click="zoom = mediaUrl(it.url)">
+            <img :src="mediaUrl(it.url)" :alt="it.caption || t('keep.still')" loading="lazy" />
+          </button>
           <figcaption>
             <span>{{ it.caption || it.quote || (it.kind === 'clip' ? t('keep.clipWord') : t('keep.still')) }}</span>
             <span class="acts">
@@ -97,17 +97,17 @@ async function clearKeepsakeBg() {
           </figcaption>
         </figure>
       </div>
-    </n-drawer-content>
-  </n-drawer>
-  <Teleport to="body">
-    <div v-if="zoom" class="zoom" @click="zoom = ''">
-      <img :src="zoom" alt="" />
+  </StagePanel>
+  <n-modal :show="!!zoom" @update:show="(open) => { if (!open) zoom = ''; }">
+    <div class="zoom-view">
+      <button type="button" class="zoom-close" :aria-label="t('common.close')" @click="zoom = ''">×</button>
+      <img v-if="zoom" class="zoom-image" :src="zoom" :alt="t('keep.still')" />
     </div>
-  </Teleport>
+  </n-modal>
 </template>
 
 <style scoped>
-.hint { font-size: 12px; opacity: 0.5; margin: 0 0 12px; }
+.hint { font-size: 13px; color: var(--panel-muted); margin: 0 0 14px; }
 .bar {
   display: flex;
   align-items: center;
@@ -116,43 +116,54 @@ async function clearKeepsakeBg() {
   margin-bottom: 12px;
   padding: 8px 10px;
   border-radius: 10px;
-  background: rgba(91, 91, 214, 0.18);
+  background: #ebc5a118;
   font-size: 12px;
 }
-.empty { font-size: 13px; opacity: 0.5; }
+.empty { font-size: 13px; color: var(--panel-muted); padding: 28px 14px; text-align: center; border: 1px dashed var(--panel-line); border-radius: 12px; }
 .grid { display: flex; flex-direction: column; gap: 14px; }
-figure { margin: 0; }
+figure { margin: 0; border: 1px solid var(--panel-line); border-radius: 14px; overflow: hidden; background: var(--panel-card); }
 img, video {
   width: 100%;
-  border-radius: 12px;
-  background: #111;
+  background: #1a161d;
   display: block;
 }
-.still { cursor: zoom-in; }
-.zoom {
-  position: fixed;
-  inset: 0;
-  z-index: 3000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.72);
-  cursor: zoom-out;
+.still {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
 }
-.zoom img {
+.still:focus-visible { outline: 2px solid var(--panel-accent); outline-offset: -3px; }
+.zoom-view { position: relative; width: fit-content; margin-inline: auto; }
+.zoom-close {
+  position: absolute;
+  inset: 8px 8px auto auto;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #ffffff55;
+  border-radius: 10px;
+  background: #231e2ae8;
+  color: #f6ece9;
+  font-size: 23px;
+  cursor: pointer;
+}
+.zoom-image {
   width: auto;
   max-width: min(920px, 88vw);
   max-height: 88vh;
   object-fit: contain;
+  border-radius: 12px;
 }
 figcaption {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  margin-top: 6px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
   font-size: 12px;
   opacity: 0.75;
 }
-.acts { display: flex; gap: 4px; }
+.acts { display: flex; flex-wrap: wrap; gap: 4px; }
 </style>

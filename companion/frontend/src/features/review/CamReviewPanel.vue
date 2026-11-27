@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
-import { NButton, useMessage } from 'naive-ui';
+import StagePanel from '../hud/StagePanel.vue';
+import { computed, onUnmounted, ref, toRaw, watch } from 'vue';
+import { NButton, NPopconfirm, useMessage } from 'naive-ui';
 import { stage } from '../../engine/stage';
 import { api } from '../../api/client';
 import { isMotionRejected, motionReviewStatus, stripCatPrefix } from '../assets/motionMeta';
@@ -30,6 +31,8 @@ const verdicts = ref<Record<string, Verdict>>(loadLocalVerdicts());
 const persistHint = ref('');
 const persistOk = ref(false);
 let saveTimer = 0;
+let pendingWrite = Promise.resolve();
+let scheduledVerdicts: Record<string, Verdict> | undefined;
 const size = ref(SIZES[0].id);
 const camKeySel = ref('hold');
 const stand = ref(STANDS[0].id);
@@ -41,6 +44,8 @@ const autoProgress = ref('按当前舞台画幅审查。舞蹈全身镜头同时
 const instantCut = ref(false);
 const posePaused = ref(false);
 const workspace = ref<'preview' | 'audit'>('preview');
+const autoAdvance = ref(true);
+const hydrating = ref(false);
 const advanced = ref(false);
 const cameraHint = ref('');
 const safeArea = ref(false);
@@ -195,6 +200,7 @@ watch(() => props.show, (v) => {
     shots.indexFrom(assets.cameras);
     void hydrate();
   } else {
+    flushVerdicts();
     autoCancel.value = true;
     previewSeq += 1;
     window.clearInterval(playbackTimer);
@@ -204,7 +210,9 @@ watch(() => props.show, (v) => {
 }, { immediate: true });
 
 async function hydrate() {
+  hydrating.value = true;
   try {
+    await pendingWrite;
     const r = await hydrateVerdicts();
     verdicts.value = r.map;
     persistOk.value = true;
@@ -218,6 +226,8 @@ async function hydrate() {
   } catch {
     persistOk.value = false;
     persistHint.value = t('review.offline');
+  } finally {
+    hydrating.value = false;
   }
 }
 
@@ -225,7 +235,7 @@ onUnmounted(() => {
   shots.reviewLock = false;
   stage.setReviewCameraActive(false);
   autoCancel.value = true;
-  window.clearTimeout(saveTimer);
+  flushVerdicts();
   window.clearInterval(playbackTimer);
   clearComparison();
   previewSeq += 1;
@@ -406,6 +416,7 @@ async function previewSuggestion(sample: HeadAuditSample) {
 }
 
 function resolveSuggestion(verdict: 'ok' | 'bad') {
+  if (autoRunning.value || hydrating.value) return;
   if (!selectedSuggestion.value || selectedSuggestion.value !== id.value) return;
   mark(verdict, false);
   suggestions.value = suggestions.value.filter((s) => s.combo_id !== id.value);
@@ -421,26 +432,42 @@ function stopPreview() {
 }
 
 function mark(v: Verdict, inherit = true) {
-  if (autoRunning.value) return;
+  if (autoRunning.value || hydrating.value) return;
   let next: Record<string, Verdict> = { ...verdicts.value, [id.value]: v };
   if (inherit && (v === 'ok' || v === 'bad')) next = expandCompatOk(next);
   verdicts.value = next;
   saveLocalVerdicts(next);
+  persistOk.value = false;
   persistHint.value = v === 'ok'
     ? t('review.okInherit')
     : v === 'bad'
       ? t('review.badInherit')
       : t('review.writing');
   window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => {
-    void persistVerdicts(next).then(() => {
-      persistOk.value = true;
-      persistHint.value = t('review.wrote');
-    }).catch(() => {
-      persistOk.value = false;
-      persistHint.value = t('review.writeFail');
-    });
-  }, 280);
+  scheduledVerdicts = next;
+  saveTimer = window.setTimeout(flushVerdicts, 280);
+}
+
+function flushVerdicts() {
+  window.clearTimeout(saveTimer);
+  const next = scheduledVerdicts;
+  scheduledVerdicts = undefined;
+  if (!next) return;
+  void queueWrite(next).then(() => {
+    if (toRaw(verdicts.value) !== next) return;
+    persistOk.value = true;
+    persistHint.value = t('review.wrote');
+  }).catch(() => {
+    if (toRaw(verdicts.value) !== next) return;
+    persistOk.value = false;
+    persistHint.value = t('review.writeFail');
+  });
+}
+
+function queueWrite(map: Record<string, Verdict>) {
+  const write = pendingWrite.then(() => persistVerdicts(map));
+  pendingWrite = write.catch(() => {});
+  return write;
 }
 
 function jumpToFirstUnset() {
@@ -456,9 +483,10 @@ function jumpToFirstUnset() {
   }
 }
 
-function markAndNext(v: Verdict) {
+function score(v: 'ok' | 'bad') {
+  if (autoRunning.value || hydrating.value) return;
   mark(v);
-  step(1, true);
+  if (autoAdvance.value) step(1, true);
 }
 
 function step(dir: 1 | -1, onlyUnset = false) {
@@ -524,10 +552,12 @@ async function copyReport() {
 }
 
 function resetVerdicts() {
+  window.clearTimeout(saveTimer);
+  scheduledVerdicts = undefined;
   verdicts.value = {};
   saveLocalVerdicts({});
   persistHint.value = t('review.clearing');
-  void persistVerdicts({}).then(() => {
+  void queueWrite({}).then(() => {
     persistOk.value = true;
     persistHint.value = t('review.clearedDb');
     message.info(t('review.cleared'));
@@ -539,36 +569,35 @@ function resetVerdicts() {
 </script>
 
 <template>
-  <transition name="slide">
-    <div v-if="show" class="panel glass">
-      <div class="head">
-        <span class="title">{{ t('review.title') }}</span>
-        <n-button size="tiny" quaternary @click="emit('update:show', false)">{{ t('common.close') }} ›</n-button>
-      </div>
-      <nav class="tools" aria-label="导演台工作区">
-        <n-button size="small" :type="workspace === 'preview' ? 'primary' : 'default'" @click="workspace = 'preview'">镜头预览</n-button>
-        <n-button size="small" :type="workspace === 'audit' ? 'primary' : 'default'" @click="workspace = 'audit'">组合审查<span v-if="suggestions.length"> · {{ suggestions.length }}</span></n-button>
+  <StagePanel :show="show" :title="t('review.title')" size="medium"
+              @update:show="emit('update:show', $event)">
+      <nav class="review-workspaces" aria-label="导演台工作区">
+        <n-button size="small" :type="workspace === 'preview' ? 'primary' : 'default'" :aria-pressed="workspace === 'preview'" @click="workspace = 'preview'">镜头预览</n-button>
+        <n-button size="small" :type="workspace === 'audit' ? 'primary' : 'default'" :aria-pressed="workspace === 'audit'" @click="workspace = 'audit'">组合审查<span v-if="suggestions.length"> · {{ suggestions.length }}</span></n-button>
       </nav>
-      <div class="now" :class="currentVerdict">
-        {{ showCombo(sel) }}
+      <div class="review-current">
+        <div class="review-meta">
+          <span class="review-position">{{ idx + 1 }} / {{ total }}</span>
+          <span class="verdict" :data-verdict="currentVerdict">
+            {{ t(currentVerdict === 'unset' ? 'review.unrated' : 'review.' + currentVerdict) }}
+          </span>
+        </div>
+        <div class="now">{{ showCombo(sel) }}</div>
+        <p class="stats">{{ t('review.progress', { done: stats.marked, ok: stats.ok, bad: stats.bad }) }}</p>
       </div>
-      <div class="stats">
-        {{ t('review.pos', { n: idx + 1, total, acts: actions.length, marked: stats.marked, ok: stats.ok, bad: stats.bad }) }}
-      </div>
-      <div class="persist" :class="{ ok: persistOk }">{{ persistHint }}</div>
       <div v-if="workspace === 'audit'" class="auto-review">
         <div class="auto-actions">
-          <n-button size="small" type="info" :loading="autoRunning" @click="startAutoReview('all')">生成自动审查建议</n-button>
+          <n-button size="small" type="info" :loading="autoRunning" @click="startAutoReview('all')">生成建议</n-button>
           <n-button size="small" type="warning" secondary :disabled="autoRunning"
                     @click="startAutoReview('dance')">只重审舞蹈</n-button>
           <n-button size="small" secondary :disabled="autoRunning"
                     @click="startAutoReview('high45')">重审俯拍25°</n-button>
           <n-button size="small" secondary :disabled="autoRunning || actionPick.kind !== 'asset'"
-                    @click="startAutoReview('current')">自动审当前动作</n-button>
-          <n-button v-if="autoRunning" size="small" type="warning" secondary @click="autoCancel = true">停止并保留已完成</n-button>
+                    @click="startAutoReview('current')">审当前动作</n-button>
+          <n-button v-if="autoRunning" size="small" type="warning" secondary @click="autoCancel = true">停止审查</n-button>
         </div>
         <div class="auto-progress">{{ autoProgress }}</div>
-        <div class="auto-progress">有效统计（VMD 每组只计一次）：可用 {{ autoStats.ok }} / 不可用 {{ autoStats.bad }}</div>
+        <div class="auto-progress">VMD 去重 · 可用 {{ autoStats.ok }} / 不可用 {{ autoStats.bad }}</div>
         <div v-if="suggestions.length" class="audit-queue">
           <button v-for="sample in visibleSuggestions" :key="sample.combo_id" type="button"
                   :disabled="autoRunning" :aria-pressed="selectedSuggestion === sample.combo_id"
@@ -587,6 +616,12 @@ function resetVerdicts() {
         </div>
       </div>
 
+      <div v-if="workspace === 'preview'" class="playback-controls">
+        <n-button type="primary" :disabled="autoRunning" @click="playCurrent()">{{ t('review.replay') }}</n-button>
+        <n-button :disabled="autoRunning" @click="setPosePaused(!posePaused)">
+          {{ t(posePaused ? 'review.resumePose' : 'review.pausePose') }}
+        </n-button>
+      </div>
       <section v-if="workspace === 'preview'" class="monitor-tools">
         <div class="tools">
           <n-button size="tiny" :aria-pressed="safeArea" @click="safeArea = !safeArea; stage.setReviewSafeArea(safeArea)">安全框</n-button>
@@ -610,163 +645,187 @@ function resetVerdicts() {
           </figure>
         </div>
       </section>
-      <div class="row">
-        <span class="lab">{{ t('beat.size') }}</span>
-        <n-button v-for="s in SIZES" :key="s.id" size="tiny"
-                  :type="size === s.id ? 'primary' : 'default'"
-                  :quaternary="size !== s.id"
-                  @click="applySel({ ...sel, size: s.id }, 'camera')">{{ t('cam.' + s.id) }}</n-button>
-      </div>
-      <div class="row">
-        <span class="lab">{{ t('beat.cam') }}</span>
-        <n-button size="tiny"
-                  :type="camKeySel === 'hold' ? 'primary' : 'default'"
-                  :quaternary="camKeySel !== 'hold'"
-                  @click="applySel({ ...sel, cam: holdCam }, 'camera')">{{ t('beat.hold') }}</n-button>
-        <n-button v-for="m in MOVES.filter((move) => advanced || !isAdvancedShot(move.id))" :key="m.id" size="tiny"
-                  :type="camKeySel === `move:${m.id}` ? 'primary' : 'default'"
-                  :quaternary="camKeySel !== `move:${m.id}`"
-                  @click="applySel({ ...sel, cam: { kind: 'move', id: m.id, label: m.label } }, 'camera')">{{ t('cam.' + m.id) }}</n-button>
-      </div>
-      <div class="tools">
-        <n-button size="tiny" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起高级机位' : '高级机位' }}</n-button>
-        <small v-if="cameraHint" role="status">{{ cameraHint }}</small>
-        <small v-else-if="camPick.kind === 'move' && isSideProfile(camPick.id)">纯侧面使用直切</small>
-      </div>
-      <div v-if="camPick.kind === 'vmd'" class="tools">
-        <n-button size="tiny" :aria-pressed="adaptVmd" @click="adaptVmd = !adaptVmd; playCamera()">
-          {{ adaptVmd ? '角色适配' : '原始取景' }}
-        </n-button>
-      </div>
-      <div class="row vmd">
-        <span class="lab">{{ t('review.library') }}</span>
-        <n-button v-for="c in vmdCams" :key="c.name" size="tiny"
-                  :type="camKeySel === `vmd:${c.name}` ? 'primary' : 'default'"
-                  :quaternary="camKeySel !== `vmd:${c.name}`"
-                  @click="applySel({ ...sel, cam: c }, 'camera')">{{ camText(c) }}</n-button>
-      </div>
-      <div class="row">
-        <span class="lab">{{ t('beat.stand') }}</span>
-        <n-button v-for="s in STANDS" :key="s.id" size="tiny"
-                  :type="stand === s.id ? 'primary' : 'default'"
-                  :quaternary="stand !== s.id"
-                  @click="applySel({ ...sel, stand: s.id }, 'stand')">{{ t('stand.' + s.id) }}</n-button>
-      </div>
-      <div class="row">
-        <span class="lab">{{ t('review.filter') }}</span>
-        <n-button v-for="f in filters" :key="f.id" size="tiny"
-                  :type="actFilter === f.id ? 'primary' : 'default'"
-                  :quaternary="actFilter !== f.id"
-                  @click="setFilter(f.id)">{{ filterText(f.id) }} {{ f.id === 'none' ? '' : f.n }}</n-button>
-      </div>
-      <div class="row acts">
-        <span class="lab">{{ t('review.concrete') }}</span>
-        <div v-if="actFilter === 'none'" class="hint">{{ t('review.noneHint') }}</div>
-        <template v-else>
-          <n-button v-for="a in visibleActs" :key="actionKey(a)" size="tiny"
-                    :type="actKey === actionKey(a) ? 'primary' : 'default'"
-                    :quaternary="actKey !== actionKey(a)"
-                    @click="applySel({ ...sel, action: a }, 'action')">{{ actButton(a) }}</n-button>
-        </template>
-      </div>
-
-      <div v-if="actionPick.kind === 'asset'" class="row asset-review">
-        <span class="lab">动作资产</span>
-        <n-button size="tiny" :type="currentMotionReview === 'approved' ? 'success' : 'default'"
-                  :quaternary="currentMotionReview !== 'approved'"
-                  @click="setAssetReview('approved')">可用</n-button>
-        <n-button size="tiny" :type="currentMotionReview === 'rejected' ? 'error' : 'default'"
-                  :quaternary="currentMotionReview !== 'rejected'"
-                  @click="setAssetReview('rejected')">不可用</n-button>
-        <span class="hint">禁用后不会进入镜头审查和自动表演</span>
-      </div>
-
-      <div class="tools">
-        <n-button size="small" type="error" secondary :disabled="actionPick.kind !== 'asset'"
-                  @click="showNearestBad">最近不可用</n-button>
-        <n-button size="small" type="info" secondary @click="showNextBad">下一动作边界</n-button>
-      </div>
-      <div class="tools">
-        <n-button size="small" :disabled="autoRunning" @click="setPosePaused(!posePaused)">
-          {{ t(posePaused ? 'review.resumePose' : 'review.pausePose') }}
-        </n-button>
-        <n-button size="small" :disabled="autoRunning" @click="playCamera()">{{ t('review.replayCamera') }}</n-button>
-        <n-button size="small" type="primary" :disabled="autoRunning" @click="playCurrent()">{{ t('review.replay') }}</n-button>
-        <n-button size="small" :disabled="autoRunning || camPick.kind === 'vmd'" :aria-pressed="instantCut" @click="instantCut = !instantCut">
-          {{ t(instantCut ? 'review.hardCut' : 'review.smoothCut') }}
-        </n-button>
-      </div>
-      <div class="tools">
-        <n-button size="small" secondary @click="step(-1)">{{ t('review.prev') }}</n-button>
-        <n-button size="small" secondary @click="step(1)">{{ t('review.next') }}</n-button>
-        <n-button size="small" type="info" secondary @click="step(1, true)">{{ t('review.nextUnset') }}</n-button>
-      </div>
-      <div class="tools">
-        <n-button size="small" type="success" @click="markAndNext('ok')">{{ t('review.okNext') }}</n-button>
-        <n-button size="small" type="error" @click="markAndNext('bad')">{{ t('review.badNext') }}</n-button>
-        <n-button size="small" class="ok" :type="currentVerdict === 'ok' ? 'success' : 'default'"
-                  @click="mark('ok')">{{ t('review.ok') }}</n-button>
-        <n-button size="small" :type="currentVerdict === 'bad' ? 'error' : 'default'"
-                  @click="mark('bad')">{{ t('review.bad') }}</n-button>
-        <n-button size="small" type="primary" secondary @click="copyReport">{{ t('review.copy') }}</n-button>
-        <n-button size="small" quaternary @click="resetVerdicts">{{ t('review.clear') }}</n-button>
-        <n-button size="small" type="warning" secondary :disabled="autoRunning" @click="stopPreview">{{ t('review.stop') }}</n-button>
-      </div>
-    </div>
-  </transition>
+      <details v-if="workspace === 'preview'" class="review-details">
+        <summary>{{ t('review.selectCombo') }}</summary>
+        <div class="row">
+          <span class="lab">{{ t('beat.size') }}</span>
+          <n-button v-for="s in SIZES" :key="s.id" size="tiny"
+                    :type="size === s.id ? 'primary' : 'default'"
+                    :quaternary="size !== s.id"
+                    @click="applySel({ ...sel, size: s.id }, 'camera')">{{ t('cam.' + s.id) }}</n-button>
+        </div>
+        <div class="row">
+          <span class="lab">{{ t('beat.cam') }}</span>
+          <n-button size="tiny"
+                    :type="camKeySel === 'hold' ? 'primary' : 'default'"
+                    :quaternary="camKeySel !== 'hold'"
+                    @click="applySel({ ...sel, cam: holdCam }, 'camera')">{{ t('beat.hold') }}</n-button>
+          <n-button v-for="m in MOVES.filter((move) => advanced || !isAdvancedShot(move.id))" :key="m.id" size="tiny"
+                    :type="camKeySel === `move:${m.id}` ? 'primary' : 'default'"
+                    :quaternary="camKeySel !== `move:${m.id}`"
+                    @click="applySel({ ...sel, cam: { kind: 'move', id: m.id, label: m.label } }, 'camera')">{{ t('cam.' + m.id) }}</n-button>
+        </div>
+        <div class="tools">
+          <n-button size="tiny" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起高级机位' : '高级机位' }}</n-button>
+          <small v-if="cameraHint" role="status">{{ cameraHint }}</small>
+          <small v-else-if="camPick.kind === 'move' && isSideProfile(camPick.id)">纯侧面使用直切</small>
+        </div>
+        <div v-if="camPick.kind === 'vmd'" class="tools">
+          <n-button size="tiny" :aria-pressed="adaptVmd" @click="adaptVmd = !adaptVmd; playCamera()">
+            {{ adaptVmd ? '角色适配' : '原始取景' }}
+          </n-button>
+        </div>
+        <div class="row vmd">
+          <span class="lab">{{ t('review.library') }}</span>
+          <n-button v-for="c in vmdCams" :key="c.name" :title="camText(c)" size="tiny"
+                    :type="camKeySel === `vmd:${c.name}` ? 'primary' : 'default'"
+                    :quaternary="camKeySel !== `vmd:${c.name}`"
+                    @click="applySel({ ...sel, cam: c }, 'camera')">{{ camText(c) }}</n-button>
+        </div>
+        <div class="row">
+          <span class="lab">{{ t('beat.stand') }}</span>
+          <n-button v-for="s in STANDS" :key="s.id" size="tiny"
+                    :type="stand === s.id ? 'primary' : 'default'"
+                    :quaternary="stand !== s.id"
+                    @click="applySel({ ...sel, stand: s.id }, 'stand')">{{ t('stand.' + s.id) }}</n-button>
+        </div>
+        <div class="row">
+          <span class="lab">{{ t('review.filter') }}</span>
+          <n-button v-for="f in filters" :key="f.id" size="tiny"
+                    :type="actFilter === f.id ? 'primary' : 'default'"
+                    :quaternary="actFilter !== f.id"
+                    @click="setFilter(f.id)">{{ filterText(f.id) }} {{ f.id === 'none' ? '' : f.n }}</n-button>
+        </div>
+        <div class="row acts">
+          <span class="lab">{{ t('review.concrete') }}</span>
+          <div v-if="actFilter === 'none'" class="hint">{{ t('review.noneHint') }}</div>
+          <template v-else>
+            <n-button v-for="a in visibleActs" :key="actionKey(a)" :title="actButton(a)" size="tiny"
+                      :type="actKey === actionKey(a) ? 'primary' : 'default'"
+                      :quaternary="actKey !== actionKey(a)"
+                      @click="applySel({ ...sel, action: a }, 'action')">{{ actButton(a) }}</n-button>
+          </template>
+        </div>
+        <div v-if="actionPick.kind === 'asset'" class="row asset-review">
+          <span class="lab">动作资产</span>
+          <n-button size="tiny" :type="currentMotionReview === 'approved' ? 'success' : 'default'"
+                    :quaternary="currentMotionReview !== 'approved'"
+                    @click="setAssetReview('approved')">可用</n-button>
+          <n-button size="tiny" :type="currentMotionReview === 'rejected' ? 'error' : 'default'"
+                    :quaternary="currentMotionReview !== 'rejected'"
+                    @click="setAssetReview('rejected')">不可用</n-button>
+          <span class="hint">禁用后不会进入镜头审查和自动表演</span>
+        </div>
+        <div class="tools">
+          <n-button size="small" type="error" secondary :disabled="actionPick.kind !== 'asset'"
+                    @click="showNearestBad">最近不可用</n-button>
+          <n-button size="small" type="info" secondary @click="showNextBad">下一动作边界</n-button>
+        </div>
+      </details>
+      <details v-if="workspace === 'preview'" class="review-details">
+        <summary>{{ t('review.moreTools') }}</summary>
+        <div class="tools">
+          <n-button size="small" :disabled="autoRunning" @click="playCamera()">{{ t('review.replayCamera') }}</n-button>
+          <n-button size="small" :disabled="autoRunning || camPick.kind === 'vmd'" :aria-pressed="instantCut" @click="instantCut = !instantCut">
+            {{ t(instantCut ? 'review.hardCut' : 'review.smoothCut') }}
+          </n-button>
+          <n-button size="small" :disabled="autoRunning" @click="stopPreview">{{ t('review.stop') }}</n-button>
+        </div>
+        <div class="tools">
+          <n-button size="small" secondary :disabled="actionPick.kind !== 'asset'"
+                    @click="showNearestBad">最近不可用</n-button>
+          <n-button size="small" secondary @click="showNextBad">下一动作边界</n-button>
+        </div>
+        <div class="tools">
+          <n-button size="small" @click="copyReport">{{ t('review.copy') }}</n-button>
+          <n-popconfirm @positive-click="resetVerdicts">
+            <template #trigger>
+              <n-button size="small" :disabled="autoRunning || hydrating" type="error" quaternary>{{ t('review.clear') }}</n-button>
+            </template>
+            {{ t('review.clearConfirm') }}
+          </n-popconfirm>
+        </div>
+      </details>
+      <template v-if="workspace === 'preview'" #footer>
+        <div class="scoring">
+          <div class="score-options">
+            <label><input v-model="autoAdvance" type="checkbox" /> {{ t('review.autoAdvance') }}</label>
+            <span class="persist" role="status" :title="persistHint" :class="{ ok: persistOk }">{{ persistHint }}</span>
+          </div>
+          <div class="score-buttons">
+            <n-button type="error" :secondary="currentVerdict !== 'bad'" :disabled="autoRunning || hydrating"
+                      :aria-pressed="currentVerdict === 'bad'" @click="score('bad')">{{ t('review.bad') }}</n-button>
+            <n-button type="success" :secondary="currentVerdict !== 'ok'" :disabled="autoRunning || hydrating"
+                      :aria-pressed="currentVerdict === 'ok'" @click="score('ok')">{{ t('review.ok') }}</n-button>
+          </div>
+          <div class="score-navigation">
+            <n-button size="small" secondary :disabled="autoRunning" @click="step(-1)">{{ t('review.prev') }}</n-button>
+            <n-button size="small" secondary :disabled="autoRunning" @click="step(1)">{{ t('review.next') }}</n-button>
+            <n-button size="small" secondary :disabled="autoRunning" @click="step(1, true)">{{ t('review.nextUnset') }}</n-button>
+          </div>
+        </div>
+      </template>
+  </StagePanel>
 </template>
 
 <style scoped>
-.panel {
-  position: absolute;
-  top: calc(70px + var(--desk-chrome, 0px));
-  right: 16px;
-  bottom: 20px;
-  width: min(460px, calc(100vw - 32px));
-  z-index: 9;
+.lead { font-size: 12px; line-height: 1.5; color: var(--panel-muted); margin: 0 0 12px; }
+.review-current {
+  display: grid;
+  gap: 9px;
+  margin-bottom: 12px;
   padding: 14px;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  border-radius: 16px;
-  background: rgba(15, 15, 26, 0.82);
-  backdrop-filter: blur(18px);
-  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--panel-line);
+  border-radius: 12px;
+  background: var(--panel-card);
 }
-.head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.title { font-size: 14px; font-weight: 600; }
-.lead { font-size: 12px; line-height: 1.5; opacity: 0.7; margin: 0 0 8px; }
-.now {
-  font-size: 13px;
-  font-weight: 600;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.12);
-  margin-bottom: 6px;
-  line-height: 1.4;
+.review-meta, .score-options { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.review-position { color: var(--panel-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.verdict { padding: 3px 8px; border-radius: 7px; background: #ffffff0e; color: var(--panel-muted); font-size: 12px; }
+.verdict[data-verdict="ok"] { color: #a8e6c3; background: #55c48824; }
+.verdict[data-verdict="bad"] { color: #ffc0bd; background: #d1716c28; }
+.now { font-size: 14px; font-weight: 650; line-height: 1.45; overflow-wrap: anywhere; }
+.stats { color: var(--panel-muted); font-size: 12px; }
+.playback-controls, .score-buttons, .score-navigation { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
+.playback-controls { margin-bottom: 12px; }
+.scoring { display: grid; gap: 8px; width: 100%; min-width: 0; }
+.score-options label { display: flex; align-items: center; gap: 5px; color: var(--panel-muted); font-size: 12px; flex: none; cursor: pointer; }
+.score-options input { accent-color: var(--panel-accent); }
+.persist { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--panel-muted); font-size: 11px; }
+.persist.ok { color: #a8e6c3; }
+.score-navigation { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.scoring :deep(.n-button), .playback-controls :deep(.n-button) { min-width: 0; padding-inline: 4px; }
+.scoring :deep(.n-button__content), .playback-controls :deep(.n-button__content) { display: block; overflow: hidden; text-overflow: ellipsis; }
+.review-details {
+  padding: 10px;
+  margin: 0 0 8px;
+  border: 1px solid var(--panel-line);
+  border-radius: 11px;
+  background: var(--panel-card);
 }
-.now.ok { border-color: #50c878; }
-.now.bad { border-color: #ff6e6e; }
-.stats { font-size: 12px; opacity: 0.75; margin-bottom: 4px; }
-.persist { font-size: 11px; opacity: 0.55; margin-bottom: 10px; line-height: 1.4; }
-.persist.ok { opacity: 0.8; color: #8fd9a8; }
-.auto-review { margin-bottom: 10px; padding: 8px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; }
+.review-details summary { color: var(--panel-accent); font-size: 13px; cursor: pointer; }
+.review-details[open] summary { margin-bottom: 10px; }
+.auto-review { margin-bottom: 14px; padding: 12px; border: 1px solid var(--panel-line); border-radius: 12px; background: var(--panel-card); }
 .auto-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .auto-progress { margin-top: 6px; font-size: 11px; line-height: 1.5; opacity: 0.7; }
+.review-workspaces { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; margin-bottom: 14px; }
 .row {
-  display: flex;
-  align-items: flex-start;
-  gap: 4px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  align-items: start;
+  gap: 5px;
   margin-bottom: 8px;
+  padding: 9px;
+  border: 1px solid var(--panel-line);
+  border-radius: 10px;
+  background: #81b7d510;
 }
-.lab {
-  font-size: 12px;
-  opacity: 0.55;
-  width: 72px;
-  flex-shrink: 0;
-  padding-top: 4px;
-}
+.row.acts, .row.asset-review { background: #d18eac12; }
+.row :deep(.n-button), .review-workspaces :deep(.n-button) { min-width: 0; padding-inline: 5px; }
+.row :deep(.n-button__content), .review-workspaces :deep(.n-button__content) { display: block; overflow: hidden; text-overflow: ellipsis; }
+.row > .hint, .lab { grid-column: 1 / -1; }
+.lab { padding-inline: 2px; color: #bedcf1; font-size: 12px; font-weight: 600; }
+.row.acts .lab, .row.asset-review .lab { color: #eec3d6; }
 .row.vmd {
   max-height: 72px;
   overflow-y: auto;
@@ -791,6 +850,4 @@ function resetVerdicts() {
 .audit-queue { margin-top: 8px; display: grid; gap: 4px; }
 .audit-queue > button { text-align: left; color: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.16); padding: 6px; border-radius: 5px; }
 .audit-queue > button[aria-pressed="true"] { border-color: currentColor; }
-.slide-enter-active, .slide-leave-active { transition: transform 0.25s ease, opacity 0.25s ease; }
-.slide-enter-from, .slide-leave-to { transform: translateX(30px); opacity: 0; }
 </style>

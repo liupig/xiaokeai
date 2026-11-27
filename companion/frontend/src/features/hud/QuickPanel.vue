@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StagePanel from './StagePanel.vue';
 import { computed, ref, watch } from 'vue';
 import { NButton, NInput, NTabPane, NTabs } from 'naive-ui';
 import { CAM_SHOTS } from '../../engine/camera';
@@ -61,9 +62,9 @@ const filteredMorphs = computed(() =>
 );
 const supportsMotions = computed(() => characters.modelInfo?.supportsVmd ?? false);
 const isLive2D = computed(() => characters.modelInfo?.format === 'live2d');
-const activeTab = ref('motions');
-watch(isLive2D, (enabled) => {
-  activeTab.value = enabled ? 'live2d' : 'motions';
+const activeTab = ref('morphs');
+watch([isLive2D, supportsMotions], ([live2d, motions]) => {
+  activeTab.value = live2d ? 'live2d' : motions ? 'motions' : 'morphs';
 }, { immediate: true });
 
 const groupedMotions = computed(() => {
@@ -158,77 +159,82 @@ async function removeMotion(m: { id: number; name: string; label: string }) {
 </script>
 
 <template>
-  <transition name="slide">
-    <div v-if="show" class="panel glass">
-      <div class="head">
-        <span class="title">{{ t('top.quick') }}</span>
-        <n-button size="tiny" quaternary @click="emit('update:show', false)">{{ t('common.close') }} ›</n-button>
-      </div>
+  <StagePanel :show="show" :title="t('stageShell.controls')" size="small"
+              @update:show="emit('update:show', $event)">
       <div class="rows">
-        <div v-if="!isLive2D" class="row">
+        <div v-if="!isLive2D" class="row camera">
           <span class="row-label">{{ t('quick.shot') }}</span>
-          <n-button v-for="c in sizeShots" :key="c.id" size="small" quaternary
-                    :type="currentShot === c.id && !currentCamera ? 'primary' : 'default'"
-                    @click="setCam(c.id)">{{ t('cam.' + c.id) }}</n-button>
+          <div class="control-grid">
+            <n-button v-for="c in sizeShots" :key="c.id" size="small" quaternary
+                      :type="currentShot === c.id && !currentCamera ? 'primary' : 'default'"
+                      @click="setCam(c.id)">{{ t('cam.' + c.id) }}</n-button>
+          </div>
         </div>
-        <div v-if="!isLive2D" class="row">
+        <div v-if="!isLive2D" class="row camera">
           <span class="row-label">{{ t('quick.move') }}</span>
-          <n-button v-for="c in moveShots" :key="c.id" size="small" quaternary
-                    :type="currentShot === c.id && !currentCamera ? 'primary' : 'default'"
-                    @click="setCam(c.id)">{{ t('cam.' + c.id) }}</n-button>
+          <div class="control-grid">
+            <n-button v-for="c in moveShots" :key="c.id" size="small" quaternary
+                      :type="currentShot === c.id && !currentCamera ? 'primary' : 'default'"
+                      @click="setCam(c.id)">{{ t('cam.' + c.id) }}</n-button>
+          </div>
         </div>
-        <div class="row">
+        <div class="row expression">
           <span class="row-label">{{ t('quick.face') }}</span>
-          <n-button v-for="e in emotions" :key="e.key" size="small"
-                    :type="currentEmotion === e.key ? 'primary' : 'default'"
-                    :quaternary="currentEmotion !== e.key"
-                    @click="setEmotion(e.key)">{{ e.label }}</n-button>
+          <div class="control-grid">
+            <n-button v-for="e in emotions" :key="e.key" size="small"
+                      :type="currentEmotion === e.key ? 'primary' : 'default'"
+                      :quaternary="currentEmotion !== e.key"
+                      @click="setEmotion(e.key)">{{ e.label }}</n-button>
+          </div>
         </div>
-        <div v-if="!isLive2D" class="row">
+        <div v-if="!isLive2D" class="row position">
           <span class="row-label">{{ t('quick.stand') }}</span>
-          <n-button v-for="s in stands" :key="s.key" size="small"
-                    :type="standSlot === s.key ? 'primary' : 'default'"
-                    :quaternary="standSlot !== s.key"
-                    @click="goStand(s.key)">{{ s.label }}</n-button>
+          <div class="control-grid">
+            <n-button v-for="s in stands" :key="s.key" size="small"
+                      :type="standSlot === s.key ? 'primary' : 'default'"
+                      :quaternary="standSlot !== s.key"
+                      @click="goStand(s.key)">{{ s.label }}</n-button>
+          </div>
         </div>
-        <div class="row">
+        <div class="row action">
           <span class="row-label">{{ t('quick.act') }}</span>
-          <n-button v-for="a in actions" :key="a.key" size="small" quaternary
-                    @click="stage.triggerAction(a.key)">{{ a.label }}</n-button>
+          <div class="control-grid">
+            <n-button v-for="a in actions" :key="a.key" size="small" quaternary
+                      @click="stage.triggerAction(a.key)">{{ a.label }}</n-button>
+          </div>
         </div>
       </div>
 
-      <n-tabs v-model:value="activeTab" type="segment" size="small" class="tabs">
-        <n-tab-pane v-if="isLive2D" name="live2d" tab="Live2D 高级互动">
+      <n-tabs v-model:value="activeTab" type="line" size="small">
+        <n-tab-pane v-if="isLive2D" name="live2d" tab="Live2D">
           <Live2DPanel />
         </n-tab-pane>
-        <n-tab-pane name="motions" :tab="`${t('quick.motions')} (${assets.motions.length})`" :disabled="!supportsMotions">
-          <div v-if="!supportsMotions" class="empty">{{ t('quick.noVmd') }}</div>
-          <template v-else>
-            <div class="cat-row">
-              <n-button v-for="c in MOTION_CATS" :key="c.key" size="tiny"
-                        :type="motionCat === c.key ? 'primary' : 'default'"
-                        :quaternary="motionCat !== c.key"
-                        @click="motionCat = c.key">
-                {{ t('cat.' + c.key) }} {{ catCounts[c.key] }}
-              </n-button>
-            </div>
-            <div class="morph-tools">
-              <n-input v-model:value="motionSearch" size="small" :placeholder="t('quick.searchMotion')" clearable />
-              <n-button size="small" type="warning" secondary @click="stopMotion">{{ t('quick.stop') }}</n-button>
-            </div>
-            <div v-if="groupedMotions.length" class="review-nav">
-              <n-button size="tiny" :disabled="motionIndex <= 0" @click="playMotionOffset(-1)">‹ 上一个</n-button>
-              <span>{{ reviewPosition }}</span>
-              <n-button size="tiny" :disabled="motionIndex >= groupedMotions.length - 1" @click="playMotionOffset(1)">下一个 ›</n-button>
-            </div>
-            <div v-if="!groupedMotions.length" class="empty">{{ t('quick.emptyMotion') }}</div>
-            <div v-else class="grid">
-              <div v-for="m in groupedMotions" :key="m.id" class="motion-item" :class="{ rejected: isMotionRejected(m) }">
-                <n-button size="small" :disabled="isMotionRejected(m)"
-                          :type="currentMotion === m.name ? 'primary' : 'default'"
-                          :quaternary="currentMotion !== m.name"
-                          @click="playMotion(m.name)">{{ settings.locale.reply === 'zh-CN' ? stripCatPrefix(m.label) : motionTitle(m.name, m.label) }}</n-button>
+        <n-tab-pane v-if="supportsMotions" name="motions" :tab="t('quick.motions')">
+          <div class="cat-row">
+            <n-button v-for="c in MOTION_CATS" :key="c.key" size="tiny"
+                      :type="motionCat === c.key ? 'primary' : 'default'"
+                      :quaternary="motionCat !== c.key"
+                      @click="motionCat = c.key">
+              {{ t('cat.' + c.key) }} {{ catCounts[c.key] }}
+            </n-button>
+          </div>
+          <div class="morph-tools">
+            <n-input v-model:value="motionSearch" size="small" :placeholder="t('quick.searchMotion')" clearable />
+            <n-button size="small" type="warning" secondary @click="stopMotion">{{ t('quick.stop') }}</n-button>
+          </div>
+          <div v-if="groupedMotions.length" class="review-nav">
+            <n-button size="tiny" :disabled="motionIndex <= 0" @click="playMotionOffset(-1)" :aria-label="t('quick.previous')">‹</n-button>
+            <span>{{ reviewPosition }}</span>
+            <n-button size="tiny" :disabled="motionIndex >= groupedMotions.length - 1" @click="playMotionOffset(1)" :aria-label="t('quick.next')">›</n-button>
+          </div>
+          <div v-if="!groupedMotions.length" class="empty">{{ t('quick.emptyMotion') }}</div>
+          <div v-else class="motion-list">
+            <div v-for="m in groupedMotions" :key="m.id" class="motion-item" :class="{ rejected: isMotionRejected(m) }">
+              <n-button class="motion-name" size="small" :title="m.label" :disabled="isMotionRejected(m)"
+                        :type="currentMotion === m.name ? 'primary' : 'default'"
+                        :quaternary="currentMotion !== m.name"
+                        @click="playMotion(m.name)">{{ settings.locale.reply === 'zh-CN' ? stripCatPrefix(m.label) : motionTitle(m.name, m.label) }}</n-button>
+              <div class="motion-actions">
                 <n-button size="tiny" quaternary :type="motionReviewStatus(m) === 'approved' ? 'success' : 'default'"
                           @click="setReview(m, 'approved')">可用</n-button>
                 <n-button size="tiny" quaternary :type="isMotionRejected(m) ? 'error' : 'default'"
@@ -237,116 +243,99 @@ async function removeMotion(m: { id: number; name: string; label: string }) {
                           @click="removeMotion(m)">删除</n-button>
               </div>
             </div>
-          </template>
+          </div>
         </n-tab-pane>
-        <n-tab-pane name="cameras" :tab="`${t('quick.cameras')} (${libraryCams.length})`" :disabled="isLive2D">
+        <n-tab-pane name="cameras" :tab="t('quick.cameras')" :disabled="isLive2D">
           <div class="morph-tools">
-            <span class="hint-inline">内置运镜点上面「镜头」；这里是镜头 VMD</span>
+            <span class="hint-inline">VMD</span>
             <n-button size="small" type="warning" secondary @click="stopCamera">复位</n-button>
           </div>
           <div v-if="!libraryCams.length" class="empty">{{ t('quick.emptyCam') }}</div>
           <div v-else class="grid">
-            <n-button v-for="c in libraryCams" :key="c.id" size="small"
+            <n-button v-for="c in libraryCams" :key="c.id" :title="c.label" size="small"
                       :type="currentCamera === c.name ? 'primary' : 'default'"
                       :quaternary="currentCamera !== c.name"
                       @click="playCamera(c.name)">{{ stripCatPrefix(c.label) }}</n-button>
           </div>
         </n-tab-pane>
-        <n-tab-pane name="morphs" :tab="`${t('quick.morphs')} (${morphNames.length})`">
+        <n-tab-pane name="morphs" :tab="t('quick.morphs')">
           <div class="morph-tools">
             <n-input v-model:value="morphSearch" size="small" :placeholder="t('quick.searchMorph')" clearable />
             <n-button size="small" quaternary @click="resetMorphs">{{ t('quick.reset') }}</n-button>
           </div>
           <div class="grid morphs">
-            <n-button v-for="name in filteredMorphs" :key="name" size="tiny"
+            <n-button v-for="name in filteredMorphs" :key="name" :title="name" size="tiny"
                       :type="activeMorphs.has(name) ? 'primary' : 'default'"
                       :quaternary="!activeMorphs.has(name)"
                       @click="toggleMorph(name)">{{ name }}</n-button>
           </div>
         </n-tab-pane>
       </n-tabs>
-    </div>
-  </transition>
+  </StagePanel>
 </template>
 
 <style scoped>
-.panel {
-  position: absolute;
-  top: calc(70px + var(--desk-chrome, 0px));
-  right: 16px;
-  bottom: 20px;
-  width: 330px;
-  z-index: 9;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-radius: 16px;
-  background: rgba(15, 15, 26, 0.72);
-  backdrop-filter: blur(18px);
-  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.4);
-}
-
-.head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-.title {
-  font-size: 14px;
-  font-weight: 600;
-}
-
 .rows {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 16px;
 }
 
 .row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
+  --control-accent: #bedcf1;
+  --control-tint: #81b7d514;
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--panel-line);
+  border-radius: 11px;
+  background: var(--control-tint);
 }
-
+.row.expression { --control-accent: #eec3d6; --control-tint: #d18eac16; }
+.row.position { --control-accent: #b7ded2; --control-tint: #72b6a310; }
+.row.action { --control-accent: #f0d3ad; --control-tint: #d4a36e12; }
 .row-label {
+  padding-inline: 2px;
+  color: var(--control-accent);
   font-size: 12px;
-  opacity: 0.6;
-  width: 32px;
-  flex-shrink: 0;
+  font-weight: 600;
 }
-
-.tabs {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+.control-grid, .grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
 }
-
-.tabs :deep(.n-tab-pane) {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+.row.action .control-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid, .motion-list { padding-top: 8px; }
+.control-grid :deep(.n-button), .grid :deep(.n-button), .cat-row :deep(.n-button) {
+  min-width: 0;
+  padding-inline: 5px;
 }
-
-.grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding-top: 8px;
+.control-grid :deep(.n-button) { background: #241f2e80; }
+.control-grid :deep(.n-button--primary-type) {
+  background: var(--control-accent);
+  color: #292131;
 }
-
+.control-grid :deep(.n-button__content), .grid :deep(.n-button__content),
+.cat-row :deep(.n-button__content), .motion-name :deep(.n-button__content) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.motion-list { display: grid; gap: 5px; }
 .motion-item {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 2px;
-  padding: 2px;
-  border-radius: 6px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--panel-card);
 }
+.motion-name { min-width: 0; justify-content: flex-start; }
+.motion-actions { display: flex; align-items: center; }
+.motion-actions :deep(.n-button) { padding-inline: 4px; }
 
 .motion-item.rejected {
   background: rgba(255, 100, 100, 0.1);
@@ -374,8 +363,8 @@ async function removeMotion(m: { id: number; name: string; label: string }) {
 }
 
 .cat-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
   padding-top: 8px;
 }
@@ -392,14 +381,4 @@ async function removeMotion(m: { id: number; name: string; label: string }) {
   opacity: 0.55;
 }
 
-.slide-enter-active,
-.slide-leave-active {
-  transition: transform 0.25s ease, opacity 0.25s ease;
-}
-
-.slide-enter-from,
-.slide-leave-to {
-  transform: translateX(30px);
-  opacity: 0;
-}
 </style>

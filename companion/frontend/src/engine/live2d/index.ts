@@ -38,6 +38,14 @@ export class Live2DStage {
   private emotionSeq = 0;
   private resizeWidth = 0;
   private resizeHeight = 0;
+  private presentationPaused = false;
+
+  setPresentationPaused(paused: boolean) {
+    if (this.presentationPaused === paused) return;
+    this.presentationPaused = paused;
+    if (paused) this.app?.stop();
+    else this.app?.start();
+  }
   private readonly tick = (ticker: Ticker) => {
     this.model?.update(ticker.deltaMS);
     if (this.cameraTarget) {
@@ -85,6 +93,7 @@ export class Live2DStage {
         autoDensity: true,
         resolution: Math.min(window.devicePixelRatio || 1, 2),
         preference: 'webgl',
+        autoStart: !this.presentationPaused,
       });
       app.canvas.style.position = 'absolute';
       app.canvas.style.inset = '0';

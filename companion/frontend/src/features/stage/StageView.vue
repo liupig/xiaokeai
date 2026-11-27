@@ -8,8 +8,12 @@ import { useCharacterStore } from '../../stores/character';
 import { endLifeActivity, endLifePreview, leaveLifeStage, refreshLifeStage, returnLifeHome, stageLife } from '../life/stageLife';
 import { lifePanelOpen } from '../coins/session';
 import { installLifeVehicles } from '../life/vehicles';
+import { t } from '../../i18n';
 
+defineProps<{ startingModel?: boolean }>();
+const emit = defineEmits<{ 'retry-model': [] }>();
 const container = ref<HTMLDivElement | null>(null);
+const rendererError = ref('');
 const characters = useCharacterStore();
 let releaseVehicles: (() => void) | null = null;
 const MOMENT_NAMES: Record<string, string> = { tea:'一起喝茶', noodles:'一起吃面', hotpot:'一起吃火锅', cake:'一起吃蛋糕', home_dish:'一起吃家常饭', dessert:'一起吃甜点', coffee:'一起喝咖啡', milk_tea:'一起喝奶茶', fruit_tea:'一起喝果茶', bicycle:'一起看看自行车', scooter:'一起看看踏板车', car:'一起看看电动小车', fuel_car:'一起看看燃油轿车', camper:'一起看看厢式车' };
@@ -23,11 +27,22 @@ function rememberMoment() {
 onMounted(() => {
   installMocap(stage);
   if (!container.value) return;
-  const rebuilt = stage.init(container.value);
+  let rebuilt: boolean;
+  try {
+    rebuilt = stage.init(container.value);
+  } catch (error) {
+    rendererError.value = error instanceof Error ? error.message : String(error);
+    return;
+  }
   refreshLifeStage();
   releaseVehicles = installLifeVehicles();
   if (rebuilt && characters.currentId) void characters.switchTo(characters.currentId);
 });
+
+function retryStage() {
+  if (rendererError.value) window.location.reload();
+  else emit('retry-model');
+}
 onBeforeUnmount(() => {
   releaseVehicles?.();
   stage.dispose();
@@ -59,12 +74,13 @@ onBeforeUnmount(() => {
       <button class="stage-action" @click="leaveLifeStage">返回舞台</button>
     </div>
   </div>
-  <div v-if="characters.modelLoading" class="loading glass">
+  <div v-if="!rendererError && (characters.modelLoading || (startingModel && !characters.modelInfo))" class="loading glass">
     <n-spin size="small" />
     <span>模型加载中…</span>
   </div>
-  <div v-if="characters.modelError" class="loading glass error">
-    {{ characters.modelError }}
+  <div v-if="rendererError || characters.modelError" class="loading glass error" role="alert">
+    <span>{{ rendererError || characters.modelError }}</span>
+    <button type="button" class="retry-stage" @click="retryStage">{{ t('char.journal.retry') }}</button>
   </div>
 </template>
 
@@ -73,6 +89,7 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
 }
+.retry-stage { flex: none; padding: 5px 9px; border: 1px solid #ffffff38; border-radius: 7px; background: #ffffff19; color: inherit; font: inherit; cursor: pointer; }
 
 .stage.review-safe-area::after {
   content: '';

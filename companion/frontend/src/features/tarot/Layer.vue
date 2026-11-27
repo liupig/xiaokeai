@@ -155,6 +155,11 @@ onBeforeUnmount(() => cancelAnimationFrame(placeRaf));
   z-index: 8;
   pointer-events: none;
 }
+.tarot-layer:not(.pet) {
+  left: var(--stage-content-left, 0px);
+  right: var(--stage-content-right, 0px);
+  bottom: var(--stage-content-bottom, 0px);
+}
 
 .top {
   position: absolute;
@@ -198,7 +203,7 @@ onBeforeUnmount(() => cancelAnimationFrame(placeRaf));
   left: 50%;
   bottom: 108px;
   transform: translateX(-50%);
-  width: min(560px, calc(100vw - 48px));
+  width: min(560px, calc(100% - 32px));
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
@@ -213,6 +218,10 @@ onBeforeUnmount(() => cancelAnimationFrame(placeRaf));
   bottom: 88px;
   transform: translateX(-50%);
   display: flex;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 8px;
 }
 .hud button {
@@ -231,8 +240,8 @@ onBeforeUnmount(() => cancelAnimationFrame(placeRaf));
 .chips {
   pointer-events: auto;
   position: absolute;
-  left: calc(20px + min(372px, 100vw - 40px) + 12px);
-  right: 24px;
+  left: 16px;
+  right: 16px;
   bottom: 22px;
   display: flex;
   flex-wrap: wrap;

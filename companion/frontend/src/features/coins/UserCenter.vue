@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import StagePanel from '../hud/StagePanel.vue';
 import { computed, ref, watch } from 'vue';
-import { NDrawer, NDrawerContent, NQrCode, NSlider, useMessage } from 'naive-ui';
+import { NQrCode, NSlider, useMessage } from 'naive-ui';
 import { api, type CoinPreview } from '../../api/client';
 import { t } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
@@ -246,10 +247,8 @@ watch(hours, () => {
 
 <template>
   <LifePanel v-model:show="lifePanelOpen" />
-  <n-drawer :show="userCenterOpen" :width="400" placement="right"
-            show-mask="transparent" to="body"
-            @update:show="(v: boolean) => userCenterOpen = v">
-    <n-drawer-content :title="t('user.title')" closable :native-scrollbar="false">
+  <StagePanel :show="userCenterOpen" :title="t('user.title')" size="medium"
+              @update:show="(v: boolean) => userCenterOpen = v">
       <header class="hero">
         <div class="asset">{{ t('user.asset') }}</div>
         <div class="balance" :class="balancePulse">{{ balanceText }}</div>
@@ -258,7 +257,9 @@ watch(hours, () => {
         <p class="hint">{{ t('user.tokenHint') }}</p>
       </header>
 
-      <button type="button" class="primary" @click="lifePanelOpen = true; userCenterOpen = false">我们的空间 · 心意与布置</button>
+      <button type="button" class="space-link" @click="lifePanelOpen = true">
+        {{ t('stageShell.space') }} <span aria-hidden="true">›</span>
+      </button>
 
       <section class="wish">
         <div class="wish-title">{{ t('user.wish') }}</div>
@@ -279,19 +280,19 @@ watch(hours, () => {
       </div>
 
       <div class="tabs">
-        <button type="button" :class="{ on: tab === 'receive' }" @click="tab = 'receive'">{{ t('user.tabReceive') }}</button>
-        <button type="button" :class="{ on: tab === 'send' }" @click="tab = 'send'">{{ t('user.tabSend') }}</button>
-        <button type="button" :class="{ on: tab === 'cash' }" @click="tab = 'cash'">{{ t('user.tabCash') }}</button>
+        <button type="button" :class="{ on: tab === 'receive' }" :aria-pressed="tab === 'receive'" @click="tab = 'receive'">{{ t('user.tabReceive') }}</button>
+        <button type="button" :class="{ on: tab === 'send' }" :aria-pressed="tab === 'send'" @click="tab = 'send'">{{ t('user.tabSend') }}</button>
+        <button type="button" :class="{ on: tab === 'cash' }" :aria-pressed="tab === 'cash'" @click="tab = 'cash'">{{ t('user.tabCash') }}</button>
       </div>
 
       <section v-if="tab === 'receive'" class="pane">
-        <div class="qr-card">
-          <n-qr-code v-if="coins.address" :value="coins.address" :size="188"
+        <div v-if="coins.address" class="qr-card">
+          <n-qr-code :value="coins.address" :size="188"
                      color="#141414" background-color="#ffffff" error-correction-level="H" />
         </div>
         <p class="hint">{{ t('user.receiveHint') }}</p>
-        <div class="addr-box">{{ grouped(coins.address) }}</div>
-        <button type="button" class="primary" @click="copyText(coins.address, 'addr')">
+        <div v-if="coins.address" class="addr-box">{{ grouped(coins.address) }}</div>
+        <button type="button" class="primary" :disabled="!coins.address" @click="copyText(coins.address, 'addr')">
           {{ copied === 'addr' ? t('user.copied') : t('user.copy') }}
         </button>
       </section>
@@ -354,8 +355,7 @@ watch(hours, () => {
           {{ t('user.redeem') }}
         </button>
       </section>
-    </n-drawer-content>
-  </n-drawer>
+  </StagePanel>
 </template>
 
 <style scoped>
@@ -370,6 +370,22 @@ watch(hours, () => {
     linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.025));
   border: 1px solid rgba(255, 231, 194, 0.16);
 }
+.space-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--panel-line);
+  border-radius: 12px;
+  background: var(--panel-card);
+  color: var(--panel-accent);
+  cursor: pointer;
+  text-align: start;
+  font: inherit;
+}
+.space-link:hover { background: #ebc5a119; }
 .streak {
   margin-top: 8px;
   font-size: 12px;
@@ -432,7 +448,7 @@ watch(hours, () => {
 }
 .tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
   border-radius: 12px;
@@ -447,6 +463,7 @@ watch(hours, () => {
   font: inherit;
   font-size: 13px;
   font-weight: 650;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
 .tabs button.on {
@@ -467,6 +484,8 @@ watch(hours, () => {
   border: 2px solid transparent;
   box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28);
 }
+.qr-card :deep(canvas), .qr-card :deep(svg) { max-width: 100%; height: auto; }
+.qr-card { max-width: 100%; }
 .qr-card.small {
   margin-top: 8px;
 }

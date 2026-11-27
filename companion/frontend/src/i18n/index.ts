@@ -66,6 +66,7 @@ export function setReplyLang(lang: string) {
 export function setUiLang(lang: string) {
   const ui = normalizeLang(lang);
   (i18n.global.locale as unknown as { value: string }).value = ui;
+  if (typeof document !== 'undefined') document.documentElement.lang = ui;
 }
 
 export function t(key: string, vars?: Record<string, string | number>): string {

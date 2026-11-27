@@ -1,15 +1,14 @@
 <script setup lang="ts">
+import StagePanel from '../hud/StagePanel.vue';
+import PanelGroup from '../hud/PanelGroup.vue';
 import NativeSelect from './NativeSelect.vue';
 import LightingControls from '../lighting/LightingControls.vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import {
-  NButton, NColorPicker, NDrawer, NDrawerContent, NInput, NInputNumber, NSelect,
-  NSlider, NSwitch, NTabPane, NTabs, useMessage,
+  NButton, NColorPicker, NInput, NInputNumber, NSelect,
+  NSlider, NSwitch, useMessage,
 } from 'naive-ui';
 import { api } from '../../api/client';
-import {
-  douyinFeed, resetDouyinFeed, startDouyinFeed, stopDouyinFeed,
-} from '../live/douyinFeed';
 import { useSettingsStore } from '../../stores/settings';
 import { useCharacterStore } from '../../stores/character';
 import { useChatStore } from '../../stores/chat';
@@ -204,6 +203,18 @@ const contentBusy = ref(false);
 const contentHint = ref('');
 const canPickFolder = computed(() => typeof window.companionDesktop?.pickFolder === 'function');
 const isShell = !!window.companionDesktop?.isShell;
+const sections = [
+  { id: 'lang', label: 'lang.tab' },
+  { id: 'desktop', label: 'settings.desktop' },
+  { id: 'content', label: 'settings.content' },
+  { id: 'modules', label: 'settings.modules' },
+  { id: 'ai', label: 'settings.ai' },
+  { id: 'omni', label: 'settings.omni' },
+  { id: 'voice', label: 'settings.voice' },
+  { id: 'download', label: 'settings.download' },
+  { id: 'quality', label: 'settings.quality' },
+].filter(({ id }) => id !== 'desktop' || isShell);
+const section = ref('lang');
 const trayMinimize = ref(true);
 const trayClose = ref(true);
 
@@ -784,10 +795,19 @@ onUnmounted(() => {
   stopOmniAudio();
 });
 
+const savingSettings = ref(false);
 async function save() {
-  await settings.save();
-  message.success(t('set.saved'));
-  emit('update:show', false);
+  if (savingSettings.value) return;
+  savingSettings.value = true;
+  try {
+    await settings.save();
+    message.success(t('set.saved'));
+    emit('update:show', false);
+  } catch (error) {
+    message.error(String(error));
+  } finally {
+    savingSettings.value = false;
+  }
 }
 
 function onPhysics(v: boolean) {
@@ -827,69 +847,6 @@ async function openWatchLab() {
   }
 }
 
-const douyinRoom = ref('');
-const douyinSecret = ref('');
-const douyinBusy = ref(false);
-const douyinLines = computed(() => douyinFeed.lines);
-const douyinListening = computed(() => douyinFeed.listening);
-const douyinError = computed(() => douyinFeed.error);
-
-async function connectDouyin() {
-  const room = douyinRoom.value.trim();
-  if (!room) {
-    message.warning(t('live.douyin.roomPh'));
-    return;
-  }
-  douyinBusy.value = true;
-  try {
-    settings.live.douyin.room = room;
-    settings.live.douyin.push_secret = douyinSecret.value;
-    await settings.save();
-    resetDouyinFeed();
-    const data = await api.liveDouyinListen(room);
-    douyinFeed.listening = !!data.listening;
-    douyinFeed.error = data.error || '';
-    douyinFeed.open = true;
-    startDouyinFeed();
-  } catch (e) {
-    message.error(String(e));
-  } finally {
-    douyinBusy.value = false;
-  }
-}
-
-async function disconnectDouyin() {
-  douyinBusy.value = true;
-  try {
-    const data = await api.liveDouyinStop();
-    douyinFeed.listening = !!data.listening;
-    douyinFeed.error = '';
-  } catch (e) {
-    message.error(String(e));
-  } finally {
-    douyinBusy.value = false;
-  }
-}
-
-async function saveDouyinSecret() {
-  settings.live.douyin.push_secret = douyinSecret.value;
-  try {
-    await settings.save();
-  } catch (e) {
-    message.error(String(e));
-  }
-}
-
-watch(() => settings.modules.live_douyin, (on) => {
-  if (on) {
-    douyinRoom.value = settings.live.douyin.room || douyinRoom.value;
-    douyinSecret.value = settings.live.douyin.push_secret || '';
-    startDouyinFeed();
-  } else {
-    stopDouyinFeed();
-  }
-}, { immediate: true });
-
 async function toggleMod(key: keyof typeof settings.modules, on: boolean) {
   const prev = settings.modules[key];
   settings.modules[key] = on;
@@ -914,16 +871,6 @@ async function toggleMod(key: keyof typeof settings.modules, on: boolean) {
       await api.harnessRelease();
       if (!on) await api.glancePowerSet(false, characters.currentId || 0);
     }
-    if (key === 'live_douyin' && !on) {
-      stopDouyinFeed();
-      await api.liveDouyinStop().catch(() => {});
-      douyinFeed.listening = false;
-    }
-    if (key === 'live' && !on) {
-      const { stopLiveLoop } = await import('../live/session');
-      stopLiveLoop();
-      await api.liveOff().catch(() => {});
-    }
     if (key !== 'scenes') return;
     if (on && characters.currentId) {
       await restoreOrRotateScene({
@@ -943,592 +890,687 @@ async function toggleMod(key: keyof typeof settings.modules, on: boolean) {
 </script>
 
 <template>
-  <n-drawer :show="show" @update:show="(v: boolean) => emit('update:show', v)"
-            :width="480" placement="right" show-mask="transparent" to="body">
-    <n-drawer-content :title="t('settings.title')" closable :native-scrollbar="false">
-    <n-tabs type="line" class="settings-tabs">
-      <n-tab-pane name="lang" :tab="t('lang.tab')">
-        <div class="form">
-          <p class="hint">{{ t('lang.hint') }}</p>
-          <label>{{ t('lang.ui') }}</label>
-          <NativeSelect :value="settings.locale.ui" :options="langOptions"
-                    @update:value="(v: 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru') => settings.setLocale({ ui: v })" />
-          <label>{{ t('lang.reply') }}</label>
-          <NativeSelect :value="settings.locale.reply" :options="langOptions"
-                    @update:value="(v: 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru') => settings.setLocale({ reply: v })" />
-          <label>{{ t('lang.mode') }}</label>
-          <NativeSelect :value="settings.locale.reply_mode" :options="replyModeOptions"
-                    @update:value="(v: 'fixed' | 'follow') => settings.setLocale({ reply_mode: v })" />
-          <p v-if="!featureOn('tarot', settings.locale.reply)" class="hint">{{ t('mod.missing') }} · {{ t('mod.tarot') }}</p>
-          <p v-if="!featureOn('scenes', settings.locale.reply)" class="hint">{{ t('mod.missing') }} · {{ t('mod.scenes') }}</p>
-        </div>
-      </n-tab-pane>
-      <n-tab-pane v-if="isShell" name="desktop" :tab="t('settings.desktop')">
-        <div class="form">
-          <p class="hint">{{ t('set.tray.hint') }}</p>
-          <div class="switch-row">
-            <span>{{ t('set.tray.minimize') }}</span>
-            <n-switch :value="trayMinimize" @update:value="(v: boolean) => saveTray({ minimize: v })" />
+  <StagePanel :show="show" :title="t('settings.title')" size="large" fixed-body
+              @update:show="(v: boolean) => emit('update:show', v)">
+    <div class="settings-layout">
+      <nav class="settings-index" :aria-label="t('settings.title')">
+        <button v-for="item in sections" :key="item.id" type="button"
+                :aria-current="section === item.id ? 'true' : undefined"
+                @click="section = item.id">{{ t(item.label) }}</button>
+      </nav>
+      <div :key="section" class="settings-content">
+        <h3>{{ t(sections.find((item) => item.id === section)?.label || 'settings.title') }}</h3>
+        <template v-if="section === 'lang'">
+          <div class="form">
+            <PanelGroup tone="teal" :title="t('lang.ui')">
+              <NativeSelect :aria-label="t('lang.ui')" :value="settings.locale.ui" :options="langOptions"
+                        @update:value="(v: 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru') => settings.setLocale({ ui: v })" />
+            </PanelGroup>
+            <PanelGroup tone="violet" :title="t('set.group.reply')">
+              <p class="hint">{{ t('lang.hint') }}</p>
+              <label>{{ t('lang.reply') }}</label>
+              <NativeSelect :value="settings.locale.reply" :options="langOptions"
+                        @update:value="(v: 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru') => settings.setLocale({ reply: v })" />
+              <label>{{ t('lang.mode') }}</label>
+              <NativeSelect :value="settings.locale.reply_mode" :options="replyModeOptions"
+                        @update:value="(v: 'fixed' | 'follow') => settings.setLocale({ reply_mode: v })" />
+              <p v-if="!featureOn('tarot', settings.locale.reply)" class="hint">{{ t('mod.missing') }} · {{ t('mod.tarot') }}</p>
+              <p v-if="!featureOn('scenes', settings.locale.reply)" class="hint">{{ t('mod.missing') }} · {{ t('mod.scenes') }}</p>
+            </PanelGroup>
           </div>
-          <p class="hint">{{ t('set.tray.minimizeHint') }}</p>
-          <div class="switch-row">
-            <span>{{ t('set.tray.close') }}</span>
-            <n-switch :value="trayClose" @update:value="(v: boolean) => saveTray({ close: v })" />
+        </template>
+        <template v-if="section === 'desktop'">
+          <div class="form">
+            <PanelGroup :title="t('set.group.tray')">
+              <p class="hint">{{ t('set.tray.hint') }}</p>
+              <div class="preference">
+                <div>
+                  <strong>{{ t('set.tray.minimize') }}</strong>
+                  <p class="hint">{{ t('set.tray.minimizeHint') }}</p>
+                </div>
+                <n-switch :aria-label="t('set.tray.minimize')" :value="trayMinimize" @update:value="(v: boolean) => saveTray({ minimize: v })" />
+              </div>
+              <div class="preference">
+                <div>
+                  <strong>{{ t('set.tray.close') }}</strong>
+                  <p class="hint">{{ t('set.tray.closeHint') }}</p>
+                </div>
+                <n-switch :aria-label="t('set.tray.close')" :value="trayClose" @update:value="(v: boolean) => saveTray({ close: v })" />
+              </div>
+            </PanelGroup>
           </div>
-          <p class="hint">{{ t('set.tray.closeHint') }}</p>
-        </div>
-      </n-tab-pane>
-      <n-tab-pane name="content" :tab="t('settings.content')">
-        <div class="form">
-          <p class="hint">{{ t('set.pack.hint') }}</p>
-          <label>{{ t('set.pack.dir') }}</label>
-          <div class="content-row">
-            <n-input v-model:value="contentPath" :placeholder="t('set.pack.ph')" />
-            <n-button v-if="canPickFolder" @click="pickContentFolder">{{ t('set.pack.browse') }}</n-button>
+        </template>
+        <template v-if="section === 'content'">
+          <div class="form">
+            <PanelGroup :title="t('set.pack.dir')">
+              <p class="hint">{{ t('set.pack.hint') }}</p>
+              <div class="content-row">
+                <n-input v-model:value="contentPath" :placeholder="t('set.pack.ph')" />
+                <n-button v-if="canPickFolder" @click="pickContentFolder">{{ t('set.pack.browse') }}</n-button>
+              </div>
+              <p class="hint">{{ contentFound }}</p>
+              <p v-if="contentHint" class="hint">{{ contentHint }}</p>
+              <n-button type="primary" :loading="contentBusy" :disabled="!contentPath.trim()"
+                        @click="saveContentPath">{{ t('set.pack.save') }}</n-button>
+              <p class="hint">{{ t('set.pack.restart') }}</p>
+            </PanelGroup>
           </div>
-          <p class="hint">{{ contentFound }}</p>
-          <p v-if="contentHint" class="hint">{{ contentHint }}</p>
-          <n-button type="primary" :loading="contentBusy" :disabled="!contentPath.trim()"
-                    @click="saveContentPath">{{ t('set.pack.save') }}</n-button>
-          <p class="hint">{{ t('set.pack.restart') }}</p>
-        </div>
-      </n-tab-pane>
-      <n-tab-pane name="modules" :tab="t('settings.modules')">
-        <div class="form">
-          <p class="hint">{{ t('set.mod.off') }}</p>
-          <p v-if="hwHint" class="hint">{{ hwHint }}</p>
-          <div class="switch-row">
-            <span>{{ t('mod.memory') }}</span>
-            <n-switch :value="settings.modules.memory" @update:value="(v: boolean) => toggleMod('memory', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.memory') }}</p>
-          <template v-if="settings.modules.memory">
-            <label>{{ t('set.mod.embed') }}</label>
-            <NativeSelect :value="settings.memory.embedder" :options="embedderOptions"
-                      @update:value="saveEmbedder" />
-            <p class="hint">{{ t('set.mod.embedHint') }}</p>
-          </template>
-          <div class="switch-row">
-            <span>{{ t('mod.scenes') }}</span>
-            <n-switch :value="settings.modules.scenes" @update:value="(v: boolean) => toggleMod('scenes', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.scenes') }}</p>
-          <div class="switch-row">
-            <span>{{ t('mod.rewrite') }}</span>
-            <n-switch :value="settings.modules.rewrite" @update:value="(v: boolean) => toggleMod('rewrite', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.rewrite') }}</p>
-          <div class="switch-row">
-            <span>{{ t('mod.keepsake') }}</span>
-            <n-switch :value="settings.modules.keepsake" @update:value="(v: boolean) => toggleMod('keepsake', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.keepsake') }}</p>
-          <div class="switch-row">
-            <span>{{ t('mod.tarot') }}</span>
-            <n-switch :value="settings.modules.tarot" @update:value="(v: boolean) => toggleMod('tarot', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.tarot') }}</p>
-          <div class="switch-row">
-            <span>{{ t('mod.tavern') }}</span>
-            <n-switch :value="settings.modules.tavern" @update:value="(v: boolean) => toggleMod('tavern', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.tavern') }}</p>
-          <div class="switch-row">
-            <span>{{ t('mod.codewatch') }}</span>
-            <n-switch :value="settings.modules.codewatch" @update:value="(v: boolean) => toggleMod('codewatch', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.code') }}</p>
-          <div class="switch-row">
-            <span>{{ t('mod.touch') }}</span>
-            <n-switch :value="settings.modules.touch" @update:value="(v: boolean) => toggleMod('touch', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.touch') }}</p>
-          <div class="switch-row">
-            <span>{{ t('mod.journey') }}</span>
-            <n-switch :value="settings.modules.journey" @update:value="(v: boolean) => toggleMod('journey', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.journey') }}</p>
-          <div class="switch-row">
-            <span>{{ t('mod.harness') }}</span>
-            <n-switch :value="settings.modules.harness" @update:value="(v: boolean) => toggleMod('harness', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.harness') }}</p>
-          <div class="switch-row">
-            <span>{{ t('mod.play') }}</span>
-            <n-switch :value="settings.modules.play" @update:value="(v: boolean) => toggleMod('play', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.play') }}</p>
-          <div class="switch-row">
-            <span>{{ t('mod.glance') }}</span>
-            <n-switch :value="settings.modules.glance" @update:value="(v: boolean) => toggleMod('glance', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.glance') }}</p>
-          <template v-if="settings.modules.glance">
-            <label>{{ t('set.mod.alongGenerator') }}</label>
-            <NativeSelect v-model:value="settings.vision.generator" :options="alongGeneratorOptions"
-                      @update:value="() => settings.save()" />
-            <p class="hint">{{ t('set.mod.alongGeneratorHint') }}</p>
-          </template>
-          <n-button size="small" @click="openWatchLab">{{ t('set.mod.glanceLab') }}</n-button>
-          <p class="hint">{{ t('set.mod.glanceLabHint') }}</p>
-          <label>{{ t('set.mod.live') }}</label>
-          <div class="switch-row">
-            <span>{{ t('mod.live') }}</span>
-            <n-switch :value="settings.modules.live" @update:value="(v: boolean) => toggleMod('live', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.liveHost') }}</p>
-          <div class="switch-row">
-            <span>{{ t('mod.liveDouyin') }}</span>
-            <n-switch :value="settings.modules.live_douyin" @update:value="(v: boolean) => toggleMod('live_douyin', v)" />
-          </div>
-          <p class="hint">{{ t('set.mod.liveDouyin') }}</p>
-          <template v-if="settings.modules.live_douyin">
-            <label>{{ t('live.douyin.room') }}</label>
-            <div class="content-row">
-              <n-input v-model:value="douyinRoom" :placeholder="t('live.douyin.roomPh')" />
-              <n-button :loading="douyinBusy" @click="douyinListening ? disconnectDouyin() : connectDouyin()">
-                {{ douyinListening ? t('live.douyin.stop') : t('live.douyin.start') }}
-              </n-button>
-            </div>
-            <label>{{ t('live.douyin.secret') }}</label>
-            <n-input v-model:value="douyinSecret" type="password" show-password-on="click"
-                     :placeholder="t('live.douyin.secretPh')" @blur="saveDouyinSecret" />
-            <p class="hint">{{ douyinError || (douyinListening ? t('live.douyin.waiting') : t('live.douyin.idle')) }}</p>
-            <ul v-if="douyinLines.length" class="danmaku">
-              <li v-for="item in douyinLines" :key="item.seq">
-                <b>{{ item.nickname || '…' }}</b>{{ item.content }}
-              </li>
-            </ul>
-          </template>
-          <label>{{ t('set.vision.label') }}</label>
-          <NativeSelect v-model:value="settings.vision.provider" :options="visionOptions" />
-          <template v-if="settings.vision.provider === 'openai'">
-            <label>{{ t('set.vision.url') }}</label>
-            <n-input v-model:value="settings.vision.base_url"
-                     placeholder="https://api.openai.com/v1" />
-            <label>API Key</label>
-            <n-input v-model:value="settings.vision.api_key" type="password"
-                     show-password-on="click" :placeholder="t('set.vision.keyPh')" />
-            <label>{{ t('set.vision.model') }}</label>
-            <n-input v-model:value="settings.vision.model"
-                     placeholder="gpt-4o / qwen-vl-max / gemini-2.5-flash" />
-          </template>
-          <p class="hint">{{ t('set.vision.hint') }}</p>
-        </div>
-      </n-tab-pane>
-      <n-tab-pane name="ai" :tab="t('settings.ai')">
-        <div class="form">
-          <label>{{ t('set.llm.label') }}</label>
-          <NativeSelect :value="currentPreset" :options="llmPresetOptions" filterable
-                    :placeholder="t('set.llm.ph')"
-                    @update:value="applyLlmPreset" />
-          <label>{{ t('set.llm.url') }}</label>
-          <n-input v-model:value="settings.llm.base_url"
-                   placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
-          <label>API Key</label>
-          <n-input v-model:value="settings.llm.api_key" type="password"
-                   show-password-on="click" :placeholder="t('set.llm.keyPh')" />
-          <label>{{ t('set.llm.model') }}</label>
-          <n-input v-model:value="settings.llm.model"
-                   placeholder="qwen-plus / deepseek-chat / ep-…" />
-          <label>{{ t('set.llm.harness') }}</label>
-          <n-input v-model:value="settings.llm.harness_model"
-                   :placeholder="t('set.llm.harnessPh')" />
-          <label>{{ t('set.llm.harnessUrl') }}</label>
-          <n-input v-model:value="settings.llm.harness_base_url"
-                   :placeholder="t('set.llm.harnessUrlPh')" />
-          <label>{{ t('set.llm.harnessKey') }}</label>
-          <n-input v-model:value="settings.llm.harness_api_key" type="password"
-                   show-password-on="click" :placeholder="t('set.llm.harnessKeyPh')" />
-          <p class="hint">{{ t('set.llm.harnessHint') }}</p>
-          <p v-if="currentPreset === 'mimo' || currentPreset === 'mimo_pro'" class="hint">{{ t('set.llm.mimoHint') }}</p>
-          <p v-if="showEndpointHint" class="hint warn">{{ t('set.llm.endpoint') }}</p>
-          <div>
-            <n-button size="small" type="primary" secondary
-                      :loading="testing" @click="testLlm">{{ t('settings.test') }}</n-button>
-          </div>
-          <p v-if="settings.llm_env || settings.llm_local" class="hint">{{ t('set.llm.env') }}</p>
-          <p class="hint">{{ t('set.llm.hint') }}</p>
-          <label>{{ t('set.llm.think') }}</label>
-          <NativeSelect v-model:value="settings.llm.thinking" :options="thinkingOptions" />
-          <p class="hint">{{ t('set.llm.thinkHint') }}</p>
-          <label>{{ t('set.llm.temp', { n: settings.llm.temperature.toFixed(2) }) }}</label>
-          <n-slider v-model:value="settings.llm.temperature"
-                    :min="0" :max="1.5" :step="0.05" />
-          <label>{{ t('set.llm.topp', { n: settings.llm.top_p.toFixed(2) }) }}</label>
-          <n-slider v-model:value="settings.llm.top_p"
-                    :min="0.1" :max="1" :step="0.05" />
-          <label>{{ t('set.llm.max') }}</label>
-          <n-input-number v-model:value="settings.llm.max_tokens"
-                          :min="0" :max="32768" :step="256" style="width: 200px" />
-          <p class="hint">{{ t('set.llm.nokey') }}</p>
-        </div>
-      </n-tab-pane>
-      <n-tab-pane name="omni" :tab="t('settings.omni')">
-        <div class="form">
-          <p class="hint">{{ t('set.omni.hint') }}</p>
-          <label>{{ t('set.omni.chat') }}</label>
-          <n-input v-model:value="settings.omni.chat_url"
-                   placeholder="https://api.modelbest.cn/v1" />
-          <label>{{ t('set.omni.realtime') }}</label>
-          <n-input v-model:value="settings.omni.realtime_host"
-                   placeholder="https://minicpmo45.modelbest.cn" />
-          <label>{{ t('set.omni.model') }}</label>
-          <n-input v-model:value="settings.omni.model" placeholder="MiniCPM-O-4.5-9B" />
-          <label>{{ t('set.omni.key') }}</label>
-          <n-input v-model:value="settings.omni.api_key" type="password"
-                   show-password-on="click"
-                   :placeholder="t('set.omni.keyPh')" />
-          <p v-if="settings.omni_env" class="hint">{{ t('set.omni.env') }}</p>
-          <label>{{ t('set.omni.sentence') }}</label>
-          <n-input v-model:value="omniPrompt" type="textarea"
-                   :autosize="{ minRows: 2, maxRows: 4 }"
-                   :placeholder="t('set.omni.sample')" />
-          <div class="bg-image-row">
-            <n-button size="small" @click="pickOmniImage">
-              {{ omniImageName || t('set.omni.image') }}
-            </n-button>
-            <n-button v-if="omniImageName" size="small" @click="clearOmniImage">{{ t('set.omni.clearImage') }}</n-button>
-            <input ref="omniImg" type="file" accept="image/*" hidden @change="onOmniImage" />
-          </div>
-          <div class="omni-actions">
-            <n-button size="small" type="primary" secondary
-                      :loading="omniBusy" :disabled="omniBusy"
-                      @click="runOmniTest('chat')">{{ t('settings.testText') }}</n-button>
-            <n-button size="small" type="primary"
-                      :loading="omniBusy" :disabled="omniBusy"
-                      @click="runOmniTest('speech')">{{ t('settings.testSpeech') }}</n-button>
-            <n-button v-if="omniBusy" size="small" @click="omniAbort?.abort()">{{ t('settings.cancel') }}</n-button>
-          </div>
-          <p v-if="omniHint" class="hint">{{ omniHint }}</p>
-          <p v-if="omniReply" class="omni-reply">{{ omniReply }}</p>
-        </div>
-      </n-tab-pane>
-      <n-tab-pane name="voice" :tab="t('settings.voice')">
-        <div class="form">
-          <p v-if="hwHint" class="hint">{{ hwHint }}</p>
-          <h3 class="section-title">{{ t('set.asr.title') }}</h3>
-          <label>{{ t('set.asr.engine') }}</label>
-          <NativeSelect v-model:value="settings.stt.engine" :options="asrEngineOptions" />
-          <p class="hint">{{ t('set.asr.hint') }}</p>
-          <p v-if="settings.stt.engine === 'ali' || settings.stt.engine === 'volc'" class="hint">{{ t('set.asr.cloud') }}</p>
-          <p v-if="settings.stt.engine === 'openai' || settings.stt.engine === 'eleven' || settings.stt.engine === 'gemini'" class="hint">{{ t('set.asr.cloudIntl') }}</p>
-          <div v-if="settings.stt.engine === 'sensevoice'" class="speech-status">
-            <p class="hint">{{ speechStatus?.asr.message || t('set.asr.status') }}</p>
-            <n-button size="small" :loading="warmingAsr || !!speechStatus?.asr.downloading"
-                      @click="warmup('asr')">{{ t('set.asr.warmup') }}</n-button>
-          </div>
-
-          <h3 class="section-title">{{ t('set.tts.title') }}</h3>
-          <label>{{ t('set.tts.engine') }}</label>
-          <NativeSelect v-model:value="settings.tts.engine" :options="ttsEngineOptions" />
-          <div v-if="settings.tts.engine === 'tera'" class="speech-status">
-            <p class="hint">{{ speechStatus?.tera.message || (speechStatus?.tera.installed ? 'TeraTTSv2 ✓' : t('set.tera.missing')) }}</p>
-            <n-button size="small" :loading="!!speechStatus?.tera.downloading"
-                      @click="async () => { await api.downloadTera(); await refreshSpeechStatus(); }">{{ t('set.tera.download') }}</n-button>
-            <n-button size="small" :loading="!!speechStatus?.tera.gpu_downloading"
-                      @click="async () => { await api.downloadTeraGpu(); await refreshSpeechStatus(); }">{{ t('set.tera.gpu') }} {{ speechStatus?.tera.gpu_runtime ? '✓' : '' }}</n-button>
-            <n-button size="small" :loading="!!speechStatus?.tera.loading"
-                      :disabled="!speechStatus?.tera.installed || !speechStatus?.tera.gpu_runtime"
-                      @click="async () => { await api.warmupTera(); await refreshSpeechStatus(); }">{{ t('set.tera.warmup') }}</n-button>
-            <a href="https://huggingface.co/TeraSpace/TeraTTSv2" target="_blank" rel="noopener noreferrer">TeraTTSv2 · Hugging Face</a>
-            <p class="hint">{{ t('set.tera.hint') }}</p>
-          </div>
-          <template v-if="settings.tts.engine === 'qwen'">
-            <label>{{ t('set.tts.size') }}</label>
-            <NativeSelect v-model:value="settings.tts.qwen_size" :options="qwenSizeOptions" />
-            <p class="hint">
-              {{ t('set.tts.sizeLead') }}
-              0.6B {{ speechStatus?.tts.sizes?.['0.6b']?.installed ? t('set.tts.local') : t('set.tts.missing') }}
-              · 1.7B {{ speechStatus?.tts.sizes?.['1.7b']?.installed ? t('set.tts.local') : t('set.tts.missingBig') }}
-              <template v-if="speechStatus?.tts.size">
-                · {{ t('set.tts.ram', { size: speechStatus.tts.size === '1.7b' ? '1.7B' : '0.6B' }) }}
+        </template>
+        <template v-if="section === 'modules'">
+          <div class="form">
+            <PanelGroup tone="rose" :title="t('set.group.companion')">
+              <div class="preference">
+                <div>
+                  <strong>{{ t('mod.memory') }}</strong>
+                  <p class="hint">{{ t('set.mod.memory') }}</p>
+                </div>
+                <n-switch :aria-label="t('mod.memory')" :value="settings.modules.memory" @update:value="(v: boolean) => toggleMod('memory', v)" />
+              </div>
+              <details v-if="settings.modules.memory" class="inline-options">
+                <summary>{{ t('set.mod.embed') }}</summary>
+                <div class="inline-options-body">
+                  <NativeSelect :aria-label="t('set.mod.embed')" :value="settings.memory.embedder"
+                                :options="embedderOptions" @update:value="saveEmbedder" />
+                  <p class="hint">{{ t('set.mod.embedHint') }}</p>
+                </div>
+              </details>
+              <div class="preference">
+                <div>
+                  <strong>{{ t('mod.scenes') }}</strong>
+                  <p class="hint">{{ t('set.mod.scenes') }}</p>
+                </div>
+                <n-switch :aria-label="t('mod.scenes')" :value="settings.modules.scenes" @update:value="(v: boolean) => toggleMod('scenes', v)" />
+              </div>
+              <div class="preference">
+                <div>
+                  <strong>{{ t('mod.rewrite') }}</strong>
+                  <p class="hint">{{ t('set.mod.rewrite') }}</p>
+                </div>
+                <n-switch :aria-label="t('mod.rewrite')" :value="settings.modules.rewrite" @update:value="(v: boolean) => toggleMod('rewrite', v)" />
+              </div>
+              <div class="preference">
+                <div>
+                  <strong>{{ t('mod.touch') }}</strong>
+                  <p class="hint">{{ t('set.mod.touch') }}</p>
+                </div>
+                <n-switch :aria-label="t('mod.touch')" :value="settings.modules.touch" @update:value="(v: boolean) => toggleMod('touch', v)" />
+              </div>
+              <div class="preference">
+                <div>
+                  <strong>{{ t('mod.keepsake') }}</strong>
+                  <p class="hint">{{ t('set.mod.keepsake') }}</p>
+                </div>
+                <n-switch :aria-label="t('mod.keepsake')" :value="settings.modules.keepsake" @update:value="(v: boolean) => toggleMod('keepsake', v)" />
+              </div>
+              <div class="preference">
+                <div>
+                  <strong>{{ t('mod.journey') }}</strong>
+                  <p class="hint">{{ t('set.mod.journey') }}</p>
+                </div>
+                <n-switch :aria-label="t('mod.journey')" :value="settings.modules.journey" @update:value="(v: boolean) => toggleMod('journey', v)" />
+              </div>
+            </PanelGroup>
+            <PanelGroup tone="violet" :title="t('set.group.games')">
+              <div class="preference">
+                <div>
+                  <strong>{{ t('mod.tarot') }}</strong>
+                  <p class="hint">{{ t('set.mod.tarot') }}</p>
+                </div>
+                <n-switch :aria-label="t('mod.tarot')" :value="settings.modules.tarot" @update:value="(v: boolean) => toggleMod('tarot', v)" />
+              </div>
+              <div class="preference">
+                <div>
+                  <strong>{{ t('mod.tavern') }}</strong>
+                  <p class="hint">{{ t('set.mod.tavern') }}</p>
+                </div>
+                <n-switch :aria-label="t('mod.tavern')" :value="settings.modules.tavern" @update:value="(v: boolean) => toggleMod('tavern', v)" />
+              </div>
+              <div class="preference">
+                <div>
+                  <strong>{{ t('mod.play') }}</strong>
+                  <p class="hint">{{ t('set.mod.play') }}</p>
+                </div>
+                <n-switch :aria-label="t('mod.play')" :value="settings.modules.play" @update:value="(v: boolean) => toggleMod('play', v)" />
+              </div>
+            </PanelGroup>
+            <PanelGroup tone="teal" :title="t('set.group.tools')" collapsible>
+              <div class="preference">
+                <div>
+                  <strong>{{ t('mod.codewatch') }}</strong>
+                  <p class="hint">{{ t('set.mod.code') }}</p>
+                </div>
+                <n-switch :aria-label="t('mod.codewatch')" :value="settings.modules.codewatch" @update:value="(v: boolean) => toggleMod('codewatch', v)" />
+              </div>
+              <div class="preference">
+                <div>
+                  <strong>{{ t('mod.harness') }}</strong>
+                  <p class="hint">{{ t('set.mod.harness') }}</p>
+                </div>
+                <n-switch :aria-label="t('mod.harness')" :value="settings.modules.harness" @update:value="(v: boolean) => toggleMod('harness', v)" />
+              </div>
+              <div class="preference">
+                <div>
+                  <strong>{{ t('mod.glance') }}</strong>
+                  <p class="hint">{{ t('set.mod.glance') }}</p>
+                </div>
+                <n-switch :aria-label="t('mod.glance')" :value="settings.modules.glance" @update:value="(v: boolean) => toggleMod('glance', v)" />
+              </div>
+              <template v-if="settings.modules.glance">
+                <label>{{ t('set.mod.alongGenerator') }}</label>
+                <NativeSelect v-model:value="settings.vision.generator" :options="alongGeneratorOptions"
+                          @update:value="() => settings.save()" />
+                <p class="hint">{{ t('set.mod.alongGeneratorHint') }}</p>
               </template>
-            </p>
-            <label>{{ t('set.tts.style') }}</label>
-            <NativeSelect v-model:value="settings.tts.qwen_style" :options="qwenStyleOptions" />
-            <n-input v-if="settings.tts.qwen_style === 'custom'"
-                     v-model:value="settings.tts.qwen_instruct" type="textarea"
-                     :autosize="{ minRows: 2, maxRows: 4 }"
-                     :placeholder="t('set.tts.stylePh')" />
-            <p class="hint">{{ t('set.tts.styleHint') }}</p>
-          </template>
-          <label>{{ t('set.tts.voice') }}</label>
-          <NativeSelect v-model:value="settings.tts.voice" :options="voiceOptions" filterable
-                    :fallback-option="false" :placeholder="t('set.tts.voicePh')"
-                    :disabled="!ttsNeedsVoice" />
-          <p class="hint">{{ t('set.tts.voiceHint') }}</p>
-          <h3 class="section-title">{{ t('set.tavern.cast') }}</h3>
-          <p class="hint">{{ t('set.tavern.castHint') }}</p>
-          <template v-for="seat in tavernSeats" :key="seat">
-            <label>{{ t('set.tavern.' + seat) }}</label>
-            <NativeSelect :value="tavernCastValue(seat)" :options="tavernCastOptions" filterable
-                      @update:value="(value) => setTavernCast(seat, String(value || ''))" />
-          </template>
-
-          <h3 class="section-title">{{ t('set.persona.title') }}</h3>
-          <p class="hint">{{ t('set.persona.hint') }}</p>
-          <div class="switch-row">
-            <n-switch :value="settings.user_persona.enabled"
-                      @update:value="(v: boolean) => { settings.user_persona.enabled = v; }" />
-            <span>{{ t('set.persona.enabled') }}</span>
+              <n-button size="small" @click="openWatchLab">{{ t('set.mod.glanceLab') }}</n-button>
+              <p class="hint">{{ t('set.mod.glanceLabHint') }}</p>
+            </PanelGroup>
+            <PanelGroup tone="blue" :title="t('set.group.vision')" collapsible>
+              <label>{{ t('set.vision.label') }}</label>
+              <NativeSelect v-model:value="settings.vision.provider" :options="visionOptions" />
+              <template v-if="settings.vision.provider === 'openai'">
+                <label>{{ t('set.vision.url') }}</label>
+                <n-input v-model:value="settings.vision.base_url"
+                         placeholder="https://api.openai.com/v1" />
+                <label>API Key</label>
+                <n-input v-model:value="settings.vision.api_key" type="password"
+                         show-password-on="click" :placeholder="t('set.vision.keyPh')" />
+                <label>{{ t('set.vision.model') }}</label>
+                <n-input v-model:value="settings.vision.model"
+                         placeholder="gpt-4o / qwen-vl-max / gemini-2.5-flash" />
+              </template>
+              <p class="hint">{{ t('set.vision.hint') }}</p>
+            </PanelGroup>
+            <details class="settings-note">
+              <summary>{{ t('set.group.moduleHelp') }}</summary>
+              <p class="hint">{{ t('set.mod.off') }}</p>
+              <p v-if="hwHint" class="hint">{{ hwHint }}</p>
+            </details>
           </div>
-          <template v-if="settings.user_persona.enabled">
-            <label>{{ t('set.persona.name') }}</label>
-            <n-input v-model:value="settings.user_persona.name"
-                     :placeholder="t('set.persona.namePh')" />
-            <label>{{ t('set.persona.desc') }}</label>
-            <n-input v-model:value="settings.user_persona.description" type="textarea"
-                     :autosize="{ minRows: 3, maxRows: 8 }"
-                     :placeholder="t('set.persona.descPh')" />
-          </template>
-          <label>{{ t('set.tts.duplex') }}</label>
-          <NativeSelect v-model:value="settings.tts.duplex_cmd" :options="duplexCmdOptions" />
-          <label>{{ t('set.tts.remain', { n: Number(settings.tts.duplex_remain_sec).toFixed(1) }) }}</label>
-          <n-slider v-model:value="settings.tts.duplex_remain_sec"
-                    :min="1" :max="8" :step="0.5" />
-          <label>{{ t('set.tts.delayed', { n: settings.tts.duplex_delayed_sec }) }}</label>
-          <n-slider v-model:value="settings.tts.duplex_delayed_sec"
-                    :min="0" :max="40" :step="1" />
-          <label>{{ t('set.tts.proactive', { n: settings.tts.duplex_proactive_sec }) }}</label>
-          <n-slider v-model:value="settings.tts.duplex_proactive_sec"
-                    :min="0" :max="90" :step="1" />
-          <label>{{ t('set.tts.goodbye', { n: settings.tts.duplex_goodbye_sec }) }}</label>
-          <n-slider v-model:value="settings.tts.duplex_goodbye_sec"
-                    :min="0" :max="300" :step="5" />
-          <label>{{ t('set.tts.session') }}</label>
-          <n-slider v-model:value="settings.tts.duplex_session_max_min"
-                    :min="0" :max="60" :step="1" />
-          <div class="switch-row">
-            <span>{{ t('set.tts.ingress') }}</span>
-            <n-switch v-model:value="settings.tts.duplex_ingress" />
-          </div>
-          <p class="hint">{{ t('set.tts.duplexHint') }}</p>
-          <p v-if="settings.tts.engine === 'cosy'" class="hint">{{ t('set.tts.cosy') }}</p>
-          <p v-if="settings.tts.engine === 'volc'" class="hint">{{ t('set.tts.volc') }}</p>
-          <p v-if="settings.tts.engine === 'openai'" class="hint">{{ t('set.tts.openai') }}</p>
-          <p v-if="settings.tts.engine === 'eleven'" class="hint">{{ t('set.tts.eleven') }}</p>
-          <p v-if="settings.tts.engine === 'gemini'" class="hint">{{ t('set.tts.gemini') }}</p>
-          <p v-if="settings.tts.engine === 'mimo'" class="hint">{{ t('set.tts.mimo') }}</p>
-          <div v-if="settings.tts.engine === 'qwen'" class="speech-status">
-            <p class="hint">
-              {{ speechStatus?.tts.message || t('set.asr.status') }}
-              <template v-if="speechStatus?.tts.gpu"> · {{ t('set.tts.gpu') }}</template>
-            </p>
-            <n-button size="small"
-                      :loading="warmingTts || !!speechStatus?.tts.loading || !!speechStatus?.tts.downloading"
-                      @click="warmup('tts')">{{ t('set.tts.load') }}</n-button>
-          </div>
-        </div>
-      </n-tab-pane>
-      <n-tab-pane name="download" :tab="t('settings.download')">
-        <div class="form">
-          <h3 class="section-title">版本更新</h3>
-          <p class="hint">当前本地版本：{{ CURRENT_VERSION === 'dev' ? '开发版（未打包）' : CURRENT_VERSION }}</p>
-          <label>{{ t('set.dl.token') }}</label>
-          <n-input v-model:value="settings.download.aplaybox_token" type="password"
-                   show-password-on="click" :placeholder="t('set.dl.ph')" />
-          <p class="hint">{{ t('set.dl.hint') }}</p>
-        </div>
-      </n-tab-pane>
-      <n-tab-pane name="quality" :tab="t('settings.quality')">
-        <div class="form">
-          <div class="switch-row">
-            <span>{{ t('set.q.physics') }}</span>
-            <n-switch v-model:value="settings.quality.physics"
-                      @update:value="onPhysics" />
-          </div>
-          <p class="hint">{{ t('set.q.physicsHint') }}</p>
-          <div v-if="characters.modelInfo?.supportsPbr" class="switch-row">
-            <span>{{ t('set.q.pbr') }}</span>
-            <n-switch v-model:value="settings.quality.pbr" @update:value="settings.applyQuality()" />
-          </div>
-          <div class="switch-row">
-            <span>{{ t('set.q.live2d') }}</span>
-            <n-switch v-model:value="settings.quality.live2d_enabled"
-                      @update:value="onLive2D" />
-          </div>
-          <p class="hint">{{ t('set.q.live2dHint') }}</p>
-          <label>{{ t('set.q.dpr') }}</label>
-          <n-slider v-model:value="settings.quality.pixel_ratio_cap"
-                    :min="1" :max="3" :step="0.5" />
-          <label>{{ t('set.q.light') }}</label>
-          <n-slider v-model:value="settings.quality.light_level"
-                    :min="0.5" :max="1.5" :step="0.05"
-                    :format-tooltip="(v: number) => v.toFixed(2) + '×'"
-                    @update:value="settings.applyQuality()" />
-          <LightingControls />
-          <label>{{ t('set.q.bgm') }}</label>
-          <n-slider v-model:value="settings.quality.bgm_volume"
-                    :min="0" :max="1" :step="0.05"
-                    :format-tooltip="(v: number) => Math.round(v * 100) + '%'"
-                    @update:value="settings.applyQuality()" />
-          <label>{{ t('set.q.presets') }}</label>
-          <p v-if="settings.modules.scenes" class="hint">{{ t('set.q.sceneOn') }}</p>
-          <div class="scene-presets">
-            <div v-for="s in SCENE_PRESETS" :key="s.value" class="scene-card"
-                 :class="{ active: settings.modules.scenes
-                   ? sceneSession.current?.background === s.value
-                   : settings.quality.background_image === s.value }"
-                  :title="t('set.scene.' + s.key)" @click="pickPresetLook(s)">
-              <img :src="s.value" :alt="t('set.scene.' + s.key)" loading="lazy" />
-              <span>{{ t('set.scene.' + s.key) }}</span>
-            </div>
-          </div>
-          <label>{{ t('set.q.solid') }}</label>
-          <div class="bg-presets">
-            <div v-for="p in BG_PRESETS" :key="p.value" class="bg-swatch"
-                 :class="{ active: !settings.quality.background_image
-                             && settings.quality.background_color === p.value }"
-                 :style="{ background: p.value }" :title="t('set.bg.' + p.key)"
-                 @click="pickBgColor(p.value)" />
-            <n-color-picker
-              :value="settings.quality.background_color" :show-alpha="false"
-              :modes="['hex']" class="bg-picker"
-              @update:value="pickBgColor" />
-          </div>
-          <div class="bg-image-row">
-            <n-button size="small" @click="bgFileInput?.click()">
-              {{ settings.quality.background_image ? t('set.q.changeImage') : t('set.q.useImage') }}
-            </n-button>
-            <n-button v-if="settings.quality.background_image" size="small" quaternary
-                      @click="clearBgImage">{{ t('set.q.clearImage') }}</n-button>
-            <input ref="bgFileInput" type="file" accept="image/*" hidden
-                   @change="onBgImageChosen" />
-          </div>
-          <div class="switch-row" style="margin-top: 10px">
-            <span>{{ t('set.q.stage') }}</span>
-            <n-switch v-model:value="settings.quality.stage_show"
-                      @update:value="settings.applyQuality()" />
-          </div>
-          <template v-if="settings.quality.stage_show">
-            <div class="style-chips">
-              <n-button v-for="style in STAGE_STYLES" :key="style" size="tiny" round
-                        :type="settings.quality.stage_style === style ? 'primary' : 'default'"
-                        :secondary="settings.quality.stage_style !== style"
-                        @click="settings.quality.stage_style = style; settings.applyQuality()">
-                {{ t('set.stage.' + style) }}
-              </n-button>
-            </div>
-            <label>{{ t('set.q.tex') }}</label>
-            <div class="tex-presets">
-              <div v-for="tex in STAGE_TEXTURES" :key="tex.key" class="tex-card"
-                   :class="{ active: settings.quality.stage_texture === tex.value }"
-                   :title="t('set.tex.' + tex.key)"
-                   @click="settings.quality.stage_texture = tex.value; settings.applyQuality()">
-                <img v-if="tex.value" :src="tex.value" :alt="t('set.tex.' + tex.key)" loading="lazy" />
-                <div v-else class="tex-none"
-                     :style="{ background: settings.quality.stage_color }" />
-                <span>{{ t('set.tex.' + tex.key) }}</span>
+        </template>
+        <template v-if="section === 'ai'">
+          <div class="form">
+            <PanelGroup tone="teal" :title="t('set.group.connection')">
+              <label>{{ t('set.llm.label') }}</label>
+              <NativeSelect :value="currentPreset" :options="llmPresetOptions" filterable
+                        :placeholder="t('set.llm.ph')"
+                        @update:value="applyLlmPreset" />
+              <label>{{ t('set.llm.url') }}</label>
+              <n-input v-model:value="settings.llm.base_url"
+                       placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
+              <label>API Key</label>
+              <n-input v-model:value="settings.llm.api_key" type="password"
+                       show-password-on="click" :placeholder="t('set.llm.keyPh')" />
+              <label>{{ t('set.llm.model') }}</label>
+              <n-input v-model:value="settings.llm.model"
+                       placeholder="qwen-plus / deepseek-chat / ep-…" />
+              <p v-if="currentPreset === 'mimo' || currentPreset === 'mimo_pro'" class="hint">{{ t('set.llm.mimoHint') }}</p>
+              <p v-if="showEndpointHint" class="hint warn">{{ t('set.llm.endpoint') }}</p>
+              <div>
+                <n-button size="small" type="primary" secondary
+                          :loading="testing" @click="testLlm">{{ t('settings.test') }}</n-button>
               </div>
-            </div>
-            <div class="stage-colors">
-              <div class="stage-color-item">
-                <span>{{ t('set.q.stageColor') }}</span>
-                <n-color-picker v-model:value="settings.quality.stage_color"
-                                :show-alpha="false" :modes="['hex']" class="bg-picker"
-                                @update:value="settings.applyQuality()" />
+              <p v-if="settings.llm_env || settings.llm_local" class="hint">{{ t('set.llm.env') }}</p>
+              <p class="hint">{{ t('set.llm.hint') }}</p>
+              <p class="hint">{{ t('set.llm.nokey') }}</p>
+            </PanelGroup>
+            <PanelGroup tone="violet" :title="t('set.group.generation')" collapsible>
+              <label>{{ t('set.llm.think') }}</label>
+              <NativeSelect v-model:value="settings.llm.thinking" :options="thinkingOptions" />
+              <p class="hint">{{ t('set.llm.thinkHint') }}</p>
+              <label>{{ t('set.llm.temp', { n: settings.llm.temperature.toFixed(2) }) }}</label>
+              <n-slider v-model:value="settings.llm.temperature"
+                        :min="0" :max="1.5" :step="0.05" />
+              <label>{{ t('set.llm.topp', { n: settings.llm.top_p.toFixed(2) }) }}</label>
+              <n-slider v-model:value="settings.llm.top_p"
+                        :min="0.1" :max="1" :step="0.05" />
+              <label>{{ t('set.llm.max') }}</label>
+              <n-input-number v-model:value="settings.llm.max_tokens"
+                              :min="0" :max="32768" :step="256" style="width: 200px" />
+            </PanelGroup>
+            <PanelGroup tone="blue" :title="t('set.group.harness')" collapsible>
+              <label>{{ t('set.llm.harness') }}</label>
+              <n-input v-model:value="settings.llm.harness_model"
+                       :placeholder="t('set.llm.harnessPh')" />
+              <label>{{ t('set.llm.harnessUrl') }}</label>
+              <n-input v-model:value="settings.llm.harness_base_url"
+                       :placeholder="t('set.llm.harnessUrlPh')" />
+              <label>{{ t('set.llm.harnessKey') }}</label>
+              <n-input v-model:value="settings.llm.harness_api_key" type="password"
+                       show-password-on="click" :placeholder="t('set.llm.harnessKeyPh')" />
+              <p class="hint">{{ t('set.llm.harnessHint') }}</p>
+            </PanelGroup>
+          </div>
+        </template>
+        <template v-if="section === 'omni'">
+          <div class="form">
+            <PanelGroup tone="teal" :title="t('set.group.connection')">
+              <p class="hint">{{ t('set.omni.hint') }}</p>
+              <label>{{ t('set.omni.chat') }}</label>
+              <n-input v-model:value="settings.omni.chat_url"
+                       placeholder="https://api.modelbest.cn/v1" />
+              <label>{{ t('set.omni.realtime') }}</label>
+              <n-input v-model:value="settings.omni.realtime_host"
+                       placeholder="https://minicpmo45.modelbest.cn" />
+              <label>{{ t('set.omni.model') }}</label>
+              <n-input v-model:value="settings.omni.model" placeholder="MiniCPM-O-4.5-9B" />
+              <label>{{ t('set.omni.key') }}</label>
+              <n-input v-model:value="settings.omni.api_key" type="password"
+                       show-password-on="click"
+                       :placeholder="t('set.omni.keyPh')" />
+              <p v-if="settings.omni_env" class="hint">{{ t('set.omni.env') }}</p>
+            </PanelGroup>
+            <PanelGroup tone="violet" :title="t('set.group.test')">
+              <label>{{ t('set.omni.sentence') }}</label>
+              <n-input v-model:value="omniPrompt" type="textarea"
+                       :autosize="{ minRows: 2, maxRows: 4 }"
+                       :placeholder="t('set.omni.sample')" />
+              <div class="bg-image-row">
+                <n-button size="small" @click="pickOmniImage">
+                  {{ omniImageName || t('set.omni.image') }}
+                </n-button>
+                <n-button v-if="omniImageName" size="small" @click="clearOmniImage">{{ t('set.omni.clearImage') }}</n-button>
+                <input ref="omniImg" type="file" accept="image/*" hidden @change="onOmniImage" />
               </div>
-              <div class="stage-color-item">
-                <span>{{ t('set.q.glow') }}</span>
-                <n-color-picker v-model:value="settings.quality.stage_glow"
-                                :show-alpha="false" :modes="['hex']" class="bg-picker"
-                                @update:value="settings.applyQuality()" />
+              <div class="omni-actions">
+                <n-button size="small" type="primary" secondary
+                          :loading="omniBusy" :disabled="omniBusy"
+                          @click="runOmniTest('chat')">{{ t('settings.testText') }}</n-button>
+                <n-button size="small" type="primary"
+                          :loading="omniBusy" :disabled="omniBusy"
+                          @click="runOmniTest('speech')">{{ t('settings.testSpeech') }}</n-button>
+                <n-button v-if="omniBusy" size="small" @click="omniAbort?.abort()">{{ t('settings.cancel') }}</n-button>
               </div>
-            </div>
-            <label>{{ t('set.q.opacity') }}</label>
-            <n-slider v-model:value="settings.quality.stage_opacity"
-                      :min="0.15" :max="1" :step="0.05"
-                      :format-tooltip="(v: number) => Math.round(v * 100) + '%'"
-                      @update:value="settings.applyQuality()" />
-          </template>
-          <p class="hint">{{ t('set.q.hint') }}</p>
-        </div>
-      </n-tab-pane>
-    </n-tabs>
+              <p v-if="omniHint" class="hint">{{ omniHint }}</p>
+              <p v-if="omniReply" class="omni-reply">{{ omniReply }}</p>
+            </PanelGroup>
+          </div>
+        </template>
+        <template v-if="section === 'voice'">
+          <div class="form">
+            <PanelGroup tone="teal" :title="t('set.asr.title')">
+              <label>{{ t('set.asr.engine') }}</label>
+              <NativeSelect v-model:value="settings.stt.engine" :options="asrEngineOptions" />
+              <p class="hint">{{ t('set.asr.hint') }}</p>
+              <p v-if="settings.stt.engine === 'ali' || settings.stt.engine === 'volc'" class="hint">{{ t('set.asr.cloud') }}</p>
+              <p v-if="settings.stt.engine === 'openai' || settings.stt.engine === 'eleven' || settings.stt.engine === 'gemini'" class="hint">{{ t('set.asr.cloudIntl') }}</p>
+              <div v-if="settings.stt.engine === 'sensevoice'" class="speech-status">
+                <p class="hint">{{ speechStatus?.asr.message || t('set.asr.status') }}</p>
+                <n-button size="small" :loading="warmingAsr || !!speechStatus?.asr.downloading"
+                          @click="warmup('asr')">{{ t('set.asr.warmup') }}</n-button>
+              </div>
+            </PanelGroup>
+            <PanelGroup tone="rose" :title="t('set.tts.title')">
+              <label>{{ t('set.tts.engine') }}</label>
+              <NativeSelect v-model:value="settings.tts.engine" :options="ttsEngineOptions" />
+              <div v-if="settings.tts.engine === 'tera'" class="speech-status">
+                <p class="hint">{{ speechStatus?.tera.message || (speechStatus?.tera.installed ? 'TeraTTSv2 ✓' : t('set.tera.missing')) }}</p>
+                <n-button size="small" :loading="!!speechStatus?.tera.downloading"
+                          @click="async () => { await api.downloadTera(); await refreshSpeechStatus(); }">{{ t('set.tera.download') }}</n-button>
+                <n-button size="small" :loading="!!speechStatus?.tera.gpu_downloading"
+                          @click="async () => { await api.downloadTeraGpu(); await refreshSpeechStatus(); }">{{ t('set.tera.gpu') }} {{ speechStatus?.tera.gpu_runtime ? '✓' : '' }}</n-button>
+                <n-button size="small" :loading="!!speechStatus?.tera.loading"
+                          :disabled="!speechStatus?.tera.installed || !speechStatus?.tera.gpu_runtime"
+                          @click="async () => { await api.warmupTera(); await refreshSpeechStatus(); }">{{ t('set.tera.warmup') }}</n-button>
+                <a href="https://huggingface.co/TeraSpace/TeraTTSv2" target="_blank" rel="noopener noreferrer">TeraTTSv2 · Hugging Face</a>
+                <p class="hint">{{ t('set.tera.hint') }}</p>
+              </div>
+              <template v-if="settings.tts.engine === 'qwen'">
+                <label>{{ t('set.tts.size') }}</label>
+                <NativeSelect v-model:value="settings.tts.qwen_size" :options="qwenSizeOptions" />
+                <p class="hint">
+                  {{ t('set.tts.sizeLead') }}
+                  0.6B {{ speechStatus?.tts.sizes?.['0.6b']?.installed ? t('set.tts.local') : t('set.tts.missing') }}
+                  · 1.7B {{ speechStatus?.tts.sizes?.['1.7b']?.installed ? t('set.tts.local') : t('set.tts.missingBig') }}
+                  <template v-if="speechStatus?.tts.size">
+                    · {{ t('set.tts.ram', { size: speechStatus.tts.size === '1.7b' ? '1.7B' : '0.6B' }) }}
+                  </template>
+                </p>
+                <label>{{ t('set.tts.style') }}</label>
+                <NativeSelect v-model:value="settings.tts.qwen_style" :options="qwenStyleOptions" />
+                <n-input v-if="settings.tts.qwen_style === 'custom'"
+                         v-model:value="settings.tts.qwen_instruct" type="textarea"
+                         :autosize="{ minRows: 2, maxRows: 4 }"
+                         :placeholder="t('set.tts.stylePh')" />
+                <p class="hint">{{ t('set.tts.styleHint') }}</p>
+              </template>
+              <label>{{ t('set.tts.voice') }}</label>
+              <NativeSelect v-model:value="settings.tts.voice" :options="voiceOptions" filterable
+                        :fallback-option="false" :placeholder="t('set.tts.voicePh')"
+                        :disabled="!ttsNeedsVoice" />
+              <p class="hint">{{ t('set.tts.voiceHint') }}</p>
+              <p v-if="settings.tts.engine === 'cosy'" class="hint">{{ t('set.tts.cosy') }}</p>
+              <p v-if="settings.tts.engine === 'volc'" class="hint">{{ t('set.tts.volc') }}</p>
+              <p v-if="settings.tts.engine === 'openai'" class="hint">{{ t('set.tts.openai') }}</p>
+              <p v-if="settings.tts.engine === 'eleven'" class="hint">{{ t('set.tts.eleven') }}</p>
+              <p v-if="settings.tts.engine === 'gemini'" class="hint">{{ t('set.tts.gemini') }}</p>
+              <p v-if="settings.tts.engine === 'mimo'" class="hint">{{ t('set.tts.mimo') }}</p>
+              <div v-if="settings.tts.engine === 'qwen'" class="speech-status">
+                <p class="hint">
+                  {{ speechStatus?.tts.message || t('set.asr.status') }}
+                  <template v-if="speechStatus?.tts.gpu"> · {{ t('set.tts.gpu') }}</template>
+                </p>
+                <n-button size="small"
+                          :loading="warmingTts || !!speechStatus?.tts.loading || !!speechStatus?.tts.downloading"
+                          @click="warmup('tts')">{{ t('set.tts.load') }}</n-button>
+              </div>
+            </PanelGroup>
+            <PanelGroup tone="violet" :title="t('set.group.voiceFlow')" collapsible>
+              <label>{{ t('set.tts.duplex') }}</label>
+              <NativeSelect v-model:value="settings.tts.duplex_cmd" :options="duplexCmdOptions" />
+              <label>{{ t('set.tts.remain', { n: Number(settings.tts.duplex_remain_sec).toFixed(1) }) }}</label>
+              <n-slider v-model:value="settings.tts.duplex_remain_sec"
+                        :min="1" :max="8" :step="0.5" />
+              <label>{{ t('set.tts.delayed', { n: settings.tts.duplex_delayed_sec }) }}</label>
+              <n-slider v-model:value="settings.tts.duplex_delayed_sec"
+                        :min="0" :max="40" :step="1" />
+              <label>{{ t('set.tts.proactive', { n: settings.tts.duplex_proactive_sec }) }}</label>
+              <n-slider v-model:value="settings.tts.duplex_proactive_sec"
+                        :min="0" :max="90" :step="1" />
+              <label>{{ t('set.tts.goodbye', { n: settings.tts.duplex_goodbye_sec }) }}</label>
+              <n-slider v-model:value="settings.tts.duplex_goodbye_sec"
+                        :min="0" :max="300" :step="5" />
+              <label>{{ t('set.tts.session') }}</label>
+              <n-slider v-model:value="settings.tts.duplex_session_max_min"
+                        :min="0" :max="60" :step="1" />
+              <div class="preference">
+                <div>
+                  <strong>{{ t('set.tts.ingress') }}</strong>
+                  <p class="hint">{{ t('set.tts.duplexHint') }}</p>
+                </div>
+                <n-switch :aria-label="t('set.tts.ingress')" v-model:value="settings.tts.duplex_ingress" />
+              </div>
+            </PanelGroup>
+            <PanelGroup tone="amber" :title="t('set.tavern.cast')" collapsible>
+              <p class="hint">{{ t('set.tavern.castHint') }}</p>
+              <template v-for="seat in tavernSeats" :key="seat">
+                <label>{{ t('set.tavern.' + seat) }}</label>
+                <NativeSelect :value="tavernCastValue(seat)" :options="tavernCastOptions" filterable
+                          @update:value="(value) => setTavernCast(seat, String(value || ''))" />
+              </template>
+            </PanelGroup>
+            <PanelGroup tone="blue" :title="t('set.persona.title')" collapsible>
+              <p class="hint">{{ t('set.persona.hint') }}</p>
+              <div class="switch-row">
+                <n-switch :value="settings.user_persona.enabled"
+                          @update:value="(v: boolean) => { settings.user_persona.enabled = v; }" />
+                <span>{{ t('set.persona.enabled') }}</span>
+              </div>
+              <template v-if="settings.user_persona.enabled">
+                <label>{{ t('set.persona.name') }}</label>
+                <n-input v-model:value="settings.user_persona.name"
+                         :placeholder="t('set.persona.namePh')" />
+                <label>{{ t('set.persona.desc') }}</label>
+                <n-input v-model:value="settings.user_persona.description" type="textarea"
+                         :autosize="{ minRows: 3, maxRows: 8 }"
+                         :placeholder="t('set.persona.descPh')" />
+              </template>
+            </PanelGroup>
+            <p v-if="hwHint" class="hint">{{ hwHint }}</p>
+          </div>
+        </template>
+        <template v-if="section === 'download'">
+          <div class="form">
+            <PanelGroup tone="teal" :title="t('set.group.version')">
+              <p class="version-value">{{ CURRENT_VERSION === 'dev' ? t('set.group.devVersion') : CURRENT_VERSION }}</p>
+            </PanelGroup>
+            <PanelGroup tone="blue" :title="t('set.group.downloadAccess')">
+              <label>{{ t('set.dl.token') }}</label>
+              <n-input v-model:value="settings.download.aplaybox_token" type="password"
+                       show-password-on="click" :placeholder="t('set.dl.ph')" />
+              <p class="hint">{{ t('set.dl.hint') }}</p>
+            </PanelGroup>
+          </div>
+        </template>
+        <template v-if="section === 'quality'">
+          <div class="form">
+            <PanelGroup tone="rose" :title="t('set.group.background')">
+              <label>{{ t('set.q.presets') }}</label>
+              <p v-if="settings.modules.scenes" class="hint">{{ t('set.q.sceneOn') }}</p>
+              <div class="scene-presets">
+                <button v-for="s in SCENE_PRESETS" :key="s.value" type="button" class="scene-card"
+                      :aria-pressed="settings.modules.scenes
+                        ? sceneSession.current?.background === s.value
+                        : settings.quality.background_image === s.value"
+                     :class="{ active: settings.modules.scenes
+                       ? sceneSession.current?.background === s.value
+                       : settings.quality.background_image === s.value }"
+                      :title="t('set.scene.' + s.key)" @click="pickPresetLook(s)">
+                  <img :src="s.value" alt="" loading="lazy" />
+                  <span>{{ t('set.scene.' + s.key) }}</span>
+                </button>
+              </div>
+              <label>{{ t('set.q.solid') }}</label>
+              <div class="bg-presets">
+                <button v-for="p in BG_PRESETS" :key="p.value" type="button" class="bg-swatch"
+                     :aria-pressed="!settings.quality.background_image && settings.quality.background_color === p.value"
+                     :aria-label="t('set.bg.' + p.key)"
+                     :class="{ active: !settings.quality.background_image
+                                 && settings.quality.background_color === p.value }"
+                     :style="{ background: p.value }" :title="t('set.bg.' + p.key)"
+                     @click="pickBgColor(p.value)" />
+                <n-color-picker
+                  :value="settings.quality.background_color" :show-alpha="false"
+                  :modes="['hex']" class="bg-picker"
+                  @update:value="pickBgColor" />
+              </div>
+              <div class="bg-image-row">
+                <n-button size="small" @click="bgFileInput?.click()">
+                  {{ settings.quality.background_image ? t('set.q.changeImage') : t('set.q.useImage') }}
+                </n-button>
+                <n-button v-if="settings.quality.background_image" size="small" quaternary
+                          @click="clearBgImage">{{ t('set.q.clearImage') }}</n-button>
+                <input ref="bgFileInput" type="file" accept="image/*" hidden
+                       @change="onBgImageChosen" />
+              </div>
+            </PanelGroup>
+            <PanelGroup tone="teal" :title="t('set.group.render')">
+              <div class="switch-row">
+                <span>{{ t('set.q.physics') }}</span>
+                <n-switch v-model:value="settings.quality.physics"
+                          @update:value="onPhysics" />
+              </div>
+              <p class="hint">{{ t('set.q.physicsHint') }}</p>
+              <div v-if="characters.modelInfo?.supportsPbr" class="switch-row">
+                <span>{{ t('set.q.pbr') }}</span>
+                <n-switch v-model:value="settings.quality.pbr" @update:value="settings.applyQuality()" />
+              </div>
+              <div class="switch-row">
+                <span>{{ t('set.q.live2d') }}</span>
+                <n-switch v-model:value="settings.quality.live2d_enabled"
+                          @update:value="onLive2D" />
+              </div>
+              <p class="hint">{{ t('set.q.live2dHint') }}</p>
+              <label>{{ t('set.q.dpr') }}</label>
+              <n-slider v-model:value="settings.quality.pixel_ratio_cap"
+                        :min="1" :max="3" :step="0.5" />
+            </PanelGroup>
+            <PanelGroup tone="amber" :title="t('set.group.lighting')">
+              <label>{{ t('set.q.light') }}</label>
+              <n-slider v-model:value="settings.quality.light_level"
+                        :min="0.5" :max="1.5" :step="0.05"
+                        :format-tooltip="(v: number) => v.toFixed(2) + '×'"
+                        @update:value="settings.applyQuality()" />
+            </PanelGroup>
+            <PanelGroup tone="amber" :title="t('set.group.lightAdvanced')" collapsible>
+              <LightingControls />
+            </PanelGroup>
+            <PanelGroup tone="blue" :title="t('set.group.audio')">
+              <label>{{ t('set.q.bgm') }}</label>
+              <n-slider v-model:value="settings.quality.bgm_volume"
+                        :min="0" :max="1" :step="0.05"
+                        :format-tooltip="(v: number) => Math.round(v * 100) + '%'"
+                        @update:value="settings.applyQuality()" />
+            </PanelGroup>
+            <PanelGroup tone="violet" :title="t('set.group.floor')">
+              <div class="switch-row">
+                <span>{{ t('set.q.stage') }}</span>
+                <n-switch :aria-label="t('set.q.stage')" v-model:value="settings.quality.stage_show"
+                          @update:value="settings.applyQuality()" />
+              </div>
+              <template v-if="settings.quality.stage_show">
+                <div class="style-chips">
+                  <n-button v-for="style in STAGE_STYLES" :key="style" size="tiny" round
+                            :type="settings.quality.stage_style === style ? 'primary' : 'default'"
+                            :secondary="settings.quality.stage_style !== style"
+                            @click="settings.quality.stage_style = style; settings.applyQuality()">
+                    {{ t('set.stage.' + style) }}
+                  </n-button>
+                </div>
+                <label>{{ t('set.q.tex') }}</label>
+                <div class="tex-presets">
+                  <button v-for="tex in STAGE_TEXTURES" :key="tex.key" type="button" class="tex-card"
+                       :aria-pressed="settings.quality.stage_texture === tex.value"
+                       :class="{ active: settings.quality.stage_texture === tex.value }"
+                       :title="t('set.tex.' + tex.key)"
+                       @click="settings.quality.stage_texture = tex.value; settings.applyQuality()">
+                    <img v-if="tex.value" :src="tex.value" alt="" loading="lazy" />
+                    <div v-else class="tex-none"
+                         :style="{ background: settings.quality.stage_color }" />
+                    <span>{{ t('set.tex.' + tex.key) }}</span>
+                  </button>
+                </div>
+                <div class="stage-colors">
+                  <div class="stage-color-item">
+                    <span>{{ t('set.q.stageColor') }}</span>
+                    <n-color-picker v-model:value="settings.quality.stage_color"
+                                    :show-alpha="false" :modes="['hex']" class="bg-picker"
+                                    @update:value="settings.applyQuality()" />
+                  </div>
+                  <div class="stage-color-item">
+                    <span>{{ t('set.q.glow') }}</span>
+                    <n-color-picker v-model:value="settings.quality.stage_glow"
+                                    :show-alpha="false" :modes="['hex']" class="bg-picker"
+                                    @update:value="settings.applyQuality()" />
+                  </div>
+                </div>
+                <label>{{ t('set.q.opacity') }}</label>
+                <n-slider v-model:value="settings.quality.stage_opacity"
+                          :min="0.15" :max="1" :step="0.05"
+                          :format-tooltip="(v: number) => Math.round(v * 100) + '%'"
+                          @update:value="settings.applyQuality()" />
+              </template>
+              <p class="hint">{{ t('set.q.hint') }}</p>
+            </PanelGroup>
+          </div>
+        </template>
+      </div>
+    </div>
     <template #footer>
       <div style="display:flex;justify-content:flex-end;gap:10px;width:100%">
         <n-button @click="emit('update:show', false)">{{ t('settings.cancel') }}</n-button>
-        <n-button type="primary" @click="save">{{ t('settings.save') }}</n-button>
+        <n-button type="primary" :loading="savingSettings" @click="save">{{ t('settings.save') }}</n-button>
       </div>
     </template>
-    </n-drawer-content>
-  </n-drawer>
+  </StagePanel>
 </template>
 
 <style scoped>
-/* 标签比抽屉宽时会整行被裁掉。压回抽屉宽度并换行，下划线跟在每个标签自己底下。 */
-.settings-tabs {
-  width: 100%;
-  min-width: 0;
+.settings-layout {
+  display: grid;
+  grid-template-columns: minmax(110px, 26%) minmax(0, 1fr);
+  height: 100%;
 }
-
-.settings-tabs :deep(.n-tabs-nav),
-.settings-tabs :deep(.n-tabs-nav-scroll-wrapper),
-.settings-tabs :deep(.v-x-scroll) {
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-}
-
-.settings-tabs :deep(.v-x-scroll) {
-  overflow: visible;
-}
-
-.settings-tabs :deep(.n-tabs-nav-scroll-content) {
-  width: 100%;
-}
-
-.settings-tabs :deep(.n-tabs-wrapper) {
+.settings-index {
   display: flex;
-  flex-wrap: wrap;
-  width: 100%;
-  column-gap: 18px;
-  row-gap: 2px;
+  flex-direction: column;
+  gap: 5px;
+  align-self: stretch;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  padding: 16px 10px;
+  border-right: 1px solid var(--panel-line);
+  background: #1c172338;
 }
-
-.settings-tabs :deep(.n-tabs-tab-pad),
-.settings-tabs :deep(.n-tabs-scroll-padding) {
-  display: none;
+.settings-index button {
+  padding: 9px 11px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--panel-muted);
+  font: inherit;
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
 }
-
-.settings-tabs :deep(.n-tabs-bar) {
-  display: none;
+.settings-index button:hover { background: var(--panel-card); color: var(--panel-ink); }
+.settings-index button[aria-current] {
+  border-color: #ebc5a135;
+  background: #ebc5a118;
+  color: #f6d8bd;
 }
-
-.settings-tabs :deep(.n-tabs-tab--active) {
-  box-shadow: inset 0 -2px 0 var(--n-bar-color);
+.settings-index button:focus-visible { outline: 2px solid var(--panel-accent); outline-offset: -2px; }
+.settings-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #795e74 transparent;
+  padding: var(--panel-pad);
+}
+.settings-content h3 { margin: 0 0 16px; font-size: 18px; line-height: 1.35; }
+.settings-note { padding: 8px 2px; }
+.settings-note summary, .inline-options summary {
+  color: var(--panel-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.settings-note summary:hover, .inline-options summary:hover { color: var(--panel-accent); }
+.settings-note .hint + .hint { margin-top: 6px; }
+.preference {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding-block: 8px;
+}
+.preference + .preference, .inline-options + .preference { border-top: 1px solid var(--panel-line); }
+.preference strong { font-size: 13px; font-weight: 600; }
+.preference .hint { margin-bottom: 0; }
+.inline-options {
+  padding: 8px 10px;
+  border-left: 2px solid #ebc5a16b;
+  background: #1c172338;
+  border-radius: 0 8px 8px 0;
+}
+.inline-options-body { display: grid; gap: 6px; margin-top: 9px; }
+.version-value { color: var(--panel-muted); font-variant-numeric: tabular-nums; }
+@container stage-panel (max-width: 440px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0,1fr); }
+  .settings-index { flex-direction: row; padding: 8px; border-right: 0; border-bottom: 1px solid var(--panel-line); }
+  .settings-index button { flex: none; white-space: nowrap; }
 }
 
 .form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
 }
 
 .form label {
   font-size: 13px;
-  opacity: 0.8;
-  margin-top: 6px;
+  font-weight: 550;
+  color: var(--panel-ink);
+  margin-top: 4px;
 }
 
 .content-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
-
-.section-title {
-  margin: 12px 0 0;
-  font-size: 14px;
-  font-weight: 600;
-}
+.content-row :deep(.n-input) { flex: 1 1 140px; }
 
 .speech-status {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #1c172338;
 }
+.speech-status .hint { flex-basis: 100%; }
 
 .switch-row {
   display: flex;
@@ -1544,9 +1586,10 @@ async function toggleMod(key: keyof typeof settings.modules, on: boolean) {
 
 .hint {
   font-size: 12px;
-  opacity: 0.55;
-  line-height: 1.7;
-  margin-top: 4px;
+  color: var(--panel-muted);
+  line-height: 1.65;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
 }
 
 .hint.warn {
@@ -1604,8 +1647,20 @@ async function toggleMod(key: keyof typeof settings.modules, on: boolean) {
 
 .scene-presets {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 94px), 1fr));
   gap: 8px;
+}
+
+.scene-card, .tex-card {
+  min-width: 0;
+  padding: 0;
+  background: #231e2a;
+  color: var(--panel-ink);
+  font: inherit;
+}
+.scene-card:focus-visible, .tex-card:focus-visible, .bg-swatch:focus-visible {
+  outline: 2px solid var(--panel-accent);
+  outline-offset: 2px;
 }
 
 .scene-card {
@@ -1652,24 +1707,6 @@ async function toggleMod(key: keyof typeof settings.modules, on: boolean) {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 8px;
-}
-
-.danmaku {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 220px;
-  overflow: auto;
-}
-
-.danmaku li {
-  padding: 4px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  font-size: 13px;
-}
-
-.danmaku b {
-  margin-right: 6px;
 }
 
 .tex-card {

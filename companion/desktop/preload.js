@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('companionDesktop', {
   getPetSpot: () => ipcRenderer.invoke('get-pet-spot'),
   setPetSpot: (spot) => ipcRenderer.send('set-pet-spot', spot),
   minimize: () => ipcRenderer.send('window-minimize'),
+  setStartupWindow: (active) => ipcRenderer.send('window-startup', active),
   maximize: () => ipcRenderer.send('window-maximize'),
   close: () => ipcRenderer.send('window-close'),
   reload: () => ipcRenderer.invoke('reload-shell'),

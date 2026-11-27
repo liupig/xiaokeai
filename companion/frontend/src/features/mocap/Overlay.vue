@@ -52,7 +52,8 @@ function toggleLoop() {
 <template>
   <transition name="fade">
     <div v-if="mocapState.status !== 'idle'" class="overlay">
-      <div class="preview glass">
+      <section class="preview" aria-labelledby="mocap-preview-title">
+        <h2 id="mocap-preview-title">动作捕捉</h2>
         <div ref="wrap" class="video-wrap" :class="{ mirror: mocapState.source === 'camera' }">
           <div v-if="mocapState.status === 'starting'" class="hint">
             {{ mocapState.source === 'video' ? '正在加载视频与检测模型…' : '正在启动摄像头与检测模型…' }}
@@ -77,7 +78,7 @@ function toggleLoop() {
                     @click="toggleLoop">循环</n-button>
           <n-button size="tiny" type="warning" secondary @click="stop">停止</n-button>
         </div>
-      </div>
+      </section>
     </div>
   </transition>
 </template>
@@ -85,20 +86,26 @@ function toggleLoop() {
 <style scoped>
 .overlay {
   position: absolute;
-  left: 408px;
-  bottom: 20px;
-  z-index: 10;
+  top: calc(24px + var(--desk-chrome, 0px));
+  right: 24px;
+  z-index: 12;
   pointer-events: none;
 }
 
 .preview {
   pointer-events: auto;
-  padding: 8px;
-  width: 240px;
+  padding: 12px;
+  width: min(240px, calc(100vw - var(--stage-content-left, var(--stage-nav-clearance, 0px)) - 40px));
   display: flex;
   flex-direction: column;
   gap: 8px;
+  border: 1px solid #e8c5d035;
+  border-radius: 16px;
+  color: #f6ece9;
+  background: #282130f5;
+  box-shadow: 0 12px 32px #140f1b66;
 }
+.preview h2 { font-size: 14px; font-weight: 650; }
 
 .video-wrap {
   position: relative;

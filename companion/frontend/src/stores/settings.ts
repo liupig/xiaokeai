@@ -147,12 +147,9 @@ export const useSettingsStore = defineStore('settings', {
       };
       if (!this.locale_set && typeof navigator !== 'undefined') {
         const nav = navigator.language.toLowerCase();
-        const os = nav.startsWith('ru') ? 'ru' : nav.startsWith('ko') ? 'ko' : nav.startsWith('ja') ? 'ja' : nav.startsWith('en') ? 'en' : '';
-        if (os) {
-          this.locale = { ui: os, reply: os, reply_mode: 'fixed' };
-          this.tts.voice = alignVoice(this.tts.engine, this.tts.voice, os);
-          void this.save();
-        }
+        const os = nav.startsWith('zh') ? 'zh-CN' : nav.startsWith('ru') ? 'ru' : nav.startsWith('ko') ? 'ko' : nav.startsWith('ja') ? 'ja' : 'en';
+        this.locale = { ui: os, reply: os, reply_mode: 'fixed' };
+        this.tts.voice = alignVoice(this.tts.engine, this.tts.voice, os);
       }
       setUiLang(this.locale.ui);
       setReplyLang(this.locale.reply);
