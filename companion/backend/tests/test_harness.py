@@ -345,6 +345,23 @@ def test_character_model_asks_for_an_endpoint():
     assert "ep-" in ENDPOINT_HINT
 
 
+def test_ollama_base_becomes_the_messages_base():
+    from app.modules.harness.service import harness_llm, messages_base
+
+    base = "http://127.0.0.1:11434"
+    assert messages_base(base) == base
+    assert messages_base(f"{base}/v1/") == base
+    custom = "https://example.test/local-llm"
+    conf = harness_llm({
+        "base_url": f"{base}/v1",
+        "model": "qwen3:4b",
+        "api_key": "ollama",
+        "harness_base_url": f"{custom}/v1/messages",
+    })
+    assert conf["model"] == "qwen3:4b"
+    assert messages_base(conf["base_url"]) == custom
+
+
 def test_volc_openai_base_becomes_the_messages_base():
     from app.modules.harness.service import messages_base
 

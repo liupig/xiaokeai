@@ -98,16 +98,16 @@ def harness_llm(llm: Dict[str, Any] | None) -> Dict[str, Any]:
     """
     src = dict(llm or {})
     model = str(src.get("harness_model") or "").strip()
-    if not model:
+    base = str(src.get("harness_base_url") or "").strip()
+    key = str(src.get("harness_api_key") or "").strip()
+    if not (model or base or key):
         return src
-    from ...services.settings_store import apply_llm_overlay
 
     out = dict(apply_llm_overlay(src))
-    out["model"] = model
-    base = str(src.get("harness_base_url") or "").strip()
+    if model:
+        out["model"] = model
     if base:
         out["base_url"] = base
-    key = str(src.get("harness_api_key") or "").strip()
     if key:
         out["api_key"] = key
     return out
@@ -158,7 +158,8 @@ def character_model_needs_endpoint(model: str | None, base_url: str | None) -> b
 def messages_base(base_url: str | None) -> str | None:
     """dsh 官方适配器走 Anthropic Messages，钥匙放在 x-api-key。
 
-    设置里存的是 OpenAI 兼容地址。方舟的 /api/v3 不认这把钥匙的这种放法，
+    调用方会追加 /v1/messages。去掉 Ollama 等兼容地址末尾的 /v1 或 /v1/messages。
+    方舟的 /api/v3 不认这把钥匙的这种放法，
     同一把钥匙要打到 Messages 口：/api/v3 → /api/compatible，
     /api/coding/v3 和 /api/plan/v3 去掉末尾的 /v3。
     """
@@ -171,14 +172,18 @@ def messages_base(base_url: str | None) -> str | None:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return raw.rstrip("/")
     path = parsed.path.rstrip("/")
+    for suffix in ("/v1/messages", "/v1"):
+        if path.endswith(suffix):
+            path = path[:-len(suffix)]
+            break
     host = (parsed.hostname or "").lower()
     if host.endswith("volces.com") or host.endswith("volcengine.com"):
         if path.endswith("/v3"):
             parent = path[: -len("/v3")]
             path = "/api/compatible" if parent in {"", "/api"} else parent
-    elif host == "api.deepseek.com" and path in {"", "/v1"}:
+    elif host == "api.deepseek.com" and not path:
         path = "/anthropic"
-    elif host.endswith("xiaomimimo.com") and path in {"", "/v1"}:
+    elif host.endswith("xiaomimimo.com") and not path:
         # OpenAI 口是 /v1。技能目录走 Anthropic，口在 /anthropic/v1/messages。
         path = "/anthropic"
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
