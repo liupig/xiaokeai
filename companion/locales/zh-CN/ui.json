@@ -1080,6 +1080,7 @@
   "review.autoAdvance": "评分后跳转",
   "review.clearConfirm": "清空全部审查记录？此操作无法撤销。",
   "stageShell": {
+    "modelArriving": "小可爱即将登场",
     "controls": "舞台控制",
     "navigation": "舞台导航",
     "space": "我们的空间",

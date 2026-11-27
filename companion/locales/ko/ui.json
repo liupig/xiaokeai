@@ -1080,6 +1080,7 @@
   "review.autoAdvance": "평가 후 이동",
   "review.clearConfirm": "검토 기록을 모두 지울까요? 이 작업은 되돌릴 수 없습니다.",
   "stageShell": {
+    "modelArriving": "곧 샤오커가 등장해요",
     "controls": "무대 조작",
     "navigation": "무대 탐색",
     "space": "우리의 공간",

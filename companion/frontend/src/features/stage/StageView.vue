@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue';
-import { NSpin } from 'naive-ui';
 import { stage } from '../../engine/stage';
 import Live2DLayer from '../../engine/live2d/Live2DLayer.vue';
 import { installMocap } from '../mocap';
@@ -74,11 +73,14 @@ onBeforeUnmount(() => {
       <button class="stage-action" @click="leaveLifeStage">返回舞台</button>
     </div>
   </div>
-  <div v-if="!rendererError && (characters.modelLoading || (startingModel && !characters.modelInfo))" class="loading glass">
-    <n-spin size="small" />
-    <span>模型加载中…</span>
-  </div>
-  <div v-if="rendererError || characters.modelError" class="loading glass error" role="alert">
+  <Transition name="stage-arrival">
+    <div v-if="!rendererError && !characters.modelError && (characters.modelLoading || (startingModel && !characters.modelInfo))"
+         class="stage-arrival">
+      <div class="arrival-light" aria-hidden="true"></div>
+      <p class="arrival-caption" role="status"><span>{{ t('stageShell.modelArriving') }}</span></p>
+    </div>
+  </Transition>
+  <div v-if="rendererError || characters.modelError" class="stage-error glass" role="alert">
     <span>{{ rendererError || characters.modelError }}</span>
     <button type="button" class="retry-stage" @click="retryStage">{{ t('char.journal.retry') }}</button>
   </div>
@@ -133,7 +135,59 @@ onBeforeUnmount(() => {
   .life-navigation button { padding:7px 9px; }
 }
 
-.loading {
+.stage-arrival {
+  position: absolute;
+  inset-inline: 12px calc(var(--stage-content-right, 0px) + 12px);
+  inset-block: 0 var(--stage-content-bottom, 0px);
+  z-index: 5;
+  pointer-events: none;
+}
+.arrival-light {
+  position: absolute;
+  inset: 6% 0 8%;
+  background:
+    radial-gradient(ellipse min(33vw, 350px) 60% at 50% 34%, #ffdfb922, transparent 100%),
+    radial-gradient(ellipse min(27vw, 280px) 12% at 50% 89%, #f5bb8d36, transparent 100%);
+  transform-origin: 50% 88%;
+  transition: transform .42s cubic-bezier(.18, .75, .25, 1);
+}
+.arrival-caption {
+  position: absolute;
+  inset: auto 0 clamp(31px, 7vh, 68px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(8px, 1.7vw, 22px);
+  margin: 0;
+  color: #fff2e5;
+  font-size: clamp(11px, 1.35vw, 14px);
+  font-weight: 500;
+  letter-spacing: .13em;
+  text-align: center;
+  text-shadow: 0 1px 6px #160e20, 0 2px 18px #160e20;
+  transition: transform .35s cubic-bezier(.18, .75, .25, 1);
+}
+.arrival-caption::before, .arrival-caption::after {
+  content: '';
+  width: min(8vw, 68px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #f7c298b3);
+}
+.arrival-caption::after { scale: -1 1; }
+.stage-arrival-enter-active { transition: opacity .35s ease-out .18s; }
+.stage-arrival-enter-active :is(.arrival-light, .arrival-caption) { transition-delay: .18s; }
+.stage-arrival-leave-active { transition: opacity .3s ease-in; }
+.stage-arrival-enter-from, .stage-arrival-leave-to { opacity: 0; }
+.stage-arrival-enter-from .arrival-light { transform: scaleX(.74); }
+.stage-arrival-enter-from .arrival-caption { transform: translateY(6px); }
+.stage-arrival-leave-to .arrival-light { transform: scaleX(1.13); }
+.stage-arrival-leave-to .arrival-caption { transform: translateY(4px); }
+@media (prefers-reduced-motion: reduce) {
+  .stage-arrival-enter-active, .stage-arrival-leave-active,
+  .arrival-light, .arrival-caption { transition: none; }
+}
+
+.stage-error {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -144,9 +198,6 @@ onBeforeUnmount(() => {
   gap: 10px;
   font-size: 14px;
   z-index: 5;
-}
-
-.error {
   color: #ff8a8a;
   max-width: 60vw;
 }

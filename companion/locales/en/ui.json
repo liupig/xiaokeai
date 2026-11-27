@@ -1080,6 +1080,7 @@
   "review.autoAdvance": "Advance after rating",
   "review.clearConfirm": "Clear all review records? This cannot be undone.",
   "stageShell": {
+    "modelArriving": "Xiaoke is about to take the stage",
     "controls": "Stage controls",
     "navigation": "Stage navigation",
     "space": "Our Space",

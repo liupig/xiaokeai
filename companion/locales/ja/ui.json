@@ -1080,6 +1080,7 @@
   "review.autoAdvance": "採点後に移動",
   "review.clearConfirm": "すべての審査記録を削除しますか？この操作は取り消せません。",
   "stageShell": {
+    "modelArriving": "まもなく小可愛が登場します",
     "controls": "ステージ操作",
     "navigation": "ステージナビゲーション",
     "space": "ふたりの空間",

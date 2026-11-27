@@ -1080,6 +1080,7 @@
   "review.autoAdvance": "Далее после оценки",
   "review.clearConfirm": "Удалить все оценки? Отменить это действие нельзя.",
   "stageShell": {
+    "modelArriving": "Сяокэ скоро выйдет на сцену",
     "controls": "Управление",
     "navigation": "Навигация по сцене",
     "space": "Наше пространство",
