@@ -901,6 +901,7 @@
   "set.dl.token": "模之屋登录 Token（部分作品要求点赞/收藏后下载，需要登录态）",
   "set.dl.ph": "浏览器登录模之屋后，从开发者工具请求头里复制 token",
   "set.dl.hint": "获取方法：浏览器登录 aplaybox.com → F12 打开开发者工具 → 网络面板 → 任意 api.aplaybox.com 请求 → 请求头中的 token 字段。自动满足下载规则会用你的账号点赞/收藏/关注作品作者。",
+  "set.q.pbr": "PBR 材质",
   "set.q.physics": "物理模拟（头发/裙摆摆动，低配机可关闭）",
   "set.q.physicsHint": "仅对 PMX 模型有效。开关立刻生效并记住。",
   "set.q.live2d": "启用 Live2D（独立 2D 渲染模块）",

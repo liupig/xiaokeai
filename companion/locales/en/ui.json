@@ -901,6 +901,7 @@
   "set.dl.token": "aplaybox login token (some works download only after a like or save, which needs a login)",
   "set.dl.ph": "After you log in, copy token from a request header in the devtools",
   "set.dl.hint": "How to get it: log in at aplaybox.com, open devtools with F12, Network, any api.aplaybox.com request, the token header. Meeting a download rule will like, save, or follow with your account.",
+  "set.q.pbr": "PBR materials",
   "set.q.physics": "Physics (hair and skirt; turn off on a low-end machine)",
   "set.q.physicsHint": "PMX models only. The switch takes effect at once and is remembered.",
   "set.q.live2d": "Enable Live2D (independent 2D renderer)",

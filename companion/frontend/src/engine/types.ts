@@ -54,6 +54,7 @@ export type BoneMap = Record<BoneKey, string[]>;
 
 export interface QualityOptions {
   physics: boolean;
+  pbr?: boolean;
   pixelRatioCap: number;
   /** 灯光亮度倍率（0.5~1.5，默认 1） */
   lightLevel: number;

@@ -901,6 +901,7 @@
   "set.dl.token": "模之屋のログイン Token（一部の作品はいいねや保存のあとで、ログインが要る）",
   "set.dl.ph": "ログインしたあと、開発者ツールのリクエストヘッダから token をコピー",
   "set.dl.hint": "取り方：aplaybox.com にログイン → F12 → ネットワーク → api.aplaybox.com のリクエスト → ヘッダの token。ダウンロード条件を満たすとき、あなたのアカウントでいいね、保存、作者のフォローをする。",
+  "set.q.pbr": "PBR マテリアル",
   "set.q.physics": "物理（髪と裾。低スペックでは切ってよい）",
   "set.q.physicsHint": "PMX だけ。スイッチはすぐ効き、覚える。",
   "set.q.live2d": "Live2D を有効化（独立した 2D 描画）",

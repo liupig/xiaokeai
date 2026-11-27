@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>小可爱 · 胸廓素模</title>
+  <style>
+    * { box-sizing: border-box }
+    body { margin:0; background:#302f33; color:#f4efec; font:15px/1.4 "Microsoft YaHei",sans-serif }
+    main { height:100dvh; display:grid; grid-template-rows:1fr auto }
+    #view { position:relative; min-height:0; }
+    canvas { display:block; width:100%; height:100%; touch-action:none }
+    #status { position:absolute; inset:45% 0 auto; text-align:center }
+    nav { display:flex; flex-wrap:wrap; gap:.75rem 1.6rem; justify-content:center; align-items:center; padding:.85rem 1rem max(.85rem,env(safe-area-inset-bottom)); background:#252427 }
+    [role=group] { display:flex; flex-wrap:wrap; justify-content:center; gap:.3rem }
+    button, nav a { color:inherit; font:inherit; background:transparent; border:1px solid #666269; border-radius:6px; padding:.4rem .8rem; cursor:pointer }
+    nav a { text-decoration:none }
+    button[aria-pressed=true] { background:#eee6de; color:#292628; border-color:#eee6de }
+    button:focus-visible, nav a:focus-visible { outline:2px solid #e6c0a4; outline-offset:2px }
+    @media(max-width:480px) { nav {gap:.6rem} button {padding:.4rem .6rem} }
+  </style>
+</head>
+<body>
+  <main>
+    <div id="view"><canvas aria-label="可拖动旋转的胸廓灰模"></canvas><span id="status" role="status">正在载入底模…</span></div>
+    <nav aria-label="底模查看选项">
+      <a href="/?model=qingyi-delivery&amp;outfit=yuexiao-strapless&amp;hair=yuexiao">穿衣预览</a>
+      <div role="group" aria-label="底模版本">
+        <button data-shape="0" aria-pressed="false">上一版</button>
+        <button data-shape="1" aria-pressed="true">本次底模</button>
+      </div>
+      <div role="group" aria-label="视角">
+        <button data-angle="0" aria-pressed="true">正面对称光</button>
+        <button data-angle="38" aria-pressed="false">斜侧</button>
+        <button data-angle="58" aria-pressed="false">右腋侧</button>
+        <button data-angle="-58" aria-pressed="false">左腋侧</button>
+        <button data-angle="90" aria-pressed="false">正侧面</button>
+        <button data-angle="113" aria-pressed="false">参考图侧后方</button>
+      </div>
+    </nav>
+  </main>
+  <script type="module" src="/src/torso-study.ts"></script>
+</body>
+</html>

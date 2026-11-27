@@ -55,7 +55,7 @@ export const useSettingsStore = defineStore('settings', {
     locale_set: false,
     download: { aplaybox_token: '' },
     quality: {
-      physics: false, pixel_ratio_cap: 2, camera_follow: false, bgm_volume: 0.5,
+      physics: false, pbr: true, pixel_ratio_cap: 2, camera_follow: false, bgm_volume: 0.5,
       background_color: '#141420', background_image: '', light_level: 1,
       stage_show: true, stage_color: '#232342', stage_glow: '#5b5bd6', stage_style: 'classic',
       stage_texture: '', stage_opacity: 1, live2d_enabled: false,
@@ -230,6 +230,7 @@ export const useSettingsStore = defineStore('settings', {
       if (typeof this.quality.physics !== 'boolean') {
         this.quality.physics = false;
       }
+      this.quality.pbr ??= true;
       this.applyQuality();
       this.applyTts();
       api.getVoices().then((v) => {
@@ -318,6 +319,7 @@ export const useSettingsStore = defineStore('settings', {
     applyQuality() {
       stage.setQuality({
         physics: this.quality.physics,
+        pbr: this.quality.pbr,
         pixelRatioCap: this.quality.pixel_ratio_cap,
         lightLevel: this.quality.light_level,
       });

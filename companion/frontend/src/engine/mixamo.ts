@@ -287,6 +287,35 @@ export async function retargetMixamoClip(source: THREE.Group, rig: MixamoRig): P
         `${pair.target.name}.quaternion`, times, rotations.get(pair.target)!,
       ));
     }
+    // VMD uses the MMD grant solver during playback. FBX and xkmotion use a
+    // plain mixer, so also sample the PMX leg rotation grants for the deform
+    // bones and any garment guides that follow those same joints.
+    if (rig.format === 'pmx') {
+      const legTracks = new Map(rig.pairs
+        .filter(p => /^mixamorig(Left|Right)(UpLeg|Leg|Foot)$/.test(p.source) && source.getObjectByName(p.source))
+        .map(p => [p.target, rotations.get(p.target)!] as const));
+      const rotation = new THREE.Quaternion();
+      const inherited = new THREE.Quaternion();
+      rig.root.traverse(node => {
+        const mesh = node as THREE.SkinnedMesh;
+        const grants = mesh.geometry?.userData.MMD?.grants;
+        if (!mesh.isSkinnedMesh || !grants) return;
+        for (const grant of grants) {
+          if (!grant.affectRotation || grant.isLocal) continue;
+          const bone = mesh.skeleton.bones[grant.index];
+          const parent = legTracks.get(mesh.skeleton.bones[grant.parentIndex]);
+          if (!parent || !bone || rotations.has(bone) || legTracks.has(bone)) continue;
+          const values = new Float32Array(parent.length);
+          const bind = rig.rest.get(bone)!.quat;
+          for (let i = 0; i < parent.length; i += 4) {
+            rotation.fromArray(parent, i);
+            inherited.identity().slerp(rotation, grant.ratio).premultiply(bind).toArray(values, i);
+          }
+          tracks.push(new THREE.QuaternionKeyframeTrack(`${bone.name}.quaternion`, times, values));
+          legTracks.set(bone, values);
+        }
+      });
+    }
     tracks.push(new THREE.VectorKeyframeTrack(
       `${rig.hips.target.name}.position`, times, hipPositions,
     ));

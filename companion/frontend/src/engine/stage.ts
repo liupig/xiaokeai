@@ -10,6 +10,7 @@ import { MMDLoader, MMDPhysics } from 'three-stdlib';
 import type { VRM } from '@pixiv/three-vrm';
 
 import { makeMeshAvatar } from './avatar/mesh';
+import { loadMagnoliaMaterials, type MagnoliaMaterials } from './magnoliaMaterials';
 import { BgmPlayer } from './bgm';
 import { CameraRig, type IdleMoveKind } from './camera';
 import { PerformanceDirector } from './director';
@@ -278,6 +279,7 @@ export interface ModelInfo {
   format: string;
   morphNames: string[];
   supportsVmd: boolean;
+  supportsPbr?: boolean;
 }
 
 export interface ExternalStageController {
@@ -391,6 +393,7 @@ export class Stage {
   /** 每次拆掉画布加一，旧的渲染循环看到对不上就停 */
   private loopGen = 0;
   private loadSeq = 0;
+  private magnoliaMaterials: MagnoliaMaterials | null = null;
   private bgSeq = 0;
   private bgUrl = '';
   private bgTex: THREE.Texture | null = null;
@@ -618,6 +621,7 @@ export class Stage {
   setQuality(opts: Partial<QualityOptions>) {
     const wantPhysics = opts.physics;
     Object.assign(this.quality, opts);
+    if (opts.pbr !== undefined) this.magnoliaMaterials?.enable(opts.pbr);
     this.applyPixelRatio();
     this.applyLights();
     if (wantPhysics === false) {
@@ -1001,9 +1005,9 @@ export class Stage {
 
   /** 加载模型（.pmx / .vrm / .glb），自动卸载旧模型 */
   async loadModel(url: string): Promise<ModelInfo> {
-    const seq = ++this.loadSeq;
     const ext = url.toLowerCase().split('?')[0].split('.').pop() ?? '';
     this.unloadModel();
+    const seq = this.loadSeq;
 
     if (ext === 'pmx') {
       const manager = new THREE.LoadingManager();
@@ -1050,6 +1054,13 @@ export class Stage {
         disposeGpu(mmd);
         return Promise.reject(new Error('已被更新的加载取代'));
       }
+      const materials = await loadMagnoliaMaterials(mmd, url, this.scene.environment);
+      if (seq !== this.loadSeq) {
+        materials?.dispose();
+        disposeGpu(mmd);
+        throw new Error('已被更新的加载取代');
+      }
+      this.magnoliaMaterials = materials;
       return this.setupMMD(mmd, url);
     }
 
@@ -1124,6 +1135,7 @@ export class Stage {
       if (envMap) envMap.colorSpace = THREE.SRGBColorSpace;
       m.needsUpdate = true;
     }
+    this.magnoliaMaterials?.enable(this.quality.pbr !== false);
     // MMD 卡通材质自带环境色贡献，灯光基准略低于 PBR 模型
     // （此前压得更低是为掩盖贴图色彩空间 bug 的过曝假象，bug 已修复）
     this.lightBase = { key: 1.5, rim: 0.5, amb: 0.75 };
@@ -1279,9 +1291,28 @@ export class Stage {
       let created: MMDPhysics | null = null;
       let bones: PhysicsBone[] = [];
       try {
-        created = inMmdModelSpace(mmd, () => new MMDPhysics(mmd, bodyParams, ud.constraints));
+        created = inMmdModelSpace(mmd, () => {
+          if (!mmd.skeleton.getBoneByName('MX_Ribbon_0_1')) {
+            return new MMDPhysics(mmd, bodyParams, ud.constraints);
+          }
+          // Bullet computes joint frames at construction. Cuff chains are authored
+          // with the arms extended, even if physics is enabled midway through a wave.
+          const pose = mmd.skeleton.bones.map(b => [b.position.clone(), b.quaternion.clone()] as const);
+          try {
+            mmd.skeleton.pose();
+            mmd.updateMatrixWorld(true);
+            return new MMDPhysics(mmd, bodyParams, ud.constraints);
+          } finally {
+            mmd.skeleton.bones.forEach((b, i) => {
+              b.position.copy(pose[i][0]);
+              b.quaternion.copy(pose[i][1]);
+            });
+            mmd.updateMatrixWorld(true);
+          }
+        });
         this.initializePhysicsBones(created);
         bones = this.physicsBones;
+        if (mmd.skeleton.getBoneByName('MX_Ribbon_0_1')) this.resetMmdPhysics(created);
         created.warmup(60);
         this.physics = created;
         this.physicsHeld = created;
@@ -1377,12 +1408,16 @@ export class Stage {
       url, format,
       morphNames: this.avatar!.morphNames(),
       supportsVmd,
+      supportsPbr: !!this.magnoliaMaterials,
     };
     this.onModelReady?.(info);
     return info;
   }
 
   private unloadModel() {
+    this.loadSeq++;
+    this.magnoliaMaterials?.dispose();
+    this.magnoliaMaterials = null;
     this.danceRequest += 1;
     this.bgmGen += 1;
     this._danceLive = false;

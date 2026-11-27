@@ -1338,6 +1338,10 @@ async function toggleMod(key: keyof typeof settings.modules, on: boolean) {
                       @update:value="onPhysics" />
           </div>
           <p class="hint">{{ t('set.q.physicsHint') }}</p>
+          <div v-if="characters.modelInfo?.supportsPbr" class="switch-row">
+            <span>{{ t('set.q.pbr') }}</span>
+            <n-switch v-model:value="settings.quality.pbr" @update:value="settings.applyQuality()" />
+          </div>
           <div class="switch-row">
             <span>{{ t('set.q.live2d') }}</span>
             <n-switch v-model:value="settings.quality.live2d_enabled"

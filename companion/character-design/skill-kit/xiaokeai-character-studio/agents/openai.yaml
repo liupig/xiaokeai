@@ -1,0 +1,4 @@
+interface:
+  display_name: "小可爱风格角色制作"
+  short_description: "从参考定稿、Blender 造型和绑定，到全身材质与舞台交付"
+  default_prompt: "用 $xiaokeai-character-studio 按项目里的参考和底模制作角色，并在目标舞台验收交付。"
