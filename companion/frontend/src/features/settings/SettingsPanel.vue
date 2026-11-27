@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import NativeSelect from './NativeSelect.vue';
+import LightingControls from '../lighting/LightingControls.vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import {
   NButton, NColorPicker, NDrawer, NDrawerContent, NInput, NInputNumber, NSelect,
@@ -1356,6 +1357,7 @@ async function toggleMod(key: keyof typeof settings.modules, on: boolean) {
                     :min="0.5" :max="1.5" :step="0.05"
                     :format-tooltip="(v: number) => v.toFixed(2) + '×'"
                     @update:value="settings.applyQuality()" />
+          <LightingControls />
           <label>{{ t('set.q.bgm') }}</label>
           <n-slider v-model:value="settings.quality.bgm_volume"
                     :min="0" :max="1" :step="0.05"

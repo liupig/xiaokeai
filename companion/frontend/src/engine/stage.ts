@@ -3,7 +3,6 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { MMDLoader, MMDPhysics } from 'three-stdlib';
@@ -21,6 +20,8 @@ import { GLB_BONES, GLB_MORPHS, MMD_BONES, MMD_MORPHS } from './mappings';
 import { MotionPlayer } from './motion';
 import { isSmallPhysicsPart, PhysicsMotion } from './physicsMotion';
 import { isMotionRejected } from '../features/assets/motionMeta';
+import { readLighting, type LightingSettings } from '../features/lighting/preferences';
+import { applyCharacterLights, CharacterLighting, CharacterLightingPass } from '../features/lighting/rendering';
 import { StandController, type StandSlot } from './stand';
 import type { ActionKey, Avatar, BoneKey, CamPreset, CamShotId, EmotionKey, QualityOptions, TouchZone } from './types';
 
@@ -407,6 +408,8 @@ export class Stage {
   private quality: QualityOptions = { physics: false, pixelRatioCap: 2, lightLevel: 1 };
   // 当前模型类型的灯光基准值，乘以 lightLevel 得到实际强度
   private lightBase = { key: 1.8, rim: 1.0, amb: 0.9 };
+  private lighting = readLighting();
+  private characterLighting = new CharacterLighting();
   /** 桌宠：整屏透明，人物缩小，在画面里走动 */
   private petMode = false;
   private petHeld = false;
@@ -542,7 +545,7 @@ export class Stage {
     this.camRig = new CameraRig(this.camera, this.controls);
     if (this.petMode) {
       this.composer = new EffectComposer(this.renderer);
-      this.composer.addPass(new RenderPass(this.scene, this.camera));
+      this.composer.addPass(new CharacterLightingPass(this.scene, this.camera, this.characterLighting));
       this.fxaaPass = new ShaderPass(FXAAShader);
       this.composer.addPass(this.fxaaPass);
       this.outputPass = new OutputPass();
@@ -571,6 +574,7 @@ export class Stage {
     this.rimLight = new THREE.DirectionalLight(0x7788ff, 1.0);
     this.rimLight.position.set(-2, 1.6, -2.5);
     this.scene.add(this.rimLight);
+    this.applyLights();
 
     // 远景地面（纯色背景模式下与背景色融合），下沉到舞台底座下沿
     this.ground = new THREE.Mesh(
@@ -622,6 +626,9 @@ export class Stage {
     const wantPhysics = opts.physics;
     Object.assign(this.quality, opts);
     if (opts.pbr !== undefined) this.magnoliaMaterials?.enable(opts.pbr);
+    if (opts.pbr !== undefined && this.magnoliaMaterials && this.lighting.enabled) {
+      this.refreshCharacterLighting();
+    }
     this.applyPixelRatio();
     this.applyLights();
     if (wantPhysics === false) {
@@ -650,10 +657,25 @@ export class Stage {
 
   private applyLights() {
     if (!this.keyLight) return;
-    const k = this.quality.lightLevel || 1;
-    this.keyLight.intensity = this.lightBase.key * k;
-    this.rimLight.intensity = this.lightBase.rim * k;
-    this.ambient.intensity = this.lightBase.amb * k;
+    applyCharacterLights(
+      this.keyLight, this.rimLight, this.ambient, this.lightBase, this.quality.lightLevel || 1,
+      this.lighting.enabled ? this.lighting.profile : undefined,
+    );
+  }
+
+  setCharacterLighting(next: LightingSettings) {
+    const previous = this.lighting;
+    this.lighting = next;
+    this.applyLights();
+    if (previous.enabled !== next.enabled ||
+        previous.profile.toon !== next.profile.toon ||
+        previous.profile.outline !== next.profile.outline) {
+      this.refreshCharacterLighting();
+    }
+  }
+
+  private refreshCharacterLighting() {
+    this.characterLighting.attach(this.modelRoot, this.lighting.enabled ? this.lighting.profile : undefined);
   }
 
   /** 配置舞台底座：显隐、台面颜色、发光环颜色、风格、台面贴图、不透明度。改任何一项都整体重建（几何量很小） */
@@ -1390,6 +1412,7 @@ export class Stage {
     if (this.petMode) root.position.z = 0;
     this.camRig.focusX = this.stand.x;
     if (this.avatar) this.emit('onAvatarReady', root, this.avatar, this.vrm);
+    this.refreshCharacterLighting();
 
     // 根据模型头部实际高度设置镜头。桌宠保持自己的固定机位，避免被全身景别拉出画面。
     const head = this.avatar!.bone('head');
@@ -1416,6 +1439,7 @@ export class Stage {
 
   private unloadModel() {
     this.loadSeq++;
+    this.characterLighting.clear();
     this.magnoliaMaterials?.dispose();
     this.magnoliaMaterials = null;
     this.danceRequest += 1;
@@ -2483,7 +2507,10 @@ export class Stage {
 
   private renderScene() {
     if (this.composer) this.composer.render();
-    else this.renderer.render(this.scene, this.camera);
+    else {
+      this.renderer.render(this.scene, this.camera);
+      this.characterLighting.renderOutline(this.renderer, this.scene, this.camera);
+    }
   }
 
   /** 当场再渲一帧后导出 JPEG，不改主循环的 preserveDrawingBuffer。 */
