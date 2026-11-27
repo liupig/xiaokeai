@@ -29,6 +29,21 @@ export interface MagnoliaMaterials {
   dispose(): void;
 }
 
+/** The PMX uses textured cards for expression symbols and a fitted cheek overlay. */
+export function configureXiaokeaiFaceOverlays(mesh: THREE.SkinnedMesh) {
+  const materials = mesh.material;
+  if (!Array.isArray(materials) || !materials.some(m => m.name === 'Moon_MagnoliaSatin' || m.name === 'Moon_Brocade')) return;
+  for (const material of materials) {
+    if (material.name !== 'Facial' && material.name !== 'Face+') continue;
+    // The atlas alpha describes coverage even in older PMX files with diffuse alpha 1.
+    // Composite over the rendered face and keep clear texels out of its depth buffer.
+    material.transparent = true;
+    material.blending = THREE.NormalBlending;
+    material.depthWrite = false;
+    material.needsUpdate = true;
+  }
+}
+
 function skinFinish(base: THREE.MeshToonMaterial, mask: THREE.Texture, body: boolean) {
   const skin = base.clone();
   skin.onBeforeCompile = shader => {

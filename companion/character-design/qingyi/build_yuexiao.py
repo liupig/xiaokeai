@@ -311,8 +311,10 @@ def save_look(t,slug,title,lining='yuexiao-lining.png',replace_bodice=False):
         return faces
     filter_faces(model,remove_old);t.finish()
     if slug == YUE:
+        from yuexiao_portrait import prepare_face_overlays
         from yuexiao_proportions import lengthen_legs
         from yuexiao_scalp import fit_scalp
+        prepare_face_overlays(model)
         lengthen_legs(model)
         fit_scalp(t)
     model.name=title

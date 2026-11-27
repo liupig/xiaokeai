@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import stickerSet from '../../../companion/character-design/qingyi/expression-decals/stickers.json';
 import { createLiutingDrape } from './liuting-drape';
 import { loadPreviewPmx } from './preview-pmx';
 import { loadYuexiaoFinishes, shadeMagnoliaSkin } from './yuexiao-finishes';
-import { loadMagnoliaMaterials } from '../../../companion/frontend/src/engine/magnoliaMaterials';
+import { configureXiaokeaiFaceOverlays, loadMagnoliaMaterials } from '../../../companion/frontend/src/engine/magnoliaMaterials';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -426,6 +427,7 @@ const lookParams = new URLSearchParams(location.search);
 const requestedOutfit = lookParams.get('outfit');
 const photoOutfit = requestedOutfit === 'yuexiao-photo';
 const straplessOutfit = requestedOutfit === 'yuexiao-strapless';
+const stickerReview = requestedModel === 'qingyi-delivery' && straplessOutfit && lookParams.get('show') === 'stickers';
 const moonOutfit = qingyiDelivery && !qingyiTurnaround && (photoOutfit || straplessOutfit || requestedOutfit === 'yuexiao'
   || (!requestedOutfit && (!lookParams.has('hair') || lookParams.get('hair') === 'yuexiao')));
 const costumeFile = moonOutfit ? (photoOutfit ? 'yuexiao-photo' : straplessOutfit ? 'yuexiao-strapless' : 'yuexiao') : 'lanxu';
@@ -582,7 +584,11 @@ function finishSetup(root: THREE.Object3D) {
   // 根据模型头部实际高度设置镜头
   const head = avatar!.bone('head');
   if (head) headY = head.getWorldPosition(new THREE.Vector3()).y + 0.06;
-  setCamera('full', true);
+  setCamera(stickerReview ? 'close' : 'full', true);
+  if (stickerReview) {
+    document.querySelectorAll<HTMLElement>('[data-cam]').forEach(button =>
+      button.classList.toggle('active', button.dataset.cam === 'close'));
+  }
 
   buildLibraryUI();
   document.getElementById('loading')!.classList.add('hidden');
@@ -603,9 +609,13 @@ function buildLibraryUI() {
   const morphList = document.getElementById('morph-list')!;
   const search = document.getElementById('morph-search') as HTMLInputElement;
   const morphButtons: { name: string; btn: HTMLButtonElement }[] = [];
-  for (const name of av.morphNames()) {
+  const morphs = av.morphNames();
+  const entries = stickerReview ? stickerSet.filter(s => morphs.includes(s.morph))
+    : morphs.map(name => ({ morph: name, label: name }));
+  for (const { morph: name, label } of entries) {
     const btn = document.createElement('button');
-    btn.textContent = name;
+    btn.textContent = label;
+    btn.title = name;
     btn.addEventListener('click', () => {
       const on = btn.classList.toggle('active');
       manualTargets.set(name, on ? 1 : 0);
@@ -618,7 +628,7 @@ function buildLibraryUI() {
   search.addEventListener('input', () => {
     const q = search.value.trim();
     for (const { name, btn } of morphButtons) {
-      btn.style.display = name.includes(q) ? '' : 'none';
+      btn.style.display = name.includes(q) || btn.textContent?.includes(q) ? '' : 'none';
     }
   });
   document.getElementById('morph-reset')!.addEventListener('click', () => {
@@ -628,6 +638,12 @@ function buildLibraryUI() {
 
   // --- 动作库：列出 public/motions/motions.json 里的全部 VMD，可切换 / 停止 ---
   const motionSec = document.getElementById('sec-motion')!;
+  if (stickerReview) {
+    motionSec.hidden = true;
+    drawer.classList.remove('hidden');
+    toggle.classList.add('active');
+    return;
+  }
   if (modelExt === 'pmx') {
     fetch('/motions/motions.json')
       .then((r) => (r.ok ? r.json() : []))
@@ -779,7 +795,7 @@ async function setupHairWardrobe(mesh: THREE.SkinnedMesh) {
 }
 if (modelExt === 'pmx') {
   const wardrobeRevision = moonOutfit && !photoOutfit
-    ? [straplessOutfit ? 'magnolia-pbr-2' : 'sleeve-fit-1', lookParams.get('v')].filter(Boolean).join('-') : null;
+    ? [straplessOutfit ? 'magnolia-emotes-1' : 'sleeve-fit-1', lookParams.get('v')].filter(Boolean).join('-') : null;
   const modelRequests = new THREE.LoadingManager();
   if (wardrobeRevision) {
     modelRequests.setURLModifier(url => /\/yuexiao(?:-[^/?]+)?\.(?:pmx|jpg|png)$/i.test(url)
@@ -788,6 +804,7 @@ if (modelExt === 'pmx') {
   loadPreviewPmx(new MMDLoader(modelRequests),
     `/models/${modelFile}`,
     async (mmd, updateMorphs) => {
+      configureXiaokeaiFaceOverlays(mmd);
       // MMD 单位约 8cm，缩放到米制
       if (qingyiDelivery) {
         const materials = Array.isArray(mmd.material) ? mmd.material : [mmd.material];

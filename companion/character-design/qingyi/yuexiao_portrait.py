@@ -5,6 +5,18 @@ from PIL import Image, ImageDraw
 from build_lanxu import DESIGN, OUT, PMX, TEX
 
 
+# PMX has no separate alpha-blend flag. Viewers use diffuse alpha < 1
+# to put these transparent PNG overlays in the pass after the opaque face.
+FACE_OVERLAY_OPACITY = {'Facial': .999, 'Face+': .97}
+
+
+def prepare_face_overlays(model):
+    for mat in model.materials:
+        if mat.name in FACE_OVERLAY_OPACITY:
+            r, g, b, a = mat.diffuse
+            mat.diffuse = (r, g, b, min(a, FACE_OVERLAY_OPACITY[mat.name]))
+
+
 def bind_eye_art(tailor):
     # The iris mesh reads an elliptical UV chart. Its auxiliary eye shell
     # shares this atlas and reads the three flat swatches in the corners.

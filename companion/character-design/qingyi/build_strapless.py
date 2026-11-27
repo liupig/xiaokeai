@@ -19,6 +19,8 @@ from magnolia_neckline_light import apply_neckline_light
 from magnolia_physics import bind_magnolia_physics
 from magnolia_skirt_fit import fit_skirt
 from yuexiao_pattern import measured_front_layers
+from yuexiao_decals import bind_expression_art
+from yuexiao_portrait import prepare_face_overlays
 from yuexiao_torso import Torso, centre, smooth
 
 
@@ -230,6 +232,8 @@ def save_model(path,model):
 
 def build():
     model = PMX['load'](str(OUT/'yuexiao.pmx'))
+    prepare_face_overlays(model)
+    bind_expression_art(model,TEX)
     groups, cursor = {}, 0
     materials = {m.name:m for m in model.materials}
     for mat in model.materials:

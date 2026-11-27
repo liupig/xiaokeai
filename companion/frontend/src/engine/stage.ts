@@ -9,7 +9,7 @@ import { MMDLoader, MMDPhysics } from 'three-stdlib';
 import type { VRM } from '@pixiv/three-vrm';
 
 import { makeMeshAvatar } from './avatar/mesh';
-import { loadMagnoliaMaterials, type MagnoliaMaterials } from './magnoliaMaterials';
+import { configureXiaokeaiFaceOverlays, loadMagnoliaMaterials, type MagnoliaMaterials } from './magnoliaMaterials';
 import { BgmPlayer } from './bgm';
 import { CameraRig, type IdleMoveKind } from './camera';
 import { PerformanceDirector } from './director';
@@ -1076,6 +1076,7 @@ export class Stage {
         disposeGpu(mmd);
         return Promise.reject(new Error('已被更新的加载取代'));
       }
+      configureXiaokeaiFaceOverlays(mmd);
       const materials = await loadMagnoliaMaterials(mmd, url, this.scene.environment);
       if (seq !== this.loadSeq) {
         materials?.dispose();
