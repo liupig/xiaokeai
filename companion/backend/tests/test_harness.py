@@ -288,6 +288,28 @@ def test_saved_model_is_not_replaced_by_the_env_character_model():
     assert filled["api_key"] == "env-key"
 
 
+def test_blank_provider_key_cannot_reuse_another_endpoints_environment_key(monkeypatch):
+    from app.services import settings_store
+
+    monkeypatch.setattr(settings_store, "env_llm", lambda: {
+        "api_key": "env-key",
+        "base_url": "https://api.example.com/v1",
+    })
+    for endpoint in (
+        "https://other.example.com/v1",
+        "https://api.example.com.other.example.com/v1",
+        "https://api.example.com:8443/v1",
+        "http://api.example.com/v1",
+    ):
+        profile = {"base_url": endpoint, "api_key": ""}
+        assert settings_store.apply_llm_overlay(profile)["api_key"] == ""
+        assert not settings_store.llm_env_fallback(profile)
+
+    profile = {"base_url": "https://api.example.com:443/compatible/v1", "api_key": ""}
+    assert settings_store.apply_llm_overlay(profile)["api_key"] == "env-key"
+    assert settings_store.llm_env_fallback(profile)
+
+
 def test_a_separate_harness_model_keeps_the_chat_model():
     from app.modules.harness.service import harness_llm, turn_uses_harness
 

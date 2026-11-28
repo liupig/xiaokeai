@@ -14,7 +14,16 @@ import {
   DEFAULT_DUPLEX_PROACTIVE_SEC,
   DEFAULT_DUPLEX_SESSION_MAX_MIN,
 } from '../features/voice/duplex';
-import { alignVoice, defaultVoice, normalizeLang, setReplyLang, setUiLang, voiceFits } from '../i18n';
+import { alignVoice, defaultVoice, normalizeLang, setReplyLang, setUiLang } from '../i18n';
+
+import { inferLlmPreset, LLM_PRESETS } from '../features/settings/llmPresets';
+
+const defaultLlm = {
+  base_url: 'https://ark.cn-beijing.volces.com/api/v3', api_key: '',
+  model: 'doubao-seed-character-260628', temperature: 0.85, top_p: 1.0,
+  max_tokens: 0, thinking: 'off',
+  preset: '', harness_model: '', harness_base_url: '', harness_api_key: '',
+};
 
 let stageLookRevision = 0;
 
@@ -23,12 +32,8 @@ export const useSettingsStore = defineStore('settings', {
     loaded: false,
     llm_env: false,
     llm_local: false,
-    llm: {
-      base_url: 'https://ark.cn-beijing.volces.com/api/v3', api_key: '',
-      model: 'doubao-seed-character-260628', temperature: 0.85, top_p: 1.0,
-      max_tokens: 0, thinking: 'off',
-      harness_model: '', harness_base_url: '', harness_api_key: '',
-    },
+    llm: { ...defaultLlm },
+    llm_presets: {} as Partial<Record<string, typeof defaultLlm>>,
     tts: { engine: 'qwen' as 'cosy' | 'edge' | 'qwen' | 'tera' | 'volc' | 'openai' | 'eleven' | 'gemini' | 'mimo' | 'browser' | 'off',
            voice: 'Serena', rate: '+0%', qwen_size: '0.6b' as '0.6b' | '1.7b',
            qwen_style: 'yujie' as string, qwen_instruct: '',
@@ -39,7 +44,7 @@ export const useSettingsStore = defineStore('settings', {
            duplex_goodbye_sec: DEFAULT_DUPLEX_GOODBYE_SEC,
            duplex_session_max_min: DEFAULT_DUPLEX_SESSION_MAX_MIN,
            duplex_filler: false, duplex_ingress: true,
-           voice_by_lang: {} as Record<string, string>,
+           voice_by_engine: {} as Record<string, Record<string, string>>,
            tavern_cast: {} as Record<string, Record<string, { engine: string; voice: string }>> },
     stt: { engine: 'sensevoice' as 'browser' | 'sensevoice' | 'ali' | 'volc' | 'openai' | 'eleven' | 'gemini' },
     omni: {
@@ -81,6 +86,9 @@ export const useSettingsStore = defineStore('settings', {
     },
   }),
   getters: {
+    llmPreset(): string {
+      return this.llm.preset || inferLlmPreset(this.llm.base_url, this.llm.model);
+    },
     hasLlm(): boolean {
       return !!(this.llm.api_key || '').trim() || this.llm_env || this.llm_local;
     },
@@ -92,10 +100,9 @@ export const useSettingsStore = defineStore('settings', {
       const flags = data as { llm_env?: boolean; llm_local?: boolean };
       this.llm_env = !!(flags.llm_env || flags.llm_local);
       this.llm_local = this.llm_env;
-      // 旧数据可能缺 engine 字段
-      if (this.llm.harness_model == null) this.llm.harness_model = '';
-      if (this.llm.harness_base_url == null) this.llm.harness_base_url = '';
-      if (this.llm.harness_api_key == null) this.llm.harness_api_key = '';
+      this.llm = { ...defaultLlm, ...data.llm };
+      this.llm.preset = this.llmPreset;
+      this.llm_presets = data.llm_presets || {};
       if (!this.tts.engine) this.tts.engine = 'edge';
       if (!this.tts.qwen_size) this.tts.qwen_size = '0.6b';
       if (!this.tts.qwen_style) this.tts.qwen_style = 'yujie';
@@ -124,9 +131,9 @@ export const useSettingsStore = defineStore('settings', {
         ? sessionMax : DEFAULT_DUPLEX_SESSION_MAX_MIN;
       if (this.tts.duplex_filler == null) this.tts.duplex_filler = false;
       if (this.tts.duplex_ingress == null) this.tts.duplex_ingress = true;
-      if (!this.tts.voice_by_lang || typeof this.tts.voice_by_lang !== 'object') {
-        this.tts.voice_by_lang = {};
-      }
+      this.tts.voice_by_engine ||= {
+        [this.tts.engine]: (data.tts as { voice_by_lang?: Record<string, string> })?.voice_by_lang || {},
+      };
       if (!this.tts.tavern_cast || typeof this.tts.tavern_cast !== 'object') {
         this.tts.tavern_cast = {};
       }
@@ -232,30 +239,51 @@ export const useSettingsStore = defineStore('settings', {
       this.quality.pbr ??= true;
       this.applyQuality();
       this.applyTts();
-      api.getVoices().then((v) => {
-        this.voices = v;
-        if (!v.length) return;
-        const ok = v.some((x) => x.engine === this.tts.engine && x.id === this.tts.voice);
-        if ((this.tts.engine === 'edge' || this.tts.engine === 'qwen' || this.tts.engine === 'volc'
-          || this.tts.engine === 'openai' || this.tts.engine === 'eleven' || this.tts.engine === 'gemini'
-          || this.tts.engine === 'mimo' || this.tts.engine === 'tera') && !ok) {
-          this.tts.voice = defaultVoice(this.tts.engine, this.locale.reply);
-        } else if (this.tts.engine === 'cosy' && !ok) {
-          this.tts.voice = '';
-        }
-      }).catch(() => {});
+      api.getVoices().then((voices) => { this.voices = voices; }).catch(() => {});
       this.maybeWarmupSpeech();
     },
+    selectLlmPreset(preset: string) {
+      const previous = this.llmPreset;
+      if (preset === previous) return;
+      if (preset !== 'custom' && !Object.prototype.hasOwnProperty.call(LLM_PRESETS, preset)) return;
+      this.llm_presets[previous] = { ...this.llm, preset: previous };
+      const defaults = LLM_PRESETS[preset];
+      const local = ['ollama', 'vllm', 'sglang', 'player2'].includes(preset);
+      this.llm = {
+        ...defaultLlm,
+        base_url: defaults?.base ?? '',
+        model: defaults?.model ?? '',
+        api_key: local ? 'ollama' : '',
+        ...this.llm_presets[preset],
+        preset,
+      };
+    },
+    selectTtsEngine(engine: typeof this.tts.engine) {
+      if (engine === this.tts.engine) return;
+      this.noteVoice();
+      this.tts.engine = engine;
+      this.restoreVoice();
+    },
     noteVoice() {
-      const aligned = alignVoice(this.tts.engine, this.tts.voice, this.locale.reply);
-      if (aligned !== this.tts.voice) this.tts.voice = aligned;
-      if (!voiceFits(this.tts.voice, this.locale.reply, this.tts.engine)) return;
-      this.tts.voice_by_lang = { ...(this.tts.voice_by_lang || {}), [this.locale.reply]: this.tts.voice };
+      const { engine, voice } = this.tts;
+      if (!voice) return;
+      const lang = this.locale.reply;
+      this.tts.voice = alignVoice(engine, voice, lang);
+      this.tts.voice_by_engine[engine] = {
+        ...this.tts.voice_by_engine[engine],
+        [lang]: this.tts.voice,
+      };
+    },
+    restoreVoice() {
+      const { engine } = this.tts;
+      const lang = this.locale.reply;
+      this.tts.voice = this.tts.voice_by_engine[engine]?.[lang]
+        ?? (engine === 'cosy' || engine === 'off' || engine === 'browser' ? '' : defaultVoice(engine, lang));
     },
     async save() {
       this.noteVoice();
       const data = await api.updateSettings({
-        llm: this.llm, tts: this.tts, stt: this.stt, omni: this.omni, vision: this.vision,
+        llm: { ...this.llm, preset: this.llmPreset }, llm_presets: this.llm_presets, tts: this.tts, stt: this.stt, omni: this.omni, vision: this.vision,
         locale: this.locale,
         download: this.download, quality: this.quality, modules: this.modules,
         live: this.live,
@@ -272,22 +300,12 @@ export const useSettingsStore = defineStore('settings', {
     },
     async setLocale(patch: Partial<{ ui: 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru'; reply: 'zh-CN' | 'en' | 'ja' | 'ko' | 'ru'; reply_mode: 'fixed' | 'follow' }>) {
       const prevReply = this.locale.reply;
-      const prevVoice = this.tts.voice;
+      this.noteVoice();
       this.locale = { ...this.locale, ...patch };
       setUiLang(this.locale.ui);
       setReplyLang(this.locale.reply);
       window.companionDesktop?.setTrayLocale?.(this.locale.ui);
-      const book = { ...(this.tts.voice_by_lang || {}) };
-      if (voiceFits(prevVoice, prevReply, this.tts.engine)) book[prevReply] = prevVoice;
-      if (this.locale.reply !== prevReply) {
-        const remembered = book[this.locale.reply] || '';
-        this.tts.voice = voiceFits(remembered, this.locale.reply, this.tts.engine)
-          ? remembered
-          : defaultVoice(this.tts.engine, this.locale.reply);
-      } else {
-        this.tts.voice = alignVoice(this.tts.engine, this.tts.voice, this.locale.reply);
-      }
-      this.tts.voice_by_lang = book;
+      if (this.locale.reply !== prevReply) this.restoreVoice();
       await this.save();
       const scenes = await import('../features/scenes/session');
       scenes.reloadSceneLocale();

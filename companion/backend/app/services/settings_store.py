@@ -2,6 +2,7 @@
 import json
 import os
 from typing import Any, Dict, Optional
+from urllib.parse import urlsplit
 
 from sqlmodel import Session, select
 
@@ -125,8 +126,13 @@ def env_llm() -> Dict[str, Any]:
             break
     base = (os.environ.get("COMPANION_LLM_BASE_URL") or "").strip()
     model = (os.environ.get("COMPANION_LLM_MODEL") or "").strip()
-    if not base and key_src in ("ARK_API_KEY", "VOLC_ARK_API_KEY"):
-        base = _VOLC_CHAT_BASE
+    if not base:
+        base = {
+            "ARK_API_KEY": _VOLC_CHAT_BASE,
+            "VOLC_ARK_API_KEY": _VOLC_CHAT_BASE,
+            "OPENAI_API_KEY": "https://api.openai.com/v1",
+            "DASHSCOPE_API_KEY": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        }.get(key_src, "")
     out: Dict[str, Any] = {}
     if key:
         out["api_key"] = key
@@ -141,6 +147,26 @@ def llm_overlay() -> Dict[str, Any]:
     return env_llm()
 
 
+def _llm_env_for_endpoint(base_url: str) -> Dict[str, Any]:
+    _load_local_env()
+    try:
+        endpoint = urlsplit(base_url.strip())
+        if endpoint.hostname in ("token-plan-cn.xiaomimimo.com", "api.xiaomimimo.com"):
+            key = (os.environ.get("XIAOMI_KEY") or os.environ.get("MIMO_API_KEY") or "").strip()
+            if key and endpoint.scheme == "https" and endpoint.port in (None, 443):
+                return {"api_key": key}
+        env = env_llm()
+        if endpoint.geturl():
+            configured = urlsplit(env.get("base_url") or _VOLC_CHAT_BASE)
+            def origin(url):
+                return url.scheme, url.hostname, url.port or {"https": 443, "http": 80}.get(url.scheme)
+            if origin(endpoint) != origin(configured):
+                return {}
+        return env
+    except ValueError:
+        return {}
+
+
 def apply_llm_overlay(llm: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """前端没填 API Key 时，只补钥匙。
 
@@ -148,15 +174,7 @@ def apply_llm_overlay(llm: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     否则技能目录会一直被角色模型挡住。
     """
     out = dict(llm or {})
-    _load_local_env()
-    base = str(out.get("base_url") or "").lower()
-    if "xiaomimimo.com" in base:
-        if not (out.get("api_key") or "").strip():
-            key = (os.environ.get("XIAOMI_KEY") or os.environ.get("MIMO_API_KEY") or "").strip()
-            if key:
-                out["api_key"] = key
-        return out
-    env = env_llm()
+    env = _llm_env_for_endpoint(str(out.get("base_url") or ""))
     if (out.get("api_key") or "").strip() or not env.get("api_key"):
         return out
     out["api_key"] = env["api_key"]
@@ -190,7 +208,9 @@ def omni_env_fallback(omni: Optional[Dict[str, Any]] = None) -> bool:
 
 def llm_env_fallback(llm: Optional[Dict[str, Any]] = None) -> bool:
     stored = dict(llm or {})
-    return bool(env_llm().get("api_key")) and not (stored.get("api_key") or "").strip()
+    return not (stored.get("api_key") or "").strip() and bool(
+        _llm_env_for_endpoint(str(stored.get("base_url") or "")).get("api_key")
+    )
 
 
 def saved_keys(session: Session) -> set:

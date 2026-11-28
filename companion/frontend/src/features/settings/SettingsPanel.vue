@@ -13,7 +13,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { useCharacterStore } from '../../stores/character';
 import { useChatStore } from '../../stores/chat';
 import { LOCAL_SCENES } from '../scenes/catalog';
-import { defaultVoice, featureOn, t } from '../../i18n';
+import { featureOn, t } from '../../i18n';
 import { CURRENT_VERSION } from '../update/updateService';
 import {
   pickScene as pickPlayScene, restoreOrRotateScene, sceneExtra, sceneSession,
@@ -27,50 +27,10 @@ const characters = useCharacterStore();
 const chat = useChatStore();
 const message = useMessage();
 
-// LLM 服务商预设（全部 OpenAI 兼容协议），选择后自动填接口地址和推荐模型
-const LLM_PRESETS: Record<string, { base: string; model: string }> = {
-  bailian: { base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
-  volcano: { base: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-seed-1-6-250615' },
-  volcano_character: { base: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-seed-character-260628' },
-  deepseek: { base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
-  moonshot: { base: 'https://api.moonshot.cn/v1', model: 'kimi-k2-turbo-preview' },
-  zhipu: { base: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4.5-flash' },
-  openai: { base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-  gemini: { base: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.0-flash' },
-  openrouter: { base: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini' },
-  anthropic: { base: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-5' },
-  groq: { base: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
-  mistral: { base: 'https://api.mistral.ai/v1', model: 'mistral-small-latest' },
-  xai: { base: 'https://api.x.ai/v1', model: 'grok-3' },
-  together: { base: 'https://api.together.xyz/v1', model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo' },
-  fireworks: { base: 'https://api.fireworks.ai/inference/v1', model: 'accounts/fireworks/models/llama-v3p3-70b-instruct' },
-  nvidia: { base: 'https://integrate.api.nvidia.com/v1', model: 'meta/llama-3.3-70b-instruct' },
-  cerebras: { base: 'https://api.cerebras.ai/v1', model: 'llama-3.3-70b' },
-  perplexity: { base: 'https://api.perplexity.ai', model: 'sonar' },
-  novita: { base: 'https://api.novita.ai/v3/openai', model: 'deepseek/deepseek-v3' },
-  comet: { base: 'https://api.cometapi.com/v1', model: 'gpt-4o-mini' },
-  featherless: { base: 'https://api.featherless.ai/v1', model: 'meta-llama/Llama-3.3-70B-Instruct' },
-  aihubmix: { base: 'https://aihubmix.com/v1', model: 'gpt-4o-mini' },
-  ai302: { base: 'https://api.302.ai/v1', model: 'gpt-4o-mini' },
-  siliconflow: { base: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
-  stepfun: { base: 'https://api.stepfun.com/v1', model: 'step-2-mini' },
-  baichuan: { base: 'https://api.baichuan-ai.com/v1', model: 'Baichuan4-Turbo' },
-  minimax: { base: 'https://api.minimaxi.com/v1', model: 'MiniMax-M2' },
-  modelscope: { base: 'https://api-inference.modelscope.cn/v1', model: 'Qwen/Qwen2.5-72B-Instruct' },
-  hunyuan: { base: 'https://api.hunyuan.cloud.tencent.com/v1', model: 'hunyuan-turbos-latest' },
-  mimo: { base: 'https://token-plan-cn.xiaomimimo.com/v1', model: 'mimo-v2.6-flash' },
-  mimo_pro: { base: 'https://token-plan-cn.xiaomimimo.com/v1', model: 'mimo-v2.6-pro' },
-  moonshot_intl: { base: 'https://api.moonshot.ai/v1', model: 'kimi-k2-turbo-preview' },
-  qwen_intl: { base: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
-  ollama: { base: 'http://127.0.0.1:11434/v1', model: 'llama3.2' },
-  vllm: { base: 'http://127.0.0.1:8000/v1', model: 'default' },
-  sglang: { base: 'http://127.0.0.1:30000/v1', model: 'default' },
-  player2: { base: 'http://127.0.0.1:4315/v1', model: 'player2' },
-  minicpm: { base: 'https://api.modelbest.cn/v1', model: 'MiniCPM-O-4.5-9B' },
-};
 const llmPresetOptions = computed(() => {
   settings.locale.ui;
   const all = [
+    { label: t('set.llm.ph'), value: 'custom' },
     { label: t('set.llm.bailian'), value: 'bailian' },
     { label: t('set.llm.qwen_intl'), value: 'qwen_intl' },
     { label: t('set.llm.volcano'), value: 'volcano' },
@@ -145,17 +105,6 @@ const replyModeOptions = computed(() => {
     { label: t('lang.follow'), value: 'follow' as const },
   ];
 });
-// 根据当前 base_url + 模型名反推预设（同地址的豆包通用/角色要分开高亮）
-const currentPreset = computed(() => {
-  const url = settings.llm.base_url;
-  const model = settings.llm.model;
-  const entries = Object.entries(LLM_PRESETS);
-  const exact = entries.find(([, p]) => url.startsWith(p.base) && p.model === model);
-  if (exact) return exact[0];
-  const found = entries.find(([, p]) => url.startsWith(p.base));
-  return found ? found[0] : null;
-});
-
 function characterModelNeedsEndpoint(model: string, base: string): boolean {
   const name = (model || '').trim();
   if (!name || name.toLowerCase().startsWith('ep-')) return false;
@@ -167,25 +116,6 @@ function characterModelNeedsEndpoint(model: string, base: string): boolean {
     return host.endsWith('volces.com') || host.endsWith('volcengine.com');
   } catch {
     return true;
-  }
-}
-
-function applyLlmPreset(key: string) {
-  const p = LLM_PRESETS[key];
-  if (!p) return;
-  settings.llm.base_url = p.base;
-  settings.llm.model = p.model;
-  if (key === 'volcano_character' || key === 'mimo' || key === 'mimo_pro') {
-    settings.llm.thinking = 'off';
-  }
-  if ((key === 'ollama' || key === 'vllm' || key === 'sglang' || key === 'player2')
-      && !(settings.llm.api_key || '').trim()) {
-    settings.llm.api_key = 'ollama';
-  }
-  if (key === 'minicpm') {
-    settings.llm.thinking = 'off';
-    settings.omni.chat_url = p.base;
-    settings.omni.model = p.model;
   }
 }
 
@@ -722,16 +652,6 @@ const ttsNeedsVoice = computed(() =>
   || settings.tts.engine === 'gemini' || settings.tts.engine === 'mimo'
 );
 
-watch(() => settings.tts.engine, (eng) => {
-  const list = settings.voices.filter((v) => v.engine === eng);
-  if (list.length && !list.some((v) => v.id === settings.tts.voice)) {
-    settings.tts.voice = (eng === 'qwen' || eng === 'tera' || eng === 'edge' || eng === 'volc'
-      || eng === 'openai' || eng === 'eleven' || eng === 'gemini' || eng === 'mimo')
-      ? defaultVoice(eng, settings.locale.reply)
-      : '';
-  }
-});
-
 type SpeechStatus = {
   asr: { available: boolean; installed?: boolean; ready: boolean; downloading?: boolean;
          progress?: number; message: string };
@@ -1091,9 +1011,8 @@ async function toggleMod(key: keyof typeof settings.modules, on: boolean) {
           <div class="form">
             <PanelGroup tone="teal" :title="t('set.group.connection')">
               <label>{{ t('set.llm.label') }}</label>
-              <NativeSelect :value="currentPreset" :options="llmPresetOptions" filterable
-                        :placeholder="t('set.llm.ph')"
-                        @update:value="applyLlmPreset" />
+              <NativeSelect :value="settings.llmPreset" :options="llmPresetOptions"
+                        @update:value="(value) => settings.selectLlmPreset(String(value))" />
               <label>{{ t('set.llm.url') }}</label>
               <n-input v-model:value="settings.llm.base_url"
                        placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
@@ -1103,7 +1022,7 @@ async function toggleMod(key: keyof typeof settings.modules, on: boolean) {
               <label>{{ t('set.llm.model') }}</label>
               <n-input v-model:value="settings.llm.model"
                        placeholder="qwen-plus / deepseek-chat / ep-…" />
-              <p v-if="currentPreset === 'mimo' || currentPreset === 'mimo_pro'" class="hint">{{ t('set.llm.mimoHint') }}</p>
+              <p v-if="settings.llmPreset === 'mimo' || settings.llmPreset === 'mimo_pro'" class="hint">{{ t('set.llm.mimoHint') }}</p>
               <p v-if="showEndpointHint" class="hint warn">{{ t('set.llm.endpoint') }}</p>
               <div>
                 <n-button size="small" type="primary" secondary
@@ -1201,7 +1120,8 @@ async function toggleMod(key: keyof typeof settings.modules, on: boolean) {
             </PanelGroup>
             <PanelGroup tone="rose" :title="t('set.tts.title')">
               <label>{{ t('set.tts.engine') }}</label>
-              <NativeSelect v-model:value="settings.tts.engine" :options="ttsEngineOptions" />
+              <NativeSelect :value="settings.tts.engine" :options="ttsEngineOptions"
+                            @update:value="(value) => settings.selectTtsEngine(value as typeof settings.tts.engine)" />
               <div v-if="settings.tts.engine === 'tera'" class="speech-status">
                 <p class="hint">{{ speechStatus?.tera.message || (speechStatus?.tera.installed ? 'TeraTTSv2 ✓' : t('set.tera.missing')) }}</p>
                 <n-button size="small" :loading="!!speechStatus?.tera.downloading"
