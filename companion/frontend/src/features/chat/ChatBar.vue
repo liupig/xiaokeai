@@ -24,7 +24,7 @@ const TarotDock = defineAsyncComponent(() => import('../tarot/Dock.vue'));
 const CodewatchDock = defineAsyncComponent(() => import('../codewatch/Dock.vue'));
 
 const chat = useChatStore();
-const collapsed = ref(true);
+const collapsed = ref(false);
 const dock = ref<HTMLElement>();
 const restoreButton = ref<HTMLButtonElement>();
 const emit = defineEmits<{ 'dock-size': [width: number, height: number] }>();

@@ -421,32 +421,6 @@ export class Stage {
   private ammoReady: Promise<unknown> | null = null;
   private pageVisible = true;
   private host: HTMLElement | null = null;
-  private chatCompositionInset = { right: 0, bottom: 0 };
-
-  setChatCompositionInset(right: number, bottom: number) {
-    this.chatCompositionInset = { right, bottom };
-    this.applyChatCompositionInset();
-  }
-
-  private applyChatCompositionInset() {
-    if (!this.camera || !this.host || this.petMode) return;
-    const width = this.host.clientWidth;
-    const height = this.host.clientHeight;
-    if (!width || !height) return;
-    const right = Math.min(this.chatCompositionInset.right, width * .5);
-    const bottom = Math.min(this.chatCompositionInset.bottom, height * .48);
-    if (!right && !bottom) {
-      this.camera.clearViewOffset();
-      return;
-    }
-    const scale = (height - bottom) / height;
-    const viewWidth = width / scale;
-    const viewHeight = height / scale;
-    this.camera.setViewOffset(width, height,
-      (width - viewWidth + right / scale) / 2,
-      (height - viewHeight + bottom / scale) / 2,
-      viewWidth, viewHeight);
-  }
   private resizeObserver: ResizeObserver | null = null;
   private onVis: (() => void) | null = null;
 
@@ -641,8 +615,7 @@ export class Stage {
       const w = container.clientWidth || window.innerWidth;
       const h = container.clientHeight || window.innerHeight;
       this.camera.aspect = w / h;
-      if (this.petMode) this.camera.updateProjectionMatrix();
-      else this.applyChatCompositionInset();
+      this.camera.updateProjectionMatrix();
       this.applyPixelRatio();
       this.renderer.setSize(w, h);
       this.syncPostProcessingSize(w, h);

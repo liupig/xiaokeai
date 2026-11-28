@@ -76,13 +76,8 @@ const LiveDesk = defineAsyncComponent(() => import('./features/live/LiveDesk.vue
 type PanelKey = 'quick' | 'assets' | 'characters' | 'settings' | 'review' | 'keepsake' | 'log' | 'live' | 'music';
 const activePanel = ref<PanelKey | null>(null);
 const chatDockHeight = ref(0);
-function updateChatDock(width: number, height: number) {
+function updateChatDock(_width: number, height: number) {
   chatDockHeight.value = height;
-  const compact = window.innerWidth < 700;
-  stage.setChatCompositionInset(
-    compact || !width ? 0 : width + 24,
-    !compact || !height ? 0 : height + 18,
-  );
 }
 
 const naiveLocale = computed(() => {
