@@ -28,16 +28,22 @@ const filmLimits = computed(() => ({
   '--film-max-height': `${1080 / pixelRatio.value}px`,
 }));
 const shyShot = ref(false);
+const titleRetired = ref(false);
+const titleHolding = ref(false);
 const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
 const showFilm = ref(!motionPreference.matches);
 const showLanguage = computed(() => shyShot.value || !showFilm.value);
 const progress = ref(0);
 // The stream-copy edit offsets shot two by the first clip duration plus its 5.20 s hold.
-const shyStart = 7.9; // Just before the second shot's 7.908 s keyframe.
+const shyStart = 7.9; // Just before the second shot's first frame at 7.917 s.
+// Shot one's last frame is at 2.667 s and remains on screen until the cut.
+const titleHoldStart = 2.58;
+const titleEnd = 2.667 + 4;
 const loopHoldMs = 13140;
 let preloadSent = false;
 let playbackTimer: ReturnType<typeof setTimeout> | undefined;
 let loopTimer: ReturnType<typeof setTimeout> | undefined;
+let titleTimer: ReturnType<typeof setTimeout> | undefined;
 let frameRequest: number | undefined;
 
 function armPlaybackTimeout() {
@@ -53,6 +59,7 @@ function clearFrameRequest() {
 function skipFilm() {
   clearTimeout(playbackTimer);
   clearTimeout(loopTimer);
+  clearTimeout(titleTimer);
   clearFrameRequest();
   film.value?.pause();
   showFilm.value = false;
@@ -68,6 +75,7 @@ function preloadStage() {
 function holdBeforeReplay() {
   clearTimeout(playbackTimer);
   clearTimeout(loopTimer);
+  clearTimeout(titleTimer);
   clearFrameRequest();
   loopTimer = setTimeout(() => {
     const media = film.value;
@@ -79,6 +87,8 @@ function holdBeforeReplay() {
 }
 
 function syncShot(time: number) {
+  titleHolding.value = time >= titleHoldStart && time < titleEnd;
+  titleRetired.value = time >= titleEnd;
   shyShot.value = time >= shyStart;
   // Leave the opening motion free of 3D renderer and model initialization.
   if (time >= 2.65) preloadStage();
@@ -98,12 +108,25 @@ function trackFrames() {
 function onPlaying() {
   clearTimeout(playbackTimer);
   trackFrames();
+  syncTitleDuringHold();
+}
+
+function syncTitleDuringHold() {
+  clearTimeout(titleTimer);
+  const media = film.value;
+  if (!showFilm.value || !media || media.paused) return;
+  const remaining = titleEnd - media.currentTime;
+  if (remaining <= 0) titleRetired.value = true;
+  else titleTimer = setTimeout(syncTitleDuringHold, Math.max(25, remaining * 1000 / media.playbackRate));
 }
 
 function updateProgress() {
   const media = film.value;
   if (!media || !Number.isFinite(media.duration) || media.duration <= 0) return;
   progress.value = media.currentTime / media.duration;
+  // There are no decoded-frame callbacks during the still hold.
+  if (media.currentTime >= titleHoldStart && media.currentTime < titleEnd) titleHolding.value = true;
+  if (media.currentTime >= titleEnd) titleRetired.value = true;
   if (typeof media.requestVideoFrameCallback !== 'function') syncShot(media.currentTime);
 }
 
@@ -141,6 +164,7 @@ onBeforeUnmount(() => {
   theme.value?.pause();
   clearTimeout(playbackTimer);
   clearTimeout(loopTimer);
+  clearTimeout(titleTimer);
   clearFrameRequest();
   window.removeEventListener('keydown', handleEscape);
   window.removeEventListener('resize', updateFilmLimits);
@@ -174,7 +198,8 @@ const themeLabel = computed(() => ({
     <button v-if="showFilm" type="button" class="skip" @click="skipFilm">{{ copy.skip }} <span aria-hidden="true">»</span></button>
     <form class="entry" @submit.prevent="showLanguage && emit('continue', language)">
       <fieldset :disabled="saving">
-        <legend :key="`${language}-${shyShot}`">
+        <legend v-if="!titleRetired || showLanguage" :key="`${language}-${showLanguage}`"
+                :class="{ 'title-holding': titleHolding && !showLanguage }">
           <span class="title-accessible">{{ copy.heading.join('') }}</span>
           <span v-for="(phrase, index) in copy.heading" :key="phrase" class="title-phrase"
                 :style="{ '--arrival': `${index * 125}ms` }" aria-hidden="true">{{ phrase }}</span>
@@ -186,7 +211,9 @@ const themeLabel = computed(() => ({
             <span>{{ choice.name }}</span>
           </label>
         </div>
-        <button v-if="showLanguage" class="enter" type="submit"><span :key="language" class="enter-text">{{ copy.enter }}</span> <span aria-hidden="true">↗</span></button>
+        <button v-if="showLanguage" class="enter" type="submit">
+          <span :key="language" class="enter-text">{{ copy.enter }}</span>
+        </button>
       </fieldset>
       <p v-if="showLanguage && failed" role="alert">{{ copy.retry }}</p>
       <p v-else-if="showLanguage" class="sequence-status" role="status">{{ saving ? savingCopy[language] : copy.waiting }}</p>
@@ -279,6 +306,7 @@ const themeLabel = computed(() => ({
   text-align: center;
 }
 .shy-shot .entry { --entry-offset: -26px; translate: 0 0; }
+.shy-shot legend { font-size: clamp(20px, 2.65vw, 34px); }
 fieldset { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
 legend {
   position: relative;
@@ -300,6 +328,8 @@ legend::after {
   transform-origin: left;
   animation: rule-draw .46s .21s cubic-bezier(.15, .78, .2, 1) both;
 }
+.title-holding { will-change: opacity; animation: title-hold 4s step-end forwards; }
+@keyframes title-hold { from { opacity: 1; } to { opacity: 0; } }
 .sequence-status {
   margin: 19px 0 0;
   color: #d5d8e3;
@@ -332,6 +362,7 @@ legend::after {
   user-select: none;
 }
 .enter-text {
+  position: relative;
   display: inline-block;
   animation: type-change .24s ease-out both;
 }
@@ -361,23 +392,64 @@ label:has(input:focus-visible) span, button:focus-visible { outline: 2px solid #
 button { font: inherit; cursor: pointer; }
 .enter {
   --arrival: 570ms;
+  position: relative;
+  isolation: isolate;
   display: inline-flex;
   align-items: center;
-  gap: 20px;
-  padding: 8px 13px;
-  margin-top: 23px;
-  border: 1px solid #ffe8bc85;
-  background: #10162670;
-  color: #fff5df;
+  justify-content: center;
+  min-height: 46px;
+  max-width: 100%;
+  padding: 10px clamp(20px, 4vw, 38px);
+  margin-top: 22px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background:
+    linear-gradient(122deg, #3a263b, #241b33 62%, #382538) padding-box,
+    linear-gradient(125deg, #ffe4b9, #a77983 45%, #765a83 70%, #f5b995) border-box;
+  box-shadow: 0 7px 26px #0b081778, 0 0 20px #e4a2ae29, inset 0 1px #fff0d63b;
+  color: #fff1dc;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: .055em;
+  text-shadow: 0 1px 6px #221428;
+  transition: box-shadow .2s ease, color .2s ease;
 }
-.enter:hover { color: #ffc89d; }
+.enter::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  background: linear-gradient(108deg, transparent, #ffd7b144, #fff4d966, #eea9d340, transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: enter-glint 4.4s .78s ease-in-out infinite;
+}
+.enter::after {
+  content: '';
+  position: absolute;
+  inset: 0 18% auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #ffe6bd, transparent);
+  pointer-events: none;
+}
+.enter:hover, .enter:focus-visible {
+  color: #fffaf2;
+  box-shadow: 0 7px 30px #0b081796, 0 0 23px #ffc5a552, inset 0 1px #fff0d65e;
+}
 .enter:disabled { opacity: .6; cursor: wait; }
+.enter:disabled::before { animation: none; }
 .enter:disabled, .enter:focus-visible, label:has(input:focus-visible) span { animation: none; }
+@keyframes enter-glint {
+  0% { opacity: 0; transform: translateX(-120%) skewX(-14deg); }
+  10% { opacity: .85; }
+  32%, 100% { opacity: 0; transform: translateX(270%) skewX(-14deg); }
+}
 p { color: #ffb6c6; font-size: 13px; }
 .film-progress { position: fixed; bottom: 0; inset-inline: 0; height: 2px; background: #fff5df21; }
 .film-progress i { display: block; width: 100%; height: 100%; transform-origin: left; transition: transform .21s linear; background: #e9bd92; }
 @media (prefers-reduced-motion: reduce) {
-  legend::after, .title-phrase, .languages label span, .enter, .enter-text, .sequence-status, .sequence-status::before {
+  legend::after, .title-phrase, .languages label span, .enter, .enter::before, .enter-text, .sequence-status, .sequence-status::before {
     animation: none;
   }
 }
@@ -390,6 +462,7 @@ p { color: #ffb6c6; font-size: 13px; }
   .theme-toggle { bottom: 17px; right: 28px; }
   .entry, .shy-shot .entry { width: calc(100% - 54px); margin: min(42vh, 320px) 0 58px; translate: none; }
   .shy-shot .entry { text-align: left; }
+  .shy-shot legend { margin-bottom: 12px; padding-bottom: 10px; }
   .shy-shot .languages { justify-content: flex-start; }
   .shade, .shy-shot .shade { background: linear-gradient(180deg, #080b1870, transparent 18%, transparent 43%, #080b18b5 72%, #080b18f0 100%); }
 }

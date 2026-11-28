@@ -353,6 +353,7 @@ export class Stage {
   private controls!: OrbitControls;
   private camRig!: CameraRig;
   private keyLight!: THREE.DirectionalLight;
+  private startupFill!: THREE.DirectionalLight;
   private rimLight!: THREE.DirectionalLight;
   private ambient!: THREE.AmbientLight;
   private ground!: THREE.Mesh<THREE.CircleGeometry, THREE.MeshStandardMaterial>;
@@ -409,8 +410,11 @@ export class Stage {
     }
   }
   private loadSeq = 0;
+  private cancelPmxParse?: () => void;
+  private nextFrameAt = 0;
   private magnoliaMaterials: MagnoliaMaterials | null = null;
   private bgSeq = 0;
+  private bgFailed = false;
   private bgUrl = '';
   private bgTex: THREE.Texture | null = null;
   private plugins: StagePlugin[] = [];
@@ -615,6 +619,9 @@ export class Stage {
     this.rimLight = new THREE.DirectionalLight(0x7788ff, 1.0);
     this.rimLight.position.set(-2, 1.6, -2.5);
     this.scene.add(this.rimLight);
+    this.startupFill = new THREE.DirectionalLight(0xffe8da, 0.28);
+    this.startupFill.position.set(0.9, 0.65, 3);
+    this.scene.add(this.startupFill);
     this.applyLights();
 
     // 远景地面（纯色背景模式下与背景色融合），下沉到舞台底座下沿
@@ -699,10 +706,15 @@ export class Stage {
 
   private applyLights() {
     if (!this.keyLight) return;
+    const startup = this.lighting.enabled && this.lighting.preset === 'startup';
     applyCharacterLights(
       this.keyLight, this.rimLight, this.ambient, this.lightBase, this.quality.lightLevel || 1,
       this.lighting.enabled ? this.lighting.profile : undefined,
+      this.lighting.enabled ? this.lighting.preset : undefined,
     );
+    this.startupFill.visible = startup;
+    this.scene.environmentIntensity = startup ? 0.22 : 0.45;
+    this.magnoliaMaterials?.setReflectionScale(startup ? 0.55 : 1);
   }
 
   setCharacterLighting(next: LightingSettings) {
@@ -725,6 +737,9 @@ export class Stage {
     show?: boolean; color?: string; glow?: string; style?: string;
     texture?: string; opacity?: number;
   }) {
+    const keys = Object.keys(opts) as (keyof typeof opts)[];
+    if (keys.every(key => Object.is(this.platformOpts[key], opts[key])) &&
+        (!this.platformOpts.texture || this.platformTexCache.has(this.platformOpts.texture))) return;
     Object.assign(this.platformOpts, opts);
     if (this.scene) this.buildPlatform();
   }
@@ -733,7 +748,24 @@ export class Stage {
   private getPlatformTexture(url: string): THREE.Texture {
     let tex = this.platformTexCache.get(url);
     if (!tex) {
-      tex = new THREE.TextureLoader().load(url);
+      const pending = new THREE.TextureLoader().load(url, undefined, undefined, () => {
+        if (this.platformTexCache.get(url) !== pending) return;
+        this.platformTexCache.delete(url);
+        this.platform?.traverse((object) => {
+          const mesh = object as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          for (const material of materials) {
+            const surface = material as THREE.MeshStandardMaterial;
+            if (surface.map !== pending) continue;
+            surface.map = null;
+            surface.color.set(this.platformOpts.color);
+            surface.needsUpdate = true;
+          }
+        });
+        pending.dispose();
+      });
+      tex = pending;
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = 4;
       this.platformTexCache.set(url, tex);
@@ -1028,26 +1060,41 @@ export class Stage {
     const url = imageUrl || '';
     window.dispatchEvent(new CustomEvent('xiaokeai:stage-background', { detail: url }));
     if (url) {
-      if (url === this.bgUrl) return;
+      if (url === this.bgUrl && !this.bgFailed) return;
       this.bgUrl = url;
+      this.bgFailed = false;
       const seq = ++this.bgSeq;
-      new THREE.TextureLoader().load(url, (tex) => {
-        if (seq !== this.bgSeq) {
-          tex.dispose();
-          return;
-        }
-        tex.colorSpace = THREE.SRGBColorSpace;
-        this.dropBackgroundTex();
-        this.bgTex = tex;
-        this.scene.background = tex;
-        this.scene.fog = null;
-        this.ground.visible = false;
-      });
+      if (!this.bgTex) this.applyBackdropColor(color);
+      const load = (retry: boolean) => {
+        if (seq !== this.bgSeq) return;
+        new THREE.TextureLoader().load(url, (tex) => {
+          if (seq !== this.bgSeq) {
+            tex.dispose();
+            return;
+          }
+          tex.colorSpace = THREE.SRGBColorSpace;
+          this.dropBackgroundTex();
+          this.bgTex = tex;
+          this.scene.background = tex;
+          this.scene.fog = null;
+          this.ground.visible = false;
+        }, undefined, () => {
+          if (seq !== this.bgSeq) return;
+          if (retry) setTimeout(() => load(false), 350);
+          else this.bgFailed = true;
+        });
+      };
+      load(true);
       return;
     }
     this.bgUrl = '';
+    this.bgFailed = false;
     ++this.bgSeq;
     this.dropBackgroundTex();
+    this.applyBackdropColor(color);
+  }
+
+  private applyBackdropColor(color: string) {
     const c = new THREE.Color(color || '#141420');
     this.scene.background = c;
     this.scene.fog = new THREE.Fog(c, 6, 14);
@@ -1070,8 +1117,8 @@ export class Stage {
   /** 加载模型（.pmx / .vrm / .glb），自动卸载旧模型 */
   async loadModel(url: string): Promise<ModelInfo> {
     const ext = url.toLowerCase().split('?')[0].split('.').pop() ?? '';
-    this.unloadModel();
-    const seq = this.loadSeq;
+    this.cancelPmxParse?.();
+    const seq = ++this.loadSeq;
 
     if (ext === 'pmx') {
       const manager = new THREE.LoadingManager();
@@ -1097,34 +1144,49 @@ export class Stage {
       manager.onError = (u) => {
         console.warn('MMD 贴图/附件加载失败，继续显示模型：', u);
       };
-      const mmd = await new Promise<THREE.SkinnedMesh>((resolve, reject) => {
-        let settled = false;
-        const loader = new MMDLoader(manager);
-        loader.setResourcePath(url.slice(0, url.lastIndexOf('/') + 1));
-        loader.load(
-          url,
-          (m) => {
-            settled = true;
-            resolve(m as THREE.SkinnedMesh);
-          },
-          undefined,
-          (err) => {
-            if (settled) return;
-            reject(err);
-          },
-        );
-      });
+      const data = await this.parsePmx(manager.resolveURL(url));
       if (seq !== this.loadSeq) {
-        disposeGpu(mmd);
-        return Promise.reject(new Error('已被更新的加载取代'));
+        throw new Error('已被更新的加载取代');
+      }
+      const loader = new MMDLoader(manager);
+      const builder = loader.meshBuilder as {
+        setCrossOrigin(value: string): void;
+        build(data: object, resourcePath: string): THREE.SkinnedMesh;
+      };
+      builder.setCrossOrigin(loader.crossOrigin);
+      const previewReady = new Promise<void>((resolve) => { manager.onLoad = resolve; });
+      manager.itemStart(url);
+      let mmd: THREE.SkinnedMesh;
+      try {
+        mmd = builder.build(data, url.slice(0, url.lastIndexOf('/') + 1));
+      } finally {
+        manager.itemEnd(url);
       }
       configureXiaokeaiFaceOverlays(mmd);
-      const materials = await loadMagnoliaMaterials(mmd, url, this.scene.environment);
+      const [materials] = await Promise.all([
+        loadMagnoliaMaterials(mmd, url, this.scene.environment), previewReady,
+      ]);
+      if (seq === this.loadSeq) {
+        const slots = Array.isArray(mmd.material) ? mmd.material : [mmd.material];
+        for (const slot of slots as THREE.MeshToonMaterial[]) {
+          if (slot.map) slot.map.colorSpace = THREE.SRGBColorSpace;
+        }
+        materials?.enable(this.quality.pbr !== false);
+        try {
+          await this.prepareModelFrame(mmd, seq);
+        } catch (error) {
+          materials?.dispose();
+          disposeGpu(mmd);
+          throw error;
+        }
+        materials?.enable(false);
+      }
       if (seq !== this.loadSeq) {
         materials?.dispose();
         disposeGpu(mmd);
         throw new Error('已被更新的加载取代');
       }
+      this.unloadModel();
       this.magnoliaMaterials = materials;
       return this.setupMMD(mmd, url);
     }
@@ -1149,6 +1211,8 @@ export class Stage {
         (VRMUtils as any).combineSkeletons(gltf.scene);
       }
       VRMUtils.rotateVRM0(vrm); // VRM 0.x 模型转为面向镜头
+      await this.prepareGltfFrame(gltf.scene, seq);
+      this.unloadModel();
       this.avatar = makeVRMAvatar(vrm);
       this.vrm = vrm;
       root = vrm.scene;
@@ -1159,6 +1223,8 @@ export class Stage {
         disposeGpu(gltf.scene);
         return Promise.reject(new Error('已被更新的加载取代'));
       }
+      await this.prepareGltfFrame(gltf.scene, seq);
+      this.unloadModel();
       this.avatar = makeMeshAvatar(gltf.scene, GLB_BONES, GLB_MORPHS, gltf.animations);
       root = gltf.scene;
     }
@@ -1166,6 +1232,83 @@ export class Stage {
     this.lightBase = { key: 1.8, rim: 1.0, amb: 0.9 };
     this.applyLights();
     return this.finishSetup(root, url, ext, true);
+  }
+
+  private parsePmx(url: string): Promise<object> {
+    return new Promise((resolve, reject) => {
+      const worker = new Worker(new URL('./pmx.worker.ts', import.meta.url), { type: 'module' });
+      const finish = () => {
+        worker.terminate();
+        this.cancelPmxParse = undefined;
+      };
+      this.cancelPmxParse = () => {
+        finish();
+        reject(new Error('已被更新的加载取代'));
+      };
+      worker.onmessage = ({ data }) => {
+        finish();
+        if (data.error) reject(new Error(data.error));
+        else resolve(data.model);
+      };
+      worker.onerror = (event) => {
+        finish();
+        reject(new Error(event.message || 'PMX worker failed'));
+      };
+      worker.onmessageerror = () => {
+        finish();
+        reject(new Error('PMX worker result could not be read'));
+      };
+      worker.postMessage(new URL(url, location.href).href);
+    });
+  }
+
+  private async prepareGltfFrame(root: THREE.Object3D, seq: number) {
+    try {
+      await this.prepareModelFrame(root, seq);
+    } catch (error) {
+      disposeGpu(root);
+      throw error;
+    }
+  }
+
+  private async prepareModelFrame(root: THREE.Object3D, seq: number) {
+    const ensureCurrent = () => {
+      if (seq !== this.loadSeq) throw new Error('已被更新的加载取代');
+    };
+    const textures = new Set<THREE.Texture>();
+    root.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const slots = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const slot of slots) {
+        for (const value of Object.values(slot)) {
+          if (value instanceof THREE.Texture && !value.isRenderTargetTexture && value.image) textures.add(value);
+        }
+      }
+    });
+    const nextFrame = () => new Promise<void>((resolve) => {
+      if (document.hidden) setTimeout(resolve, 16);
+      else requestAnimationFrame(() => resolve());
+    });
+    for (const texture of textures) {
+      await nextFrame();
+      ensureCurrent();
+      this.renderer.initTexture(texture);
+    }
+    ensureCurrent();
+    await this.renderer.compileAsync(root, this.camera, this.scene);
+    ensureCurrent();
+    // Compile the alternate light count without touching the visible scene.
+    const alternate = new THREE.Scene();
+    alternate.environment = this.scene.environment;
+    alternate.add(this.keyLight.clone(), this.rimLight.clone(), this.ambient.clone());
+    if (!this.startupFill.visible) {
+      const fill = this.startupFill.clone();
+      fill.visible = true;
+      alternate.add(fill);
+    }
+    await this.renderer.compileAsync(root, this.camera, alternate);
+    ensureCurrent();
   }
 
   private externalController: ExternalStageController | null = null;
@@ -1480,6 +1623,7 @@ export class Stage {
   }
 
   private unloadModel() {
+    this.cancelPmxParse?.();
     this.physicsAfterFirstFrame = false;
     this.loadSeq++;
     this.characterLighting.clear();
@@ -2412,6 +2556,7 @@ export class Stage {
     // Invalidate pending texture loads and force the new scene to reload its backdrop.
     this.bgSeq += 1;
     this.bgUrl = '';
+    this.bgFailed = false;
     this.resizeObserver?.disconnect();
     if (this.onVis) document.removeEventListener('visibilitychange', this.onVis);
     this.resizeObserver = null;
@@ -2439,13 +2584,16 @@ export class Stage {
   }
 
   // ---------- 主循环 ----------
-  private animate = () => {
+  private animate = (now = performance.now()) => {
     if (this.disposed || !this.pageVisible || this.presentationPaused) return;
     const gen = this.loopGen;
-    requestAnimationFrame(() => {
+    requestAnimationFrame((timestamp) => {
       if (gen !== this.loopGen || this.disposed) return;
-      this.animate();
+      this.animate(timestamp);
     });
+    const interval = 1000 / 60;
+    if (now + 0.8 < this.nextFrameAt) return;
+    this.nextFrameAt = now - this.nextFrameAt >= interval ? now + interval : this.nextFrameAt + interval;
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const t = this.clock.elapsedTime;
     if (this.petMode) {

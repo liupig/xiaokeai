@@ -16,6 +16,8 @@ import {
 } from '../features/voice/duplex';
 import { alignVoice, defaultVoice, normalizeLang, setReplyLang, setUiLang, voiceFits } from '../i18n';
 
+let stageLookRevision = 0;
+
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
     loaded: false,
@@ -325,34 +327,44 @@ export const useSettingsStore = defineStore('settings', {
     },
     /** 情境开着时只认这场戏的背景，避免刷新先套设置再切情境。 */
     async applyStageLook() {
+      const revision = ++stageLookRevision;
+      const q = this.quality;
+      const applyPlatform = () => stage.setStagePlatform({
+        show: q.stage_show,
+        color: q.stage_color,
+        glow: q.stage_glow,
+        style: q.stage_style,
+        texture: q.stage_texture,
+        opacity: q.stage_opacity,
+      });
       const { stageLife, refreshLifeStage } = await import('../features/life/stageLife');
-      if (stageLife.active) { refreshLifeStage(); return; }
+      if (revision !== stageLookRevision) return;
+      if (stageLife.active) { applyPlatform(); refreshLifeStage(); return; }
       try {
         const { keepsakeSession } = await import('../features/keepsake/session');
-        if (stageLife.active) { refreshLifeStage(); return; }
+        if (revision !== stageLookRevision) return;
+        if (stageLife.active) { applyPlatform(); refreshLifeStage(); return; }
         if (keepsakeSession.bgOverride) {
-          stage.setBackground(this.quality.background_color, keepsakeSession.bgOverride);
+          applyPlatform();
+          stage.setBackground(q.background_color, keepsakeSession.bgOverride);
           return;
         }
       } catch { /* 证物模块未装 */ }
       if (this.modules.scenes) {
         try {
           const { sceneSession, applySceneStage } = await import('../features/scenes/session');
-          if (stageLife.active) { refreshLifeStage(); return; }
-          if (sceneSession.current) applySceneStage(sceneSession.current);
-        } catch { /* 情境未装则保持当前舞台 */ }
-        return;
+          if (revision !== stageLookRevision) return;
+          if (stageLife.active) { applyPlatform(); refreshLifeStage(); return; }
+          if (this.modules.scenes && sceneSession.current) {
+            applySceneStage(sceneSession.current);
+            return;
+          }
+        } catch { /* 情境不可用时使用舞台设置 */ }
       }
+      if (revision !== stageLookRevision) return;
+      applyPlatform();
       if (stageLife.active) { refreshLifeStage(); return; }
-      stage.setBackground(this.quality.background_color, this.quality.background_image);
-      stage.setStagePlatform({
-        show: this.quality.stage_show,
-        color: this.quality.stage_color,
-        glow: this.quality.stage_glow,
-        style: this.quality.stage_style,
-        texture: this.quality.stage_texture,
-        opacity: this.quality.stage_opacity,
-      });
+      stage.setBackground(q.background_color, q.background_image);
     },
     async applyContent(path: string) {
       const r = await api.setContent(path);

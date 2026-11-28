@@ -10,6 +10,7 @@ export const lightingPresets = {
   default: { direction: 26, contrast: 0, color: '#ffffff', toon: false, outline: false },
   manga: { direction: -30, contrast: 38, color: '#cad3ff', toon: true, outline: true },
   soft: { direction: 15, contrast: -55, color: '#fff1df', toon: false, outline: false },
+  startup: { direction: -22, contrast: -34, color: '#fff0e5', toon: false, outline: false },
 } satisfies Record<string, LightingProfile>;
 
 export type LightingPreset = keyof typeof lightingPresets;

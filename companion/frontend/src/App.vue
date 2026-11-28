@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, computed, watch } from 'vue';
+import { defineAsyncComponent, onMounted, onUnmounted, ref, computed, watch } from 'vue';
 import { NConfigProvider, NMessageProvider, NModal, NSpace, darkTheme, zhCN, dateZhCN, enUS, dateEnUS, jaJP, dateJaJP, koKR, dateKoKR } from 'naive-ui';
 import { i18n } from './i18n';
 import StageView from './features/stage/StageView.vue';
@@ -140,10 +140,6 @@ function preloadStage() {
   if (stageWarmupStarted) return;
   stageWarmupStarted = true;
   stageMounted.value = true;
-  void nextTick(() => {
-    stage.setBackground(settings.quality.background_color, settings.quality.background_image);
-    settings.applyQuality();
-  });
   warmCharacter = loadStartupCharacter();
 }
 

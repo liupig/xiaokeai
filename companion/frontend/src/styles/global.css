@@ -59,26 +59,70 @@ html.is-desktop .n-drawer-container {
   border-radius: 14px;
 }
 
-.stage-ripple {
+.stage-cue {
   position: relative;
-  width: 7px;
-  height: 7px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--ripple-color, #f6dbbf) 74%, transparent);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--ripple-color, #f6dbbf) 43%, transparent);
+  background: transparent;
+  cursor: pointer;
 }
-.stage-ripple::after {
+.stage-cue:focus-visible { outline: 2px solid var(--cue-accent); outline-offset: -6px; }
+
+.stage-cue__wave {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.stage-cue__wave,
+.stage-cue__wave::before,
+.stage-cue__wave::after {
+  opacity: 0;
+  animation-duration: 4.8s;
+  animation-iteration-count: infinite;
+  animation-delay: var(--cue-delay, 0s);
+}
+.stage-cue__wave {
+  background: radial-gradient(circle, #fff7ef 0 15%, var(--cue-accent) 24%, var(--cue-halo) 42%, transparent 73%);
+  animation-name: stage-cue-glow;
+}
+.stage-cue__wave::before,
+.stage-cue__wave::after {
   content: '';
   position: absolute;
-  inset: -5px;
-  border: 1px solid color-mix(in srgb, var(--ripple-color, #f6dbbf) 68%, transparent);
+  inset: -8px;
   border-radius: 50%;
-  animation: stage-ripple 3.4s ease-out infinite;
 }
-@keyframes stage-ripple {
-  0% { transform: scale(.7); opacity: .7; }
-  65%, 100% { transform: scale(2.25); opacity: 0; }
+.stage-cue__wave::before {
+  background: conic-gradient(from 25deg, var(--cue-accent), transparent 22%, var(--cue-halo) 45%, transparent 70%, var(--cue-accent));
+  mask-image: radial-gradient(circle closest-side, transparent 62%, #000 79%, transparent 100%);
+  animation-name: stage-cue-prism;
+}
+.stage-cue__wave::after {
+  border: 1px solid var(--cue-accent);
+  box-shadow: 0 0 5px var(--cue-halo), inset 0 0 4px var(--cue-halo);
+  animation-name: stage-cue-echo;
+}
+@keyframes stage-cue-glow {
+  0%, 38%, 100% { opacity: 0; }
+  7%, 19% { opacity: 1; }
+  29% { opacity: .72; }
+}
+@keyframes stage-cue-prism {
+  0% { opacity: 0; transform: scale(.38) rotate(-28deg); }
+  8% { opacity: 1; }
+  35%, 100% { opacity: 0; transform: scale(1.5) rotate(68deg); }
+}
+@keyframes stage-cue-echo {
+  0%, 8% { opacity: 0; transform: scale(.52); }
+  14% { opacity: .82; }
+  38%, 100% { opacity: 0; transform: scale(1.77); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .stage-ripple::after { animation: none; opacity: .45; }
+  .stage-cue__wave { opacity: .48; animation: none; }
+  .stage-cue__wave::before, .stage-cue__wave::after { animation: none; }
 }

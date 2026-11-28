@@ -386,9 +386,9 @@ async function toggleMsgPin(id?: number) {
 
 <template>
   <div class="chat-corner" :class="{ 'chat-corner--open': !collapsed }">
-    <button v-if="collapsed" ref="restoreButton" type="button" class="chat-restore"
+    <button v-if="collapsed" ref="restoreButton" type="button" class="chat-restore stage-cue"
             :aria-label="t('stageShell.chatOpen')" :title="t('stageShell.chatOpen')" @click="activateChat">
-      <span class="stage-ripple" aria-hidden="true"></span>
+      <span class="stage-cue__wave" aria-hidden="true"></span>
     </button>
     <div v-else ref="dock" class="chat-dock" @keydown.esc.stop="minimizeChat">
     <div class="chat-head">
@@ -889,16 +889,11 @@ async function toggleMsgPin(id?: number) {
   color: #e4c56a;
 }
 .chat-restore {
-  position: relative;
-  display: grid;
   width: 64px;
   height: 64px;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
+  --cue-accent: #ffd2ad;
+  --cue-halo: #ea89c6;
 }
-.chat-restore:focus-visible { outline: 2px solid #f1d4bc; outline-offset: -7px; border-radius: 50%; }
 .chat-dock { box-sizing: border-box; max-height: min(64vh, 620px); overflow: auto; }
 @media (max-width: 699px) { .chat-dock { max-height: 44vh; } }
 .chat-minimize { margin-left: auto; width: 26px; height: 26px; border: 0; border-radius: 8px; background: transparent; color: rgba(235,235,245,.58); font-size: 20px; line-height: 20px; cursor: pointer; }

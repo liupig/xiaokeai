@@ -26,6 +26,7 @@ interface Finish {
 
 export interface MagnoliaMaterials {
   enable(on: boolean): void;
+  setReflectionScale(scale: number): void;
   dispose(): void;
 }
 
@@ -205,7 +206,16 @@ export async function loadMagnoliaMaterials(mesh: THREE.SkinnedMesh, modelUrl: s
       if (mat !== base) { mat.visible = base.visible; made.push(mat); }
       return mat;
     });
-    return { enable: on => { mesh.material = on ? enhanced : original; }, dispose };
+    const reflections = made
+      .filter((material): material is THREE.MeshStandardMaterial => material instanceof THREE.MeshStandardMaterial)
+      .map(material => ({ material, intensity: material.envMapIntensity }));
+    return {
+      enable: on => { mesh.material = on ? enhanced : original; },
+      setReflectionScale(scale) {
+        for (const { material, intensity } of reflections) material.envMapIntensity = intensity * scale;
+      },
+      dispose,
+    };
   } catch (error) {
     dispose();
     console.warn('未加载模型附带的 PBR 材质',error);

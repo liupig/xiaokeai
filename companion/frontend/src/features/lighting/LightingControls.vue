@@ -25,7 +25,7 @@ function update(next: LightingSettings) {
 }
 
 function selectPreset(preset: LightingPreset) {
-  update({ ...lighting.value, preset, profile: { ...lightingPresets[preset] } });
+  update({ enabled: true, preset, profile: { ...lightingPresets[preset] } });
 }
 
 function patchProfile(patch: Partial<LightingProfile>) {
@@ -40,6 +40,8 @@ function patchProfile(patch: Partial<LightingProfile>) {
       <n-switch id="character-lighting-enabled" :value="lighting.enabled"
                 @update:value="(enabled) => update({ ...lighting, enabled })" />
     </div>
+    <n-button size="small" secondary :type="lighting.enabled && lighting.preset === 'startup' ? 'primary' : 'default'"
+              @click="selectPreset('startup')">{{ t('lighting.startup') }}</n-button>
     <template v-if="lighting.enabled">
       <n-select :aria-label="t('lighting.preset')" :value="lighting.preset"
                 :options="presetOptions" @update:value="selectPreset" />

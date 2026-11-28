@@ -4,6 +4,7 @@ import { stage } from '../../engine/stage';
 import Live2DLayer from '../../engine/live2d/Live2DLayer.vue';
 import { installMocap } from '../mocap';
 import { useCharacterStore } from '../../stores/character';
+import { useSettingsStore } from '../../stores/settings';
 import { endLifeActivity, endLifePreview, leaveLifeStage, refreshLifeStage, returnLifeHome, stageLife } from '../life/stageLife';
 import { lifePanelOpen } from '../coins/session';
 import { installLifeVehicles } from '../life/vehicles';
@@ -33,6 +34,7 @@ onMounted(() => {
     rendererError.value = error instanceof Error ? error.message : String(error);
     return;
   }
+  useSettingsStore().applyQuality();
   refreshLifeStage();
   releaseVehicles = installLifeVehicles();
   if (rebuilt && characters.currentId) void characters.switchTo(characters.currentId);

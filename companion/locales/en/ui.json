@@ -1079,6 +1079,7 @@
   "review.moreTools": "More tools",
   "review.autoAdvance": "Advance after rating",
   "review.clearConfirm": "Clear all review records? This cannot be undone.",
+  "lighting.startup": "Welcome screen lighting",
   "stageShell": {
     "modelArriving": "Xiaoke is about to take the stage",
     "controls": "Stage controls",

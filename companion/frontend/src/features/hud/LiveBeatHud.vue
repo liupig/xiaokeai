@@ -109,10 +109,10 @@ async function ban(id: string) {
 <template>
   <div class="beat-monitor" @pointerleave="hoverBlocked = false">
     <div class="beat-hotspot" @pointerenter="(event) => { if (!open && !hoverBlocked && event.pointerType === 'mouse') open = true; }">
-      <button v-show="!open" ref="trigger" type="button" class="beat-trigger"
+      <button v-show="!open" ref="trigger" type="button" class="beat-trigger stage-cue"
               :aria-label="t('beat.title')" :title="t('beat.title')" :aria-expanded="open"
               :aria-controls="open ? panelId : undefined" @click="activate">
-        <span class="stage-ripple" aria-hidden="true"></span>
+        <span class="stage-cue__wave" aria-hidden="true"></span>
       </button>
     </div>
     <section v-if="open" :id="panelId" class="beat-panel" :aria-labelledby="headingId" @keydown.esc.stop="close">
@@ -171,17 +171,13 @@ async function ban(id: string) {
 }
 .beat-hotspot { position: absolute; top: 0; right: 0; width: 52px; }
 .beat-trigger {
-  display: grid;
-  place-items: center;
   width: 52px;
   height: 52px;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
   pointer-events: auto;
-  --ripple-color: #c1dcf0;
+  --cue-accent: #c9e7ff;
+  --cue-halo: #9f9aff;
+  --cue-delay: 1.5s;
 }
-.beat-trigger:focus-visible { outline: 2px solid #cae5f5; outline-offset: -3px; border-radius: 10px; }
 .beat-close:focus-visible { outline: 2px solid #775278; outline-offset: -3px; }
 .beat-panel {
   display: flex;

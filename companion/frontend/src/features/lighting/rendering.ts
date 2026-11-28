@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
-import type { LightingProfile } from './preferences';
+import type { LightingPreset, LightingProfile } from './preferences';
 
 const keyPosition = new THREE.Vector3(1.2, 2.2, 2.5);
 const keyRadius = Math.hypot(keyPosition.x, keyPosition.z);
@@ -13,17 +13,21 @@ export function applyCharacterLights(
   base: { key: number; rim: number; amb: number },
   level: number,
   profile?: LightingProfile,
+  preset?: LightingPreset,
 ) {
   const contrast = (profile?.contrast ?? 0) / 100;
+  const startup = preset === 'startup';
   const angle = THREE.MathUtils.degToRad(profile?.direction ?? 26);
   key.position.copy(keyPosition);
   if (profile && profile.direction !== 26) {
     key.position.set(Math.sin(angle) * keyRadius, keyPosition.y, Math.cos(angle) * keyRadius);
   }
   key.color.set(profile?.color ?? '#ffffff');
-  key.intensity = base.key * level * (1 + contrast * 0.3);
-  ambient.intensity = base.amb * level * (1 - contrast * 0.75);
-  rim.intensity = base.rim * level * (1 + contrast * 0.4);
+  const intensity = startup ? 1 : level;
+  key.intensity = base.key * intensity * (1 + contrast * 0.3) * (startup ? 0.80 : 1);
+  ambient.intensity = base.amb * intensity * (1 - contrast * 0.75) * (startup ? 0.49 : 1);
+  rim.color.set(startup ? '#d9e5ff' : '#7788ff');
+  rim.intensity = base.rim * intensity * (1 + contrast * 0.4) * (startup ? 0.34 : 1);
 }
 
 export class CharacterLighting {
